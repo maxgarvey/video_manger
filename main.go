@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/maxgarvey/video_manger/metadata"
 	"github.com/maxgarvey/video_manger/store"
 )
 
@@ -80,6 +81,8 @@ func (s *server) routes() http.Handler {
 }
 
 // syncDir scans a directory on disk and upserts all video files into the store.
+// If ffprobe is available, native title is read and used to pre-populate
+// display_name for videos that don't yet have one set.
 func (s *server) syncDir(d store.Directory) {
 	entries, err := os.ReadDir(d.Path)
 	if err != nil {
@@ -87,11 +90,38 @@ func (s *server) syncDir(d store.Directory) {
 		return
 	}
 	for _, e := range entries {
-		if !e.IsDir() && isVideoFile(e.Name()) {
-			if _, err := s.store.UpsertVideo(context.Background(), d.ID, e.Name()); err != nil {
-				log.Printf("upsert %s: %v", e.Name(), err)
+		if e.IsDir() || !isVideoFile(e.Name()) {
+			continue
+		}
+		v, err := s.store.UpsertVideo(context.Background(), d.ID, e.Name())
+		if err != nil {
+			log.Printf("upsert %s: %v", e.Name(), err)
+			continue
+		}
+		if v.DisplayName == "" {
+			filePath := filepath.Join(d.Path, e.Name())
+			if meta, err := metadata.Read(filePath); err == nil && meta.Title != "" {
+				if err := s.store.UpdateVideoName(context.Background(), v.ID, meta.Title); err != nil {
+					log.Printf("set native title %s: %v", e.Name(), err)
+				}
 			}
 		}
+	}
+}
+
+// syncTagsToFile writes the current DB tags for a video back to the file as keywords.
+func (s *server) syncTagsToFile(ctx context.Context, video store.Video) {
+	tags, err := s.store.ListTagsByVideo(ctx, video.ID)
+	if err != nil {
+		log.Printf("syncTagsToFile list tags %d: %v", video.ID, err)
+		return
+	}
+	names := make([]string, len(tags))
+	for i, t := range tags {
+		names[i] = t.Name
+	}
+	if err := metadata.Write(video.FilePath(), metadata.Updates{Keywords: names}); err != nil {
+		log.Printf("syncTagsToFile write %s: %v", video.FilePath(), err)
 	}
 }
 
@@ -144,11 +174,16 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	native, err := metadata.Read(video.FilePath())
+	if err != nil {
+		log.Printf("ffprobe %s: %v", video.FilePath(), err)
+	}
 	data := struct {
 		Video   store.Video
 		Tags    []store.Tag
 		AllTags []store.Tag
-	}{video, tags, allTags}
+		Native  metadata.Meta
+	}{video, tags, allTags, native}
 	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -184,7 +219,11 @@ func (s *server) handleUpdateVideoName(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Return updated name inline so htmx can swap it
+	if name != "" {
+		if err := metadata.Write(video.FilePath(), metadata.Updates{Title: &name}); err != nil {
+			log.Printf("write title metadata %s: %v", video.FilePath(), err)
+		}
+	}
 	w.Write([]byte(video.Title())) //nolint
 }
 
@@ -232,6 +271,10 @@ func (s *server) handleAddVideoTag(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err == nil {
+		s.syncTagsToFile(r.Context(), video)
+	}
 	if err := templates.ExecuteTemplate(w, "video_tags.html", struct {
 		VideoID int64
 		Tags    []store.Tag
@@ -259,6 +302,10 @@ func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err == nil {
+		s.syncTagsToFile(r.Context(), video)
 	}
 	if err := templates.ExecuteTemplate(w, "video_tags.html", struct {
 		VideoID int64
