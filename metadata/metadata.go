@@ -29,8 +29,20 @@ func (m Meta) HasData() bool {
 // Updates holds metadata fields to write back to a file.
 // A nil pointer means "leave this field unchanged".
 type Updates struct {
-	Title    *string  // nil = preserve, "" = clear
-	Keywords []string // nil = preserve, []string{} = clear
+	// Standard fields
+	Title       *string  // nil = preserve, "" = clear
+	Description *string
+	Genre       *string
+	Date        *string  // YYYY-MM-DD
+	Comment     *string
+	Keywords    []string // nil = preserve, []string{} = clear
+
+	// TV show fields (map to iTunes atoms in MP4)
+	Show       *string // TV show name  (tvsh)
+	EpisodeID  *string // e.g. "S01E01"  (tven)
+	SeasonNum  *string // e.g. "1"        (tvsn)
+	EpisodeNum *string // e.g. "1"        (tves)
+	Network    *string // e.g. "Fox"      (tvnn)
 }
 
 // Read reads native metadata from a video file using ffprobe.
@@ -70,11 +82,39 @@ func Write(path string, u Updates) error {
 	defer os.Remove(tmpPath) // no-op if Rename succeeds
 
 	args := []string{"-i", path, "-codec", "copy", "-map_metadata", "0", "-y"}
+	meta := func(k, v string) { args = append(args, "-metadata", k+"="+v) }
 	if u.Title != nil {
-		args = append(args, "-metadata", "title="+*u.Title)
+		meta("title", *u.Title)
+	}
+	if u.Description != nil {
+		meta("description", *u.Description)
+	}
+	if u.Genre != nil {
+		meta("genre", *u.Genre)
+	}
+	if u.Date != nil {
+		meta("date", *u.Date)
+	}
+	if u.Comment != nil {
+		meta("comment", *u.Comment)
 	}
 	if u.Keywords != nil {
-		args = append(args, "-metadata", "keywords="+strings.Join(u.Keywords, ","))
+		meta("keywords", strings.Join(u.Keywords, ","))
+	}
+	if u.Show != nil {
+		meta("show", *u.Show)
+	}
+	if u.EpisodeID != nil {
+		meta("episode_id", *u.EpisodeID)
+	}
+	if u.SeasonNum != nil {
+		meta("season_number", *u.SeasonNum)
+	}
+	if u.EpisodeNum != nil {
+		meta("episode_sort", *u.EpisodeNum)
+	}
+	if u.Network != nil {
+		meta("network", *u.Network)
 	}
 	args = append(args, tmpPath)
 
