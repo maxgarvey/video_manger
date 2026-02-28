@@ -1,0 +1,16 @@
+{{if .}}
+<ul style="list-style:none;display:flex;flex-direction:column;gap:0.4rem">
+  {{range .}}
+  <li>
+    <button
+      hx-get="/play/{{.}}"
+      hx-target="#player"
+      style="width:100%;text-align:left;background:#2a2a2a;border:1px solid #333;color:#eee;padding:0.5rem 0.75rem;border-radius:4px;cursor:pointer;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+      title="{{.}}"
+    >{{.}}</button>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p style="color:#555;font-size:0.9rem">No videos found.<br>Use <code>-dir</code> to set a directory.</p>
+{{end}}
