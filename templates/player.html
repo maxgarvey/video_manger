@@ -4,32 +4,25 @@
     Your browser does not support the video tag.
   </video>
 
-  <div style="background:#1a1a1a;border-top:1px solid #333;padding:0.75rem 1rem;display:flex;flex-direction:column;gap:0.6rem">
+  <div style="background:#1a1a1a;border-top:1px solid #333;padding:0.75rem 1rem;display:flex;flex-direction:column;gap:0.75rem;overflow-y:auto;max-height:260px">
 
     <!-- Name editor -->
     <div style="display:flex;align-items:center;gap:0.5rem">
-      <span id="video-title-{{.Video.ID}}" style="font-weight:bold;font-size:0.95rem">{{.Video.Title}}</span>
-      <form
-        hx-put="/videos/{{.Video.ID}}/name"
-        hx-target="#video-title-{{.Video.ID}}"
-        style="display:flex;gap:0.4rem;flex:1"
-      >
+      <span id="video-title-{{.Video.ID}}" style="font-weight:bold;font-size:0.95rem;flex-shrink:0">{{.Video.Title}}</span>
+      <form hx-put="/videos/{{.Video.ID}}/name" hx-target="#video-title-{{.Video.ID}}" style="display:flex;gap:0.4rem;flex:1">
         <input type="text" name="name" value="{{.Video.DisplayName}}" placeholder="{{.Video.Filename}}"
           style="flex:1;background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
         <button type="submit" style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.3rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.8rem">Rename</button>
       </form>
     </div>
 
-    <!-- Current tags (htmx target for add/remove) -->
+    <!-- Tags -->
     <div id="video-tags-{{.Video.ID}}" style="display:flex;flex-wrap:wrap;gap:0.3rem">
       {{range .Tags}}
       <span style="display:inline-flex;align-items:center;gap:0.25rem;background:#333;border:1px solid #555;border-radius:12px;padding:0.2rem 0.5rem;font-size:0.8rem">
         {{.Name}}
-        <button
-          hx-delete="/videos/{{$.Video.ID}}/tags/{{.ID}}"
-          hx-target="#video-tags-{{$.Video.ID}}"
-          style="background:none;border:none;color:#aaa;cursor:pointer;font-size:0.75rem;padding:0;line-height:1"
-        >✕</button>
+        <button hx-delete="/videos/{{$.Video.ID}}/tags/{{.ID}}" hx-target="#video-tags-{{$.Video.ID}}"
+          style="background:none;border:none;color:#aaa;cursor:pointer;font-size:0.75rem;padding:0;line-height:1">✕</button>
       </span>
       {{else}}
       <span style="color:#555;font-size:0.8rem">No tags</span>
@@ -37,11 +30,7 @@
     </div>
 
     <!-- Add tag -->
-    <form
-      hx-post="/videos/{{.Video.ID}}/tags"
-      hx-target="#video-tags-{{.Video.ID}}"
-      style="display:flex;gap:0.4rem"
-    >
+    <form hx-post="/videos/{{.Video.ID}}/tags" hx-target="#video-tags-{{.Video.ID}}" style="display:flex;gap:0.4rem">
       <input type="text" name="tag" placeholder="Add tag..." list="all-tags"
         style="flex:1;background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
       <datalist id="all-tags">
@@ -49,6 +38,41 @@
       </datalist>
       <button type="submit" style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.3rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.8rem">Add</button>
     </form>
+
+    <!-- Native file metadata (shown when ffprobe is available and file has metadata) -->
+    {{if .Native.HasData}}
+    <div style="border-top:1px solid #2a2a2a;padding-top:0.6rem">
+      <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555;margin-bottom:0.4rem">File Metadata</div>
+      <dl style="display:grid;grid-template-columns:auto 1fr;gap:0.15rem 0.75rem;font-size:0.8rem">
+        {{if .Native.Title}}
+        <dt style="color:#666">Title</dt><dd style="color:#bbb">{{.Native.Title}}</dd>
+        {{end}}
+        {{if .Native.Description}}
+        <dt style="color:#666">Description</dt><dd style="color:#bbb">{{.Native.Description}}</dd>
+        {{end}}
+        {{if .Native.Genre}}
+        <dt style="color:#666">Genre</dt><dd style="color:#bbb">{{.Native.Genre}}</dd>
+        {{end}}
+        {{if .Native.Artist}}
+        <dt style="color:#666">Artist</dt><dd style="color:#bbb">{{.Native.Artist}}</dd>
+        {{end}}
+        {{if .Native.Date}}
+        <dt style="color:#666">Date</dt><dd style="color:#bbb">{{.Native.Date}}</dd>
+        {{end}}
+        {{if .Native.Comment}}
+        <dt style="color:#666">Comment</dt><dd style="color:#bbb">{{.Native.Comment}}</dd>
+        {{end}}
+        {{if .Native.Keywords}}
+        <dt style="color:#666">Keywords</dt>
+        <dd style="display:flex;flex-wrap:wrap;gap:0.25rem">
+          {{range .Native.Keywords}}
+          <span style="background:#2a2a2a;border:1px solid #444;border-radius:10px;padding:0.1rem 0.4rem;font-size:0.75rem;color:#aaa">{{.}}</span>
+          {{end}}
+        </dd>
+        {{end}}
+      </dl>
+    </div>
+    {{end}}
 
   </div>
 </div>
