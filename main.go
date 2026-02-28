@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"html/template"
@@ -8,73 +9,327 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/maxgarvey/video_manger/store"
 )
 
 //go:embed templates/*
 var templateFS embed.FS
 
-var (
-	videoDir  string
-	templates = template.Must(template.ParseFS(templateFS, "templates/*.html"))
-)
+var templates = template.Must(template.ParseFS(templateFS, "templates/*.html"))
+
+type server struct {
+	store store.Store
+}
 
 func main() {
-	flag.StringVar(&videoDir, "dir", ".", "directory containing video files")
+	dbPath := flag.String("db", "video_manger.db", "path to SQLite database file")
+	dir := flag.String("dir", "", "video directory to register on startup (optional)")
 	port := flag.String("port", "8080", "port to listen on")
 	flag.Parse()
 
+	s, err := store.NewSQLite(*dbPath)
+	if err != nil {
+		log.Fatalf("open db: %v", err)
+	}
+
+	srv := &server{store: s}
+
+	if *dir != "" {
+		d, err := srv.store.AddDirectory(context.Background(), *dir)
+		if err != nil {
+			log.Printf("warning: could not register dir %s: %v", *dir, err)
+		} else {
+			srv.syncDir(d)
+		}
+	}
+
+	log.Printf("Starting server on http://localhost:%s", *port)
+	log.Fatal(http.ListenAndServe(":"+*port, srv.routes()))
+}
+
+func (s *server) routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	r.Get("/", handleIndex)
-	r.Get("/videos", handleVideoList)
-	r.Get("/play/{filename}", handlePlayer)
-	r.Get("/video/{filename}", handleVideoFile)
+	r.Get("/", s.handleIndex)
 
-	log.Printf("Starting server on http://localhost:%s serving videos from: %s", *port, videoDir)
-	log.Fatal(http.ListenAndServe(":"+*port, r))
+	// Videos
+	r.Get("/videos", s.handleVideoList)
+	r.Get("/play/{id}", s.handlePlayer)
+	r.Get("/video/{id}", s.handleVideoFile)
+	r.Put("/videos/{id}/name", s.handleUpdateVideoName)
+
+	// Tags
+	r.Get("/videos/{id}/tags", s.handleVideoTags)
+	r.Post("/videos/{id}/tags", s.handleAddVideoTag)
+	r.Delete("/videos/{id}/tags/{tagID}", s.handleRemoveVideoTag)
+	r.Get("/tags", s.handleListTags)
+
+	// Directories
+	r.Get("/directories", s.handleListDirectories)
+	r.Post("/directories", s.handleAddDirectory)
+	r.Delete("/directories/{id}", s.handleDeleteDirectory)
+
+	return r
 }
 
-func handleIndex(w http.ResponseWriter, r *http.Request) {
+// syncDir scans a directory on disk and upserts all video files into the store.
+func (s *server) syncDir(d store.Directory) {
+	entries, err := os.ReadDir(d.Path)
+	if err != nil {
+		log.Printf("sync %s: %v", d.Path, err)
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() && isVideoFile(e.Name()) {
+			if _, err := s.store.UpsertVideo(context.Background(), d.ID, e.Name()); err != nil {
+				log.Printf("upsert %s: %v", e.Name(), err)
+			}
+		}
+	}
+}
+
+// --- Handlers ---
+
+func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if err := templates.ExecuteTemplate(w, "index.html", nil); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func handleVideoList(w http.ResponseWriter, r *http.Request) {
-	entries, err := os.ReadDir(videoDir)
+func (s *server) handleVideoList(w http.ResponseWriter, r *http.Request) {
+	var (
+		videos []store.Video
+		err    error
+	)
+	if tagStr := r.URL.Query().Get("tag_id"); tagStr != "" {
+		tagID, _ := strconv.ParseInt(tagStr, 10, 64)
+		videos, err = s.store.ListVideosByTag(r.Context(), tagID)
+	} else {
+		videos, err = s.store.ListVideos(r.Context())
+	}
 	if err != nil {
-		http.Error(w, "could not read video directory", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	var videos []string
-	for _, e := range entries {
-		if !e.IsDir() && isVideoFile(e.Name()) {
-			videos = append(videos, e.Name())
-		}
-	}
-
 	if err := templates.ExecuteTemplate(w, "video_list.html", videos); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func handlePlayer(w http.ResponseWriter, r *http.Request) {
-	filename := chi.URLParam(r, "filename")
-	if err := templates.ExecuteTemplate(w, "player.html", filename); err != nil {
+func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	tags, err := s.store.ListTagsByVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	allTags, err := s.store.ListTags(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data := struct {
+		Video   store.Video
+		Tags    []store.Tag
+		AllTags []store.Tag
+	}{video, tags, allTags}
+	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func handleVideoFile(w http.ResponseWriter, r *http.Request) {
-	filename := filepath.Base(chi.URLParam(r, "filename"))
-	http.ServeFile(w, r, filepath.Join(videoDir, filename))
+func (s *server) handleVideoFile(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, video.FilePath())
+}
+
+func (s *server) handleUpdateVideoName(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	name := r.FormValue("name")
+	if err := s.store.UpdateVideoName(r.Context(), id, name); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Return updated name inline so htmx can swap it
+	w.Write([]byte(video.Title())) //nolint
+}
+
+func (s *server) handleVideoTags(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	tags, err := s.store.ListTagsByVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "video_tags.html", struct {
+		VideoID int64
+		Tags    []store.Tag
+	}{id, tags}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleAddVideoTag(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	tagName := strings.TrimSpace(r.FormValue("tag"))
+	if tagName == "" {
+		http.Error(w, "tag name required", http.StatusBadRequest)
+		return
+	}
+	tag, err := s.store.UpsertTag(r.Context(), tagName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.TagVideo(r.Context(), id, tag.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tags, err := s.store.ListTagsByVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "video_tags.html", struct {
+		VideoID int64
+		Tags    []store.Tag
+	}{id, tags}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	tagID, err := strconv.ParseInt(chi.URLParam(r, "tagID"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid tag id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.UntagVideo(r.Context(), id, tagID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tags, err := s.store.ListTagsByVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "video_tags.html", struct {
+		VideoID int64
+		Tags    []store.Tag
+	}{id, tags}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
+	tags, err := s.store.ListTags(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "tags.html", tags); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleListDirectories(w http.ResponseWriter, r *http.Request) {
+	dirs, err := s.store.ListDirectories(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "directories.html", dirs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleAddDirectory(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSpace(r.FormValue("path"))
+	if path == "" {
+		http.Error(w, "path required", http.StatusBadRequest)
+		return
+	}
+	d, err := s.store.AddDirectory(r.Context(), path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.syncDir(d)
+	dirs, err := s.store.ListDirectories(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "directories.html", dirs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.DeleteDirectory(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dirs, err := s.store.ListDirectories(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "directories.html", dirs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func isVideoFile(name string) bool {

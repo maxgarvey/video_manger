@@ -1,0 +1,17 @@
+{{if .}}
+<ul style="list-style:none;display:flex;flex-direction:column;gap:0.3rem">
+  {{range .}}
+  <li style="display:flex;align-items:center;gap:0.4rem">
+    <span style="flex:1;font-size:0.8rem;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Path}}">{{.Path}}</span>
+    <button
+      hx-delete="/directories/{{.ID}}"
+      hx-target="#directories"
+      hx-confirm="Remove this directory?"
+      style="background:none;border:none;color:#666;cursor:pointer;font-size:0.8rem;padding:0.1rem 0.3rem;flex-shrink:0"
+    >✕</button>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p style="color:#555;font-size:0.8rem">No directories registered.</p>
+{{end}}

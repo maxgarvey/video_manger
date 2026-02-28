@@ -1,8 +1,54 @@
-<video
-  controls
-  autoplay
-  style="max-width:100%;max-height:100%;display:block"
->
-  <source src="/video/{{.}}">
-  Your browser does not support the video tag.
-</video>
+<div style="display:flex;flex-direction:column;width:100%;height:100%;background:#000">
+  <video controls autoplay style="flex:1;min-height:0;width:100%;display:block">
+    <source src="/video/{{.Video.ID}}">
+    Your browser does not support the video tag.
+  </video>
+
+  <div style="background:#1a1a1a;border-top:1px solid #333;padding:0.75rem 1rem;display:flex;flex-direction:column;gap:0.6rem">
+
+    <!-- Name editor -->
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <span id="video-title-{{.Video.ID}}" style="font-weight:bold;font-size:0.95rem">{{.Video.Title}}</span>
+      <form
+        hx-put="/videos/{{.Video.ID}}/name"
+        hx-target="#video-title-{{.Video.ID}}"
+        style="display:flex;gap:0.4rem;flex:1"
+      >
+        <input type="text" name="name" value="{{.Video.DisplayName}}" placeholder="{{.Video.Filename}}"
+          style="flex:1;background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
+        <button type="submit" style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.3rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.8rem">Rename</button>
+      </form>
+    </div>
+
+    <!-- Current tags (htmx target for add/remove) -->
+    <div id="video-tags-{{.Video.ID}}" style="display:flex;flex-wrap:wrap;gap:0.3rem">
+      {{range .Tags}}
+      <span style="display:inline-flex;align-items:center;gap:0.25rem;background:#333;border:1px solid #555;border-radius:12px;padding:0.2rem 0.5rem;font-size:0.8rem">
+        {{.Name}}
+        <button
+          hx-delete="/videos/{{$.Video.ID}}/tags/{{.ID}}"
+          hx-target="#video-tags-{{$.Video.ID}}"
+          style="background:none;border:none;color:#aaa;cursor:pointer;font-size:0.75rem;padding:0;line-height:1"
+        >✕</button>
+      </span>
+      {{else}}
+      <span style="color:#555;font-size:0.8rem">No tags</span>
+      {{end}}
+    </div>
+
+    <!-- Add tag -->
+    <form
+      hx-post="/videos/{{.Video.ID}}/tags"
+      hx-target="#video-tags-{{.Video.ID}}"
+      style="display:flex;gap:0.4rem"
+    >
+      <input type="text" name="tag" placeholder="Add tag..." list="all-tags"
+        style="flex:1;background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
+      <datalist id="all-tags">
+        {{range .AllTags}}<option value="{{.Name}}">{{end}}
+      </datalist>
+      <button type="submit" style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.3rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.8rem">Add</button>
+    </form>
+
+  </div>
+</div>

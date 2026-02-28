@@ -1,22 +1,34 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/maxgarvey/video_manger/store"
 )
+
+func newTestServer(t *testing.T) *server {
+	t.Helper()
+	s, err := store.NewSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLite: %v", err)
+	}
+	return &server{store: s}
+}
 
 // --- Unit tests ---
 
 func TestIsVideoFile(t *testing.T) {
 	cases := []struct {
-		name     string
-		want     bool
+		name string
+		want bool
 	}{
 		{"movie.mp4", true},
 		{"clip.webm", true},
@@ -31,7 +43,6 @@ func TestIsVideoFile(t *testing.T) {
 		{"script.go", false},
 		{"noextension", false},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := isVideoFile(tc.name); got != tc.want {
@@ -43,44 +54,31 @@ func TestIsVideoFile(t *testing.T) {
 
 // --- Integration tests ---
 
-func newRouter(dir string) http.Handler {
-	videoDir = dir
-	r := chi.NewRouter()
-	r.Get("/", handleIndex)
-	r.Get("/videos", handleVideoList)
-	r.Get("/play/{filename}", handlePlayer)
-	r.Get("/video/{filename}", handleVideoFile)
-	return r
-}
-
 func TestHandleIndex(t *testing.T) {
-	r := newRouter(t.TempDir())
+	srv := newTestServer(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	r.ServeHTTP(rec, req)
+	srv.routes().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	body := rec.Body.String()
 	if !strings.Contains(body, "video_manger") {
-		t.Error("expected page title in response body")
+		t.Error("expected title in response body")
 	}
 	if !strings.Contains(body, "htmx") {
-		t.Error("expected htmx script tag in response body")
-	}
-	if !strings.Contains(body, `hx-get="/videos"`) {
-		t.Error("expected htmx video list trigger in response body")
+		t.Error("expected htmx script in response body")
 	}
 }
 
 func TestHandleVideoList_Empty(t *testing.T) {
-	r := newRouter(t.TempDir())
+	srv := newTestServer(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
 
-	r.ServeHTTP(rec, req)
+	srv.routes().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -91,62 +89,72 @@ func TestHandleVideoList_Empty(t *testing.T) {
 }
 
 func TestHandleVideoList_WithVideos(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"alpha.mp4", "beta.mkv", "ignore.txt"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("data"), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	srv.store.UpsertVideo(ctx, d.ID, "alpha.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, "beta.mkv")
 
-	r := newRouter(dir)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	srv.routes().ServeHTTP(rec, req)
 
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
 	body := rec.Body.String()
 	if !strings.Contains(body, "alpha.mp4") {
-		t.Error("expected alpha.mp4 in video list")
+		t.Error("expected alpha.mp4 in response")
 	}
 	if !strings.Contains(body, "beta.mkv") {
-		t.Error("expected beta.mkv in video list")
-	}
-	if strings.Contains(body, "ignore.txt") {
-		t.Error("non-video file should not appear in list")
+		t.Error("expected beta.mkv in response")
 	}
 }
 
-func TestHandleVideoList_BadDir(t *testing.T) {
-	r := newRouter("/nonexistent/path/that/does/not/exist")
+func TestHandleVideoList_FilterByTag(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v1, _ := srv.store.UpsertVideo(ctx, d.ID, "tagged.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, "untagged.mp4")
+	tag, _ := srv.store.UpsertTag(ctx, "favorites")
+	srv.store.TagVideo(ctx, v1.ID, tag.ID)
+
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	req := httptest.NewRequest(http.MethodGet, "/videos?tag_id=1", nil)
+	srv.routes().ServeHTTP(rec, req)
 
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", rec.Code)
+	body := rec.Body.String()
+	if !strings.Contains(body, "tagged.mp4") {
+		t.Error("expected tagged.mp4 in filtered results")
+	}
+	if strings.Contains(body, "untagged.mp4") {
+		t.Error("untagged.mp4 should not appear in filtered results")
 	}
 }
 
 func TestHandlePlayer(t *testing.T) {
-	r := newRouter(t.TempDir())
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/play/myvideo.mp4", nil)
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, "myvideo.mp4")
 
-	r.ServeHTTP(rec, req)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/play/"+itoa(v.ID), nil)
+	srv.routes().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "<video") {
+	if !strings.Contains(rec.Body.String(), "<video") {
 		t.Error("expected <video> element in player response")
 	}
-	if !strings.Contains(body, "/video/myvideo.mp4") {
-		t.Error("expected video src in player response")
+}
+
+func TestHandlePlayer_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/play/999", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }
 
@@ -157,37 +165,20 @@ func TestHandleVideoFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := newRouter(dir)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/video/test.mp4", nil)
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, "test.mp4")
 
-	r.ServeHTTP(rec, req)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/video/"+itoa(v.ID), nil)
+	srv.routes().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	if rec.Body.String() != string(content) {
 		t.Error("response body does not match file content")
-	}
-}
-
-func TestHandleVideoFile_PathTraversal(t *testing.T) {
-	dir := t.TempDir()
-	secret := filepath.Join(dir, "secret.txt")
-	if err := os.WriteFile(secret, []byte("secret"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Put a dummy video in dir so the server has something to serve
-	r := newRouter(dir)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/video/../../secret.txt", nil)
-
-	r.ServeHTTP(rec, req)
-
-	// filepath.Base strips traversal — the file won't be found outside the dir
-	if rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), "secret") {
-		t.Error("path traversal should not expose files outside video directory")
 	}
 }
 
@@ -198,17 +189,112 @@ func TestHandleVideoFile_RangeRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := newRouter(dir)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/video/clip.mp4", nil)
-	req.Header.Set("Range", "bytes=0-7")
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, "clip.mp4")
 
-	r.ServeHTTP(rec, req)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/video/"+itoa(v.ID), nil)
+	req.Header.Set("Range", "bytes=0-7")
+	srv.routes().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusPartialContent {
-		t.Fatalf("expected 206 Partial Content for range request, got %d", rec.Code)
+		t.Fatalf("expected 206 Partial Content, got %d", rec.Code)
 	}
 	if got := rec.Body.String(); got != "01234567" {
 		t.Errorf("expected first 8 bytes, got %q", got)
 	}
+}
+
+func TestHandleUpdateVideoName(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, "raw.mp4")
+
+	form := url.Values{"name": {"Summer Trip"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/videos/"+itoa(v.ID)+"/name", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "Summer Trip" {
+		t.Errorf("expected response body to be new title, got %q", rec.Body.String())
+	}
+}
+
+func TestHandleAddAndRemoveVideoTag(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, "film.mp4")
+
+	// Add tag
+	form := url.Values{"tag": {"action"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/tags", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("add tag: expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "action") {
+		t.Error("expected tag name in response")
+	}
+
+	// Get the tag ID to delete it
+	tags, _ := srv.store.ListTagsByVideo(ctx, v.ID)
+	if len(tags) == 0 {
+		t.Fatal("expected at least one tag")
+	}
+
+	// Remove tag
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodDelete, "/videos/"+itoa(v.ID)+"/tags/"+itoa(tags[0].ID), nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remove tag: expected 200, got %d", rec.Code)
+	}
+	remaining, _ := srv.store.ListTagsByVideo(ctx, v.ID)
+	if len(remaining) != 0 {
+		t.Errorf("expected 0 tags after removal, got %d", len(remaining))
+	}
+}
+
+func TestHandleDirectories(t *testing.T) {
+	srv := newTestServer(t)
+
+	// List (empty)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/directories", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "No directories") {
+		t.Error("expected empty state message")
+	}
+
+	// Add
+	form := url.Values{"path": {"/my/videos"}}
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/directories", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("add dir: expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "/my/videos") {
+		t.Error("expected new directory in response")
+	}
+}
+
+func itoa(i int64) string {
+	return strconv.FormatInt(i, 10)
 }

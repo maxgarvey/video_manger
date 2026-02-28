@@ -1,0 +1,12 @@
+{{range .Tags}}
+<span style="display:inline-flex;align-items:center;gap:0.25rem;background:#333;border:1px solid #555;border-radius:12px;padding:0.2rem 0.5rem;font-size:0.8rem">
+  {{.Name}}
+  <button
+    hx-delete="/videos/{{$.VideoID}}/tags/{{.ID}}"
+    hx-target="#video-tags-{{$.VideoID}}"
+    style="background:none;border:none;color:#aaa;cursor:pointer;font-size:0.75rem;padding:0;line-height:1"
+  >✕</button>
+</span>
+{{else}}
+<span style="color:#555;font-size:0.8rem">No tags</span>
+{{end}}
