@@ -292,6 +292,7 @@ func (s *server) routes() http.Handler {
 	r.Post("/videos/{id}/watched", s.handleMarkWatched)
 	r.Delete("/videos/{id}/progress", s.handleClearProgress)
 	r.Post("/videos/{id}/copy-to-library", s.handleCopyToLibrary)
+	r.Post("/import/upload", s.handleImportUpload)
 
 	// Rating
 	r.Post("/videos/{id}/rating", s.handleSetRating)
@@ -971,6 +972,65 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+func (s *server) handleImportUpload(w http.ResponseWriter, r *http.Request) {
+	dirID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("dir_id")), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid dir_id", http.StatusBadRequest)
+		return
+	}
+	dir, err := s.store.GetDirectory(r.Context(), dirID)
+	if err != nil {
+		http.Error(w, "directory not found", http.StatusNotFound)
+		return
+	}
+	if err := r.ParseMultipartForm(512 << 20); err != nil {
+		http.Error(w, "cannot parse upload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	fh, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "no file in upload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer fh.Close()
+	origName := strings.TrimSpace(r.FormValue("filename"))
+	if origName == "" || !isVideoFile(origName) {
+		http.Error(w, "not a supported video file", http.StatusBadRequest)
+		return
+	}
+	ext := filepath.Ext(origName)
+	stem := strings.TrimSuffix(origName, ext)
+	dst := filepath.Join(dir.Path, origName)
+	for i := 2; ; i++ {
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			break
+		}
+		dst = filepath.Join(dir.Path, fmt.Sprintf("%s_%d%s", stem, i, ext))
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		http.Error(w, "cannot create file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, fh); err != nil {
+		http.Error(w, "write failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out.Close()
+	savedName := filepath.Base(dst)
+	v, err := s.store.UpsertVideo(r.Context(), dir.ID, dir.Path, savedName)
+	if err != nil {
+		log.Printf("import upsert %s: %v", dst, err)
+	} else {
+		dirTag, err := s.store.UpsertTag(r.Context(), filepath.Base(dir.Path))
+		if err == nil {
+			_ = s.store.TagVideo(r.Context(), v.ID, dirTag.ID)
+		}
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {

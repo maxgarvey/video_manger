@@ -314,6 +314,22 @@
           </details>
         </div>
       </details>
+      <details id="drop-import-section">
+        <summary style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">
+          Drop to import
+        </summary>
+        <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
+          <label style="font-size:0.78rem;color:#aaa">Target directory</label>
+          <select id="drop-dir-select"
+            style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem"
+            hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
+          <div id="drop-zone"
+            style="border:2px dashed #444;border-radius:6px;padding:1.5rem 1rem;text-align:center;font-size:0.82rem;color:#666;cursor:pointer;transition:border-color 0.15s,color 0.15s">
+            📂 Drop video files or folders here
+          </div>
+          <div id="drop-status" style="font-size:0.78rem;color:#888;min-height:1.2em"></div>
+        </div>
+      </details>
       <details>
         <summary style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">
           Download from URL
@@ -528,6 +544,115 @@
     }).then(function(d) {
       if (d) openTab(d.id, d.title);
     });
+
+    // ── Drag-and-drop import ────────────────────────────────────────
+    (function () {
+      var VIDEO_EXTS = /\.(mp4|mkv|avi|mov|webm|flv|wmv|m4v|ts|m2ts|vob|ogv|3gp|mpeg|mpg|divx|xvid)$/i;
+
+      function isVideoFile(name) { return VIDEO_EXTS.test(name); }
+
+      // Recursively collect File objects from a FileSystemEntry.
+      // Handles readEntries pagination (max 100 entries per batch).
+      function collectFiles(entry) {
+        return new Promise(function (resolve) {
+          if (entry.isFile) {
+            entry.file(function (f) { resolve([f]); }, function () { resolve([]); });
+          } else if (entry.isDirectory) {
+            var reader = entry.createReader();
+            var all = [];
+            function readBatch() {
+              reader.readEntries(function (batch) {
+                if (!batch.length) {
+                  Promise.all(all.map(collectFiles)).then(function (arrs) {
+                    resolve(arrs.reduce(function (a, b) { return a.concat(b); }, []));
+                  });
+                  return;
+                }
+                all = all.concat(Array.from(batch));
+                readBatch();
+              }, function () { resolve([]); });
+            }
+            readBatch();
+          } else {
+            resolve([]);
+          }
+        });
+      }
+
+      var zone = document.getElementById('drop-zone');
+      var statusEl = document.getElementById('drop-status');
+
+      zone.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        zone.style.borderColor = '#4a9a4a';
+        zone.style.color = '#8f8';
+      });
+      zone.addEventListener('dragleave', function () {
+        zone.style.borderColor = '#444';
+        zone.style.color = '#666';
+      });
+      zone.addEventListener('drop', function (e) {
+        e.preventDefault();
+        zone.style.borderColor = '#444';
+        zone.style.color = '#666';
+
+        var dirId = document.getElementById('drop-dir-select').value;
+        if (!dirId) {
+          statusEl.textContent = '⚠ Select a target directory first.';
+          return;
+        }
+
+        var items = Array.from(e.dataTransfer.items || []);
+        var entries = items.map(function (it) {
+          return it.webkitGetAsEntry && it.webkitGetAsEntry();
+        }).filter(Boolean);
+
+        if (!entries.length) {
+          statusEl.textContent = '⚠ No items dropped.';
+          return;
+        }
+
+        statusEl.textContent = 'Collecting files…';
+
+        Promise.all(entries.map(collectFiles)).then(function (arrs) {
+          var files = arrs.reduce(function (a, b) { return a.concat(b); }, [])
+                         .filter(function (f) { return isVideoFile(f.name); });
+          if (!files.length) {
+            statusEl.textContent = '⚠ No supported video files found.';
+            return;
+          }
+          var total = files.length;
+          var done = 0;
+          var errors = 0;
+
+          function uploadNext(idx) {
+            if (idx >= files.length) {
+              var msg = '✓ ' + (done - errors) + ' / ' + total + ' files imported.';
+              if (errors) msg += ' (' + errors + ' failed)';
+              statusEl.textContent = msg;
+              // Refresh video list
+              htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+              return;
+            }
+            var f = files[idx];
+            statusEl.textContent = 'Uploading ' + f.name + ' (' + (idx + 1) + ' / ' + total + ')…';
+            var fd = new FormData();
+            fd.append('file', f);
+            fd.append('dir_id', dirId);
+            fd.append('filename', f.name);
+            fetch('/import/upload', {method: 'POST', body: fd}).then(function (resp) {
+              done++;
+              if (!resp.ok) errors++;
+              uploadNext(idx + 1);
+            }).catch(function () {
+              done++; errors++;
+              uploadNext(idx + 1);
+            });
+          }
+          uploadNext(0);
+        });
+      });
+    })();
 
     // Keyboard shortcuts: L=library  I=scroll-to-info  S=settings  Esc=close all
     document.addEventListener('keydown', function(e) {

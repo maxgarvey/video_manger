@@ -91,4 +91,4 @@ Ordered by complexity (easiest first).
 | 57 | 6 | Manual "mark as watched" from info panel | ✅ Done |
 | 58 | 4 | Recursive directory scan with progress feedback | ✅ Done |
 | 59 | 2 | Configurable library location + copy files to library | ✅ Done |
-| 60 | 1 | Drag and drop folders/files to import | ⬜ Todo |
+| 60 | 1 | Drag and drop folders/files to import | ✅ Done |
