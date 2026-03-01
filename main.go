@@ -497,11 +497,16 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	showName := ""
+	if meta, err := metadata.Read(video.FilePath()); err == nil {
+		showName = meta.Show
+	}
 	data := struct {
-		Video   store.Video
-		Tags    []store.Tag
-		AllTags []store.Tag
-	}{video, tags, allTags}
+		Video    store.Video
+		Tags     []store.Tag
+		AllTags  []store.Tag
+		ShowName string
+	}{video, tags, allTags, showName}
 	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
