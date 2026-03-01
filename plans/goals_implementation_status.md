@@ -79,3 +79,16 @@ Ordered by complexity (easiest first).
 | 52 | 2 | Library as semi-transparent full-pane overlay | ✅ Done |
 | 53 | 3 | Season/folder grouping in library UI | ✅ Done |
 | 54 | 1 | Info panel always visible below video (scroll to reach) | ✅ Done |
+
+## Round 5 — New Feature Requests
+
+Ordered by complexity (easiest first).
+
+| # | TODOS # | Feature | Status |
+|---|---------|---------|--------|
+| 55 | 5 | Filter library by liked / superliked | ✅ Done |
+| 56 | 3 | Show codec info (video/audio streams) via ffprobe | ⬜ Todo |
+| 57 | 6 | Manual "mark as watched" from info panel | ⬜ Todo |
+| 58 | 4 | Recursive directory scan with progress feedback | ⬜ Todo |
+| 59 | 2 | Configurable library location + copy files to library | ⬜ Todo |
+| 60 | 1 | Drag and drop folders/files to import | ⬜ Todo |

@@ -211,6 +211,19 @@ func (s *SQLiteStore) UpdateVideoPath(ctx context.Context, id, dirID int64, dirP
 	return err
 }
 
+func (s *SQLiteStore) ListVideosByMinRating(ctx context.Context, minRating int) ([]Video, error) {
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT id, filename, directory_id, directory_path, display_name, rating
+		FROM videos
+		WHERE rating >= ?
+		ORDER BY rating DESC, COALESCE(NULLIF(display_name, ''), filename)
+	`, minRating)
+	if err != nil {
+		return nil, err
+	}
+	return scanVideos(rows)
+}
+
 func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, error) {
 	// Escape LIKE special characters so a user query of "%" or "_" is treated
 	// literally and doesn't inadvertently match all rows.

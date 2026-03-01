@@ -787,6 +787,12 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 	case q.Get("tag_id") != "":
 		tagID, _ := strconv.ParseInt(q.Get("tag_id"), 10, 64)
 		videos, err = s.store.ListVideosByTag(r.Context(), tagID)
+	case q.Get("rating") != "":
+		minRating, _ := strconv.Atoi(q.Get("rating"))
+		if minRating < 1 {
+			minRating = 1
+		}
+		videos, err = s.store.ListVideosByMinRating(r.Context(), minRating)
 	case sortOrder == "rating":
 		videos, err = s.store.ListVideosByRating(r.Context())
 	default:
