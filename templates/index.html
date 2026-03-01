@@ -161,6 +161,23 @@
     .btn-icon:hover { background: none; color: #888; }
     .tag-filter-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
+    /* ── htmx loading states ────────────────────────────────────────── */
+    .htmx-indicator { opacity: 0; transition: opacity 0.2s ease; }
+    .htmx-indicator.htmx-request,
+    .htmx-request .htmx-indicator { opacity: 1; }
+    button.htmx-request { opacity: 0.55; cursor: wait; }
+    #video-list { transition: opacity 0.15s ease; }
+    #video-list.htmx-request { opacity: 0.45; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block;
+      width: 0.65rem; height: 0.65rem;
+      border: 2px solid #444; border-top-color: #888;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+    }
+
     /* ── Player hover overlay ──────────────────────────────────────── */
     #player-overlay {
       position: absolute;
@@ -259,7 +276,7 @@
             hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
           <button type="submit">⬇ Download</button>
         </form>
-        <p id="ytdlp-status" class="htmx-indicator" style="font-size:0.8rem;color:#888">Downloading…</p>
+        <p id="ytdlp-status" class="htmx-indicator" style="font-size:0.8rem;color:#888"><span class="spinner"></span> Downloading…</p>
       </div>
     </details>
     <section>
@@ -270,18 +287,20 @@
         style="margin-top:0.4rem;width:100%">Show all</button>
     </section>
     <section>
-      <h2>Videos</h2>
+      <h2 style="display:flex;align-items:center;gap:0.4rem">Videos <span id="vl-spin" class="spinner htmx-indicator"></span></h2>
       <input id="video-search" type="text" name="q" placeholder="Search..."
         hx-get="/videos"
         hx-target="#video-list"
         hx-trigger="input changed delay:150ms"
+        hx-indicator="#vl-spin"
         hx-on:htmx:before-request="document.getElementById('active-tag').value=''"
         style="margin-bottom:0.5rem">
       <input type="hidden" id="active-tag" name="tag_id" value="">
       <div id="video-list"
            hx-get="/videos"
            hx-trigger="load, every 60s"
-           hx-include="#video-search,#active-tag"></div>
+           hx-include="#video-search,#active-tag"
+           hx-indicator="#vl-spin"></div>
     </section>
   </aside>
 
