@@ -160,6 +160,26 @@
     .btn-icon { background: none; border: none; color: #555; padding: 0.2rem 0.35rem; line-height: 1; }
     .btn-icon:hover { background: none; color: #888; }
     .tag-filter-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+    /* ── Details / summary disclosure ──────────────────────────────── */
+    details > summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      color: #666;
+    }
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary::before {
+      content: '▶';
+      display: inline-block;
+      font-size: 0.55em;
+      margin-right: 0.35em;
+      transition: transform 0.15s ease;
+      opacity: 0.6;
+      vertical-align: middle;
+    }
+    details[open] > summary::before { transform: rotate(90deg); opacity: 1; }
+    details[open] > summary { color: #999; }
   </style>
 </head>
 <body>
@@ -195,7 +215,7 @@
         title="Close library">✕</button>
     </div>
     <details>
-      <summary style="cursor:pointer;list-style:none;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:0.5rem;user-select:none">
+      <summary style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">
         Directories
       </summary>
       <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.5rem">
@@ -206,7 +226,7 @@
         </button>
         <div id="dir-browser-wrap"></div>
         <details style="margin-top:0.1rem">
-          <summary style="font-size:0.78rem;color:#666;cursor:pointer;user-select:none">Create new folder on disk</summary>
+          <summary style="font-size:0.78rem">Create new folder on disk</summary>
           <form hx-post="/directories/create" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.4rem">
             <input type="text" name="path" placeholder="/path/to/new/folder">
             <button type="submit" title="Create folder on disk and add to library">New</button>
@@ -215,7 +235,7 @@
       </div>
     </details>
     <details>
-      <summary style="cursor:pointer;list-style:none;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:0.5rem;user-select:none">
+      <summary style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">
         Download from URL
       </summary>
       <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
