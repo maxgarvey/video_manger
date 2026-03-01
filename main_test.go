@@ -298,6 +298,66 @@ func TestHandleDirectories(t *testing.T) {
 	}
 }
 
+func TestHandleDeleteVideo(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, "gone.mp4")
+
+	// Confirm page
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/delete-confirm", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete-confirm: expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "gone.mp4") {
+		t.Error("expected filename in confirmation")
+	}
+
+	// Remove from library only
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodDelete, "/videos/"+itoa(v.ID), nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE video: expected 200, got %d", rec.Code)
+	}
+	videos, _ := srv.store.ListVideos(ctx)
+	if len(videos) != 0 {
+		t.Errorf("expected 0 videos after library delete, got %d", len(videos))
+	}
+}
+
+func TestHandleDeleteVideoAndFile(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("fake video data")
+	filename := "deleteme.mp4"
+	if err := os.WriteFile(filepath.Join(dir, filename), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, filename)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/videos/"+itoa(v.ID)+"/file", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE video/file: expected 200, got %d", rec.Code)
+	}
+	// DB entry gone
+	videos, _ := srv.store.ListVideos(ctx)
+	if len(videos) != 0 {
+		t.Errorf("expected 0 videos after file delete, got %d", len(videos))
+	}
+	// File gone from disk
+	if _, err := os.Stat(filepath.Join(dir, filename)); !os.IsNotExist(err) {
+		t.Error("expected file to be deleted from disk")
+	}
+}
+
 func itoa(i int64) string {
 	return strconv.FormatInt(i, 10)
 }

@@ -10,7 +10,8 @@ import (
 
 // SQLiteStore implements Store backed by a SQLite database.
 type SQLiteStore struct {
-	q *db.Queries
+	q    *db.Queries
+	conn *sql.DB
 }
 
 // NewSQLite opens (or creates) a SQLite database at path and applies the schema.
@@ -22,7 +23,7 @@ func NewSQLite(path string) (*SQLiteStore, error) {
 	if err := applySchema(conn); err != nil {
 		return nil, err
 	}
-	return &SQLiteStore{q: db.New(conn)}, nil
+	return &SQLiteStore{q: db.New(conn), conn: conn}, nil
 }
 
 func applySchema(conn *sql.DB) error {
@@ -151,6 +152,11 @@ func (s *SQLiteStore) UpdateVideoName(ctx context.Context, id int64, name string
 		ID:          id,
 		DisplayName: name,
 	})
+}
+
+func (s *SQLiteStore) DeleteVideo(ctx context.Context, id int64) error {
+	_, err := s.conn.ExecContext(ctx, "DELETE FROM videos WHERE id = ?", id)
+	return err
 }
 
 // --- Tags ---
