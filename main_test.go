@@ -1303,6 +1303,117 @@ func TestHandleSharePanel_BadVideo(t *testing.T) {
 	}
 }
 
+func TestHandleDirectoryOptions(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	// Empty — should still return 200.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/directories/options", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (empty), got %d", rec.Code)
+	}
+
+	// With a directory — it should appear in the options.
+	d, _ := srv.store.AddDirectory(ctx, "/my/movies")
+	_ = d
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/directories/options", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (with dir), got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "/my/movies") {
+		t.Error("expected directory path in options response")
+	}
+}
+
+func TestHandleVideoList_RatingSorted(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	// Set video_sort to "rating"
+	srv.store.SetSetting(ctx, "video_sort", "rating") //nolint:errcheck
+
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "neutral.mp4")
+	v2, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "liked.mp4")
+	v3, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "favourite.mp4")
+
+	srv.store.SetVideoRating(ctx, v1.ID, 0) //nolint:errcheck
+	srv.store.SetVideoRating(ctx, v2.ID, 1) //nolint:errcheck
+	srv.store.SetVideoRating(ctx, v3.ID, 2) //nolint:errcheck
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	posNeutral := strings.Index(body, "neutral.mp4")
+	posLiked := strings.Index(body, "liked.mp4")
+	posFav := strings.Index(body, "favourite.mp4")
+
+	if posFav == -1 || posLiked == -1 || posNeutral == -1 {
+		t.Fatal("expected all three videos in response")
+	}
+	// Higher-rated videos should appear earlier in the HTML.
+	if !(posFav < posLiked && posLiked < posNeutral) {
+		t.Errorf("expected rating-descending order (fav < liked < neutral), got positions: fav=%d liked=%d neutral=%d",
+			posFav, posLiked, posNeutral)
+	}
+}
+
+// tmdbRoundTripper redirects all requests to a local mock server, allowing
+// tests to exercise handleLookupSearch without hitting the real TMDB API.
+type tmdbRoundTripper struct {
+	host string // e.g. "127.0.0.1:PORT" (no scheme)
+}
+
+func (t *tmdbRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	r2 := r.Clone(r.Context())
+	r2.URL.Scheme = "http"
+	r2.URL.Host = t.host
+	return http.DefaultTransport.RoundTrip(r2)
+}
+
+func TestHandleLookupSearch_Success(t *testing.T) {
+	// Spin up a mock TMDB server.
+	mockTMDB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"results":[{"id":550,"media_type":"movie","title":"Fight Club","release_date":"1999-10-15"}]}`)) //nolint:errcheck
+	}))
+	defer mockTMDB.Close()
+
+	// Replace the package-level tmdbClient transport so requests go to the mock.
+	orig := tmdbClient
+	tmdbClient = &http.Client{Transport: &tmdbRoundTripper{host: strings.TrimPrefix(mockTMDB.URL, "http://")}}
+	defer func() { tmdbClient = orig }()
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-test-key") //nolint:errcheck
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	form := url.Values{"q": {"Fight Club"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/lookup/search", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 from TMDB search, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Fight Club") {
+		t.Error("expected TMDB result 'Fight Club' in response")
+	}
+}
+
 func itoa(i int64) string {
 	return strconv.FormatInt(i, 10)
 }

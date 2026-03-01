@@ -453,3 +453,177 @@ func TestTagVideo_Idempotent(t *testing.T) {
 		t.Errorf("expected exactly 1 tag, got %d", len(tags))
 	}
 }
+
+// --- T11: GetDirectory ---
+
+func TestGetDirectory(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, err := s.AddDirectory(ctx, "/my/videos")
+	if err != nil {
+		t.Fatalf("AddDirectory: %v", err)
+	}
+
+	got, err := s.GetDirectory(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("GetDirectory: %v", err)
+	}
+	if got.ID != d.ID || got.Path != "/my/videos" {
+		t.Errorf("GetDirectory returned unexpected value: %+v", got)
+	}
+
+	// Non-existent ID should return an error.
+	if _, err := s.GetDirectory(ctx, 9999); err == nil {
+		t.Error("expected error for non-existent directory, got nil")
+	}
+}
+
+// --- T10: GetSetting / SetSetting ---
+
+func TestGetAndSetSetting(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Default (no row yet) returns empty string, not an error.
+	val, err := s.GetSetting(ctx, "missing_key")
+	if err != nil {
+		t.Fatalf("GetSetting for missing key: %v", err)
+	}
+	if val != "" {
+		t.Errorf("expected empty string for missing key, got %q", val)
+	}
+
+	// SetSetting creates the row.
+	if err := s.SetSetting(ctx, "color", "blue"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	val, err = s.GetSetting(ctx, "color")
+	if err != nil {
+		t.Fatalf("GetSetting after set: %v", err)
+	}
+	if val != "blue" {
+		t.Errorf("expected 'blue', got %q", val)
+	}
+
+	// SetSetting overwrites the existing value.
+	if err := s.SetSetting(ctx, "color", "red"); err != nil {
+		t.Fatalf("SetSetting overwrite: %v", err)
+	}
+	val, _ = s.GetSetting(ctx, "color")
+	if val != "red" {
+		t.Errorf("expected 'red' after overwrite, got %q", val)
+	}
+}
+
+// --- T8: SetVideoRating / ListVideosByRating ---
+
+func TestSetVideoRating(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	if v.Rating != 0 {
+		t.Errorf("expected default rating 0, got %d", v.Rating)
+	}
+
+	if err := s.SetVideoRating(ctx, v.ID, 1); err != nil {
+		t.Fatalf("SetVideoRating 1: %v", err)
+	}
+	got, _ := s.GetVideo(ctx, v.ID)
+	if got.Rating != 1 {
+		t.Errorf("expected rating 1, got %d", got.Rating)
+	}
+
+	if err := s.SetVideoRating(ctx, v.ID, 2); err != nil {
+		t.Fatalf("SetVideoRating 2: %v", err)
+	}
+	got, _ = s.GetVideo(ctx, v.ID)
+	if got.Rating != 2 {
+		t.Errorf("expected rating 2, got %d", got.Rating)
+	}
+
+	if err := s.SetVideoRating(ctx, v.ID, 0); err != nil {
+		t.Fatalf("SetVideoRating reset: %v", err)
+	}
+	got, _ = s.GetVideo(ctx, v.ID)
+	if got.Rating != 0 {
+		t.Errorf("expected rating 0 after reset, got %d", got.Rating)
+	}
+}
+
+func TestListVideosByRating(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v1, _ := s.UpsertVideo(ctx, d.ID, d.Path, "neutral.mp4")
+	v2, _ := s.UpsertVideo(ctx, d.ID, d.Path, "liked.mp4")
+	v3, _ := s.UpsertVideo(ctx, d.ID, d.Path, "fav.mp4")
+
+	s.SetVideoRating(ctx, v1.ID, 0) //nolint:errcheck
+	s.SetVideoRating(ctx, v2.ID, 1) //nolint:errcheck
+	s.SetVideoRating(ctx, v3.ID, 2) //nolint:errcheck
+
+	videos, err := s.ListVideosByRating(ctx)
+	if err != nil {
+		t.Fatalf("ListVideosByRating: %v", err)
+	}
+	if len(videos) != 3 {
+		t.Fatalf("expected 3 videos, got %d", len(videos))
+	}
+	// ORDER BY rating DESC: fav (2), liked (1), neutral (0)
+	if videos[0].ID != v3.ID {
+		t.Errorf("expected fav.mp4 first (rating 2), got %q", videos[0].Filename)
+	}
+	if videos[1].ID != v2.ID {
+		t.Errorf("expected liked.mp4 second (rating 1), got %q", videos[1].Filename)
+	}
+	if videos[2].ID != v1.ID {
+		t.Errorf("expected neutral.mp4 last (rating 0), got %q", videos[2].Filename)
+	}
+}
+
+// --- T9: RecordWatch / GetWatch ---
+
+func TestRecordAndGetWatch(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "show.mp4")
+
+	// No watch record yet — should return an error.
+	if _, err := s.GetWatch(ctx, v.ID); err == nil {
+		t.Error("expected error for unwatched video, got nil")
+	}
+
+	if err := s.RecordWatch(ctx, v.ID, 123.45); err != nil {
+		t.Fatalf("RecordWatch: %v", err)
+	}
+
+	rec, err := s.GetWatch(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetWatch: %v", err)
+	}
+	if rec.VideoID != v.ID {
+		t.Errorf("expected VideoID %d, got %d", v.ID, rec.VideoID)
+	}
+	if rec.Position != 123.45 {
+		t.Errorf("expected position 123.45, got %f", rec.Position)
+	}
+	if rec.WatchedAt == "" {
+		t.Error("expected non-empty WatchedAt")
+	}
+
+	// RecordWatch is an upsert — re-recording updates the position.
+	if err := s.RecordWatch(ctx, v.ID, 200.0); err != nil {
+		t.Fatalf("RecordWatch update: %v", err)
+	}
+	rec2, _ := s.GetWatch(ctx, v.ID)
+	if rec2.Position != 200.0 {
+		t.Errorf("expected updated position 200.0, got %f", rec2.Position)
+	}
+}

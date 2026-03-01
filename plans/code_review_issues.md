@@ -39,20 +39,20 @@ Legend: ⬜ Pending | 🔄 In Progress | ✅ Fixed | 📝 Documented (won't fix)
 
 | # | Issue | Status |
 |---|-------|--------|
-| T1 | `handleGetSettings` and `handleSaveSettings` have zero tests | ⬜ |
+| T1 | `handleGetSettings` and `handleSaveSettings` have zero tests | ✅ |
 | T2 | `handleLookupModal` with API key set (search form branch) is untested | ✅ |
 | T3 | `handleLookupApply` with invalid `media_type` (→ 400) is untested | ✅ |
 | T4 | `handleRandomPlayer`: autoplay-disabled path, no-videos path, and normal path all untested | ✅ |
-| T5 | `handleDirectoryOptions` (`GET /directories/options`) is untested | ⬜ |
-| T6 | `handleVideoList` with `?tag_id=` filter is untested | ⬜ |
-| T7 | `handleVideoList` with `video_sort=rating` setting is untested | ⬜ |
-| T8 | Store: `SetVideoRating`, `ListVideosByRating` untested at store layer | ⬜ |
-| T9 | Store: `RecordWatch`, `GetWatch` untested at store layer | ⬜ |
-| T10 | Store: `GetSetting`, `SetSetting` untested at store layer | ⬜ |
-| T11 | Store: `GetDirectory` untested at store layer | ⬜ |
-| T12 | Migration test does not verify `watch_history` table, `settings` table, or `rating` column existence | ⬜ |
-| T13 | `metadata.Write` is completely untested | ⬜ |
-| T14 | `handleLookupSearch` happy path (mocked TMDB response) is untested | ⬜ |
+| T5 | `handleDirectoryOptions` (`GET /directories/options`) is untested | ✅ |
+| T6 | `handleVideoList` with `?tag_id=` filter is untested | ✅ |
+| T7 | `handleVideoList` with `video_sort=rating` setting is untested | ✅ |
+| T8 | Store: `SetVideoRating`, `ListVideosByRating` untested at store layer | ✅ |
+| T9 | Store: `RecordWatch`, `GetWatch` untested at store layer | ✅ |
+| T10 | Store: `GetSetting`, `SetSetting` untested at store layer | ✅ |
+| T11 | Store: `GetDirectory` untested at store layer | ✅ |
+| T12 | Migration test does not verify `watch_history` table, `settings` table, or `rating` column existence | ✅ |
+| T13 | `metadata.Write` is completely untested | ✅ |
+| T14 | `handleLookupSearch` happy path (mocked TMDB response) is untested | ✅ |
 
 ---
 

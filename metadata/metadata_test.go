@@ -1,6 +1,11 @@
 package metadata
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseFFProbeOutput(t *testing.T) {
 	data := []byte(`{
@@ -116,5 +121,68 @@ func TestHasData(t *testing.T) {
 	}
 	if !(Meta{EpisodeID: "S01E01"}).HasData() {
 		t.Error("Meta{EpisodeID}.HasData() should be true")
+	}
+}
+
+// --- T13: Write ---
+
+// TestWrite_NoFFmpeg verifies that Write is a silent no-op when ffmpeg is not
+// available on PATH, returning nil rather than an error.
+func TestWrite_NoFFmpeg(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // empty PATH: no executables
+	title := "Should Not Error"
+	if err := Write("/fake/path.mp4", Updates{Title: &title}); err != nil {
+		t.Errorf("expected nil when ffmpeg is unavailable, got: %v", err)
+	}
+}
+
+// TestWrite_ErrorOnMissingFile verifies that if ffmpeg is available but the
+// source file does not exist, Write returns an error.
+func TestWrite_ErrorOnMissingFile(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed; skipping")
+	}
+	title := "Phantom"
+	err := Write("/nonexistent/path.mp4", Updates{Title: &title})
+	if err == nil {
+		t.Error("expected error when source file does not exist, got nil")
+	}
+}
+
+// TestWrite_RoundTrip verifies that Write can update metadata on a real file
+// and the change can be read back by ffprobe. Skipped if either tool is absent.
+func TestWrite_RoundTrip(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed; skipping")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed; skipping")
+	}
+
+	// Create a minimal valid MP4 container using ffmpeg.
+	dir := t.TempDir()
+	out := filepath.Join(dir, "test.mp4")
+	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "nullsrc=s=64x64:d=1", "-c:v", "libx264", "-y", out)
+	if err := cmd.Run(); err != nil {
+		// If the codec isn't available in this ffmpeg build, skip rather than fail.
+		t.Skipf("could not generate test video: %v", err)
+	}
+
+	title := "Round Trip Title"
+	if err := Write(out, Updates{Title: &title}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	// Verify the file still exists after Write (which renames the temp file).
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("file missing after Write: %v", err)
+	}
+
+	meta, err := Read(out)
+	if err != nil {
+		t.Fatalf("Read after Write: %v", err)
+	}
+	if meta.Title != title {
+		t.Errorf("expected title %q after round-trip, got %q", title, meta.Title)
 	}
 }

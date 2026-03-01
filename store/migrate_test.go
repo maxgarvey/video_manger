@@ -24,7 +24,10 @@ func TestRunMigrations_Fresh(t *testing.T) {
 	}
 
 	// All expected tables should exist.
-	for _, table := range []string{"directories", "tags", "videos", "video_tags", "schema_migrations"} {
+	for _, table := range []string{
+		"directories", "tags", "videos", "video_tags",
+		"watch_history", "settings", "schema_migrations",
+	} {
 		var count int
 		conn.QueryRow(
 			`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table,
@@ -32,6 +35,15 @@ func TestRunMigrations_Fresh(t *testing.T) {
 		if count != 1 {
 			t.Errorf("expected table %q to exist after migration", table)
 		}
+	}
+
+	// The `rating` column should exist on the videos table (added by 003_likes).
+	var ratingExists int
+	conn.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('videos') WHERE name='rating'`,
+	).Scan(&ratingExists)
+	if ratingExists != 1 {
+		t.Error("expected 'rating' column to exist in videos table after migration")
 	}
 }
 
