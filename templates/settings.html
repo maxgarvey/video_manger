@@ -1,0 +1,21 @@
+<form hx-post="/settings" hx-target="#settings-panel" hx-swap="innerHTML" style="display:flex;flex-direction:column;gap:1rem">
+  <h2 style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin:0">Settings</h2>
+
+  <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;cursor:pointer">
+    <input type="checkbox" name="autoplay_random" {{if .AutoplayRandom}}checked{{end}}
+      style="accent-color:#4a9a4a;width:1rem;height:1rem">
+    Autoplay random video on start
+  </label>
+
+  <div style="display:flex;flex-direction:column;gap:0.3rem">
+    <span style="font-size:0.8rem;color:#aaa">Sort videos by</span>
+    <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;cursor:pointer">
+      <input type="radio" name="video_sort" value="name" {{if eq .VideoSort "name"}}checked{{end}}> Name
+    </label>
+    <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;cursor:pointer">
+      <input type="radio" name="video_sort" value="rating" {{if eq .VideoSort "rating"}}checked{{end}}> Rating (⭐ first)
+    </label>
+  </div>
+
+  <button type="submit" style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.4rem 0.8rem;border-radius:4px;cursor:pointer;font-size:0.85rem;align-self:flex-start">Save</button>
+</form>

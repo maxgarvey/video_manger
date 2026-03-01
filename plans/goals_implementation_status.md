@@ -10,8 +10,8 @@ Ordered by implementation priority (easiest/most foundational first).
 | 4 | 4 | Autoplay random episode on start | ✅ Done |
 | 5 | 13 | Create new folders in-app | ✅ Done |
 | 6 | 6 | Track watched timestamps | ✅ Done |
-| 7 | 7 | Like and double-like | 🔄 In Progress |
-| 8 | 5 | Configuration menu drawer | ⬜ Pending |
+| 7 | 7 | Like and double-like | ✅ Done |
+| 8 | 5 | Configuration menu drawer | 🔄 In Progress |
 | 9 | 14 | Export to USB/BluRay format | ⬜ Pending |
 | 10 | 12 | yt-dlp import | ⬜ Pending |
 | 11 | 9 | LAN sharing (show local IP) | ⬜ Pending |

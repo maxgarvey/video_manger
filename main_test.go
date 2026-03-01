@@ -310,6 +310,62 @@ func TestHandleAddAndRemoveVideoTag(t *testing.T) {
 	}
 }
 
+func TestHandleSettings(t *testing.T) {
+	srv := newTestServer(t)
+
+	// GET — returns settings form.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/settings", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET settings: expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "autoplay_random") {
+		t.Error("expected autoplay_random in settings form")
+	}
+
+	// POST — save settings.
+	form := url.Values{
+		"autoplay_random": {"on"},
+		"video_sort":      {"rating"},
+	}
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST settings: expected 200, got %d", rec.Code)
+	}
+
+	ctx := context.Background()
+	val, _ := srv.store.GetSetting(ctx, "video_sort")
+	if val != "rating" {
+		t.Errorf("expected video_sort=rating, got %q", val)
+	}
+	val, _ = srv.store.GetSetting(ctx, "autoplay_random")
+	if val != "true" {
+		t.Errorf("expected autoplay_random=true, got %q", val)
+	}
+}
+
+func TestHandleRandomPlayer_AutoplayDisabled(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "a.mp4")
+	srv.store.SetSetting(ctx, "autoplay_random", "false")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/play/random", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "<video") {
+		t.Error("expected no <video> element when autoplay is disabled")
+	}
+}
+
 func TestHandleDirectories(t *testing.T) {
 	srv := newTestServer(t)
 
