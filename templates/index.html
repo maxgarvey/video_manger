@@ -14,14 +14,17 @@
       background: #000;
       color: #eee;
       width: 100vw;
-      overflow-x: hidden;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
-    /* Sticky full-viewport player — sticks at top while info scrolls below */
+    /* Player fills available height above the info panel */
     #player {
-      position: sticky;
-      top: 0;
-      height: 100vh;
+      position: relative;
+      flex: 1;
+      min-height: 0;
       width: 100%;
       z-index: 10;
     }
@@ -121,7 +124,7 @@
     }
     #lib-right #video-list { flex: 1; overflow-y: auto; min-height: 0; }
 
-    /* ── Info panel — always-visible block below the sticky player ──── */
+    /* ── Info panel — always-visible strip below the player ──────────── */
     #info-panel {
       background: rgba(20, 20, 20, 0.96);
       border-top: 1px solid #2a2a2a;
@@ -129,8 +132,12 @@
       display: flex;
       flex-direction: column;
       gap: 0.75rem;
-      min-height: min(300px, 44vh);
+      flex-shrink: 0;
+      height: min(300px, 38vh);
+      overflow-y: auto;
+      transition: height 0.2s ease;
     }
+    body.info-collapsed #info-panel { height: 0; padding: 0; overflow: hidden; }
 
     /* ── Library widget styles ──────────────────────────────────────── */
     section h2 {
@@ -273,9 +280,9 @@
     <button class="chrome-btn" onclick="document.body.classList.toggle('lib-open')">☰ Library</button>
   </div>
 
-  <!-- Info button — bottom right; scrolls to info panel below video -->
+  <!-- Info button — bottom right; collapses/expands the info panel -->
   <div class="chrome" id="info-btn">
-    <button class="chrome-btn" onclick="document.getElementById('info-panel').scrollIntoView({behavior:'smooth'})">↓ Info</button>
+    <button class="chrome-btn" onclick="document.body.classList.toggle('info-collapsed')" title="Toggle info panel">▾ Info</button>
   </div>
 
   <!-- Config toggle button — top right -->
