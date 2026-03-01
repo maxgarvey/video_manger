@@ -119,6 +119,13 @@ func (s *server) syncDir(d store.Directory) {
 				}
 			}
 		}
+		// Auto-tag with the registered directory's base name.
+		dirTag, err := s.store.UpsertTag(context.Background(), filepath.Base(d.Path))
+		if err != nil {
+			log.Printf("upsert dir tag %s: %v", d.Path, err)
+		} else if err := s.store.TagVideo(context.Background(), v.ID, dirTag.ID); err != nil {
+			log.Printf("tag video %d with dir tag: %v", v.ID, err)
+		}
 		return nil
 	})
 }

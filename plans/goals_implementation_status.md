@@ -4,8 +4,8 @@ Ordered by implementation priority (easiest/most foundational first).
 
 | # | Original # | Feature | Status |
 |---|-----------|---------|--------|
-| 1 | 8 | Recursive directory scan | 🔄 In Progress |
-| 2 | 3 | Auto-tag videos with directory name | ⬜ Pending |
+| 1 | 8 | Recursive directory scan | ✅ Done |
+| 2 | 3 | Auto-tag videos with directory name | 🔄 In Progress |
 | 3 | 2 | Formalize migrations directory | ⬜ Pending |
 | 4 | 4 | Autoplay random episode on start | ⬜ Pending |
 | 5 | 13 | Create new folders in-app | ⬜ Pending |

@@ -613,6 +613,72 @@ func TestSyncDir_Recursive(t *testing.T) {
 	}
 }
 
+func TestSyncDir_AutoTagsByDirectoryName(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{
+		filepath.Join(root, "a.mp4"),
+		filepath.Join(sub, "b.mp4"),
+	} {
+		if err := os.WriteFile(f, []byte("fake"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, root)
+	srv.syncDir(d)
+
+	videos, _ := srv.store.ListVideos(ctx)
+	if len(videos) != 2 {
+		t.Fatalf("expected 2 videos, got %d", len(videos))
+	}
+
+	dirTagName := filepath.Base(root)
+	for _, v := range videos {
+		tags, err := srv.store.ListTagsByVideo(ctx, v.ID)
+		if err != nil {
+			t.Fatalf("ListTagsByVideo: %v", err)
+		}
+		found := false
+		for _, tag := range tags {
+			if tag.Name == dirTagName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("video %s missing auto-tag %q", v.Filename, dirTagName)
+		}
+	}
+}
+
+func TestSyncDir_AutoTag_Idempotent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "movie.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, root)
+	srv.syncDir(d)
+	srv.syncDir(d) // second sync should not duplicate tags
+
+	videos, _ := srv.store.ListVideos(ctx)
+	if len(videos) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(videos))
+	}
+	tags, _ := srv.store.ListTagsByVideo(ctx, videos[0].ID)
+	if len(tags) != 1 {
+		t.Errorf("expected exactly 1 tag after double sync, got %d", len(tags))
+	}
+}
+
 func TestSyncDir_IdempotentOnResync(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "movie.mp4"), []byte("fake"), 0644); err != nil {
