@@ -563,6 +563,74 @@ func TestHandleDeleteVideoAndFile(t *testing.T) {
 	}
 }
 
+func TestSyncDir_Recursive(t *testing.T) {
+	// Build a tree: root/{a.mp4, sub/{b.mkv, ignore.txt}, sub2/{c.mp4}}
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	sub2 := filepath.Join(root, "sub2")
+	for _, d := range []string{sub, sub2} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{
+		filepath.Join(root, "a.mp4"),
+		filepath.Join(sub, "b.mkv"),
+		filepath.Join(sub, "ignore.txt"),
+		filepath.Join(sub2, "c.mp4"),
+	} {
+		if err := os.WriteFile(f, []byte("fake"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, root)
+	srv.syncDir(d)
+
+	videos, err := srv.store.ListVideos(ctx)
+	if err != nil {
+		t.Fatalf("ListVideos: %v", err)
+	}
+	if len(videos) != 3 {
+		t.Fatalf("expected 3 videos (a.mp4, b.mkv, c.mp4), got %d", len(videos))
+	}
+
+	// Verify FilePath() resolves to correct subdirectory.
+	paths := make(map[string]bool)
+	for _, v := range videos {
+		paths[v.FilePath()] = true
+	}
+	for _, want := range []string{
+		filepath.Join(root, "a.mp4"),
+		filepath.Join(sub, "b.mkv"),
+		filepath.Join(sub2, "c.mp4"),
+	} {
+		if !paths[want] {
+			t.Errorf("expected video at %s, not found in %v", want, paths)
+		}
+	}
+}
+
+func TestSyncDir_IdempotentOnResync(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "movie.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, root)
+	srv.syncDir(d)
+	srv.syncDir(d) // second sync should not duplicate
+
+	videos, _ := srv.store.ListVideos(ctx)
+	if len(videos) != 1 {
+		t.Errorf("expected 1 video after double sync, got %d", len(videos))
+	}
+}
+
 func itoa(i int64) string {
 	return strconv.FormatInt(i, 10)
 }
