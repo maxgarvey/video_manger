@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -79,6 +81,9 @@ func (s *server) routes() http.Handler {
 
 	// Rating
 	r.Post("/videos/{id}/rating", s.handleSetRating)
+
+	// Export
+	r.Post("/videos/{id}/export/usb", s.handleExportUSB)
 
 	// File metadata (ffprobe/ffmpeg)
 	r.Get("/videos/{id}/metadata", s.handleGetMetadata)
@@ -474,6 +479,43 @@ func (s *server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
 		"position":   rec.Position,
 		"watched_at": rec.WatchedAt,
 	})
+}
+
+func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
+
+	// Build output path: same directory, with _usb suffix.
+	ext := filepath.Ext(video.Filename)
+	base := strings.TrimSuffix(video.Filename, ext)
+	outName := base + "_usb.mp4"
+	outPath := filepath.Join(video.DirectoryPath, outName)
+
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", "-y",
+		"-i", video.FilePath(),
+		"-c:v", "libx264", "-profile:v", "high", "-level", "4.1",
+		"-c:a", "aac", "-b:a", "192k",
+		"-movflags", "+faststart",
+		outPath,
+	)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		log.Printf("ffmpeg export %s: %v\nstderr: %s", video.FilePath(), err, stderr.String())
+		http.Error(w, "export failed: "+stderr.String(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", `attachment; filename="`+outName+`"`)
+	http.ServeFile(w, r, outPath)
 }
 
 func (s *server) handleSetRating(w http.ResponseWriter, r *http.Request) {
