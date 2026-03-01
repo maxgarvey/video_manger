@@ -85,6 +85,9 @@ func (s *server) routes() http.Handler {
 	// Export
 	r.Post("/videos/{id}/export/usb", s.handleExportUSB)
 
+	// yt-dlp download
+	r.Post("/ytdlp/download", s.handleYTDLPDownload)
+
 	// File metadata (ffprobe/ffmpeg)
 	r.Get("/videos/{id}/metadata", s.handleGetMetadata)
 	r.Get("/videos/{id}/metadata/edit", s.handleEditMetadata)
@@ -102,6 +105,7 @@ func (s *server) routes() http.Handler {
 
 	// Directories
 	r.Get("/directories", s.handleListDirectories)
+	r.Get("/directories/options", s.handleDirectoryOptions)
 	r.Post("/directories", s.handleAddDirectory)
 	r.Post("/directories/create", s.handleCreateDirectory)
 	r.Get("/directories/{id}/delete-confirm", s.handleDirectoryDeleteConfirm)
@@ -481,6 +485,50 @@ func (s *server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
+	rawURL := strings.TrimSpace(r.FormValue("url"))
+	if rawURL == "" {
+		http.Error(w, "url required", http.StatusBadRequest)
+		return
+	}
+	dirIDStr := strings.TrimSpace(r.FormValue("dir_id"))
+	if dirIDStr == "" {
+		http.Error(w, "dir_id required", http.StatusBadRequest)
+		return
+	}
+	dirID, err := strconv.ParseInt(dirIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid dir_id", http.StatusBadRequest)
+		return
+	}
+	dir, err := s.store.GetDirectory(r.Context(), dirID)
+	if err != nil {
+		http.Error(w, "directory not found", http.StatusNotFound)
+		return
+	}
+
+	// Allow up to 10 minutes for large downloads.
+	ctx, cancel := context.WithTimeout(r.Context(), 10*60*1e9)
+	defer cancel()
+
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "yt-dlp",
+		"--no-playlist",
+		"-o", filepath.Join(dir.Path, "%(title)s.%(ext)s"),
+		rawURL,
+	)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		log.Printf("yt-dlp %s: %v\nstderr: %s", rawURL, err, stderr.String())
+		http.Error(w, "download failed: "+stderr.String(), http.StatusInternalServerError)
+		return
+	}
+
+	// Sync the directory to register the new file.
+	s.syncDir(dir)
+	s.serveVideoList(w, r)
+}
+
 func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
@@ -745,6 +793,17 @@ func (s *server) serveDirList(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleListDirectories(w http.ResponseWriter, r *http.Request) {
 	s.serveDirList(w, r)
+}
+
+func (s *server) handleDirectoryOptions(w http.ResponseWriter, r *http.Request) {
+	dirs, err := s.store.ListDirectories(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "directory_options.html", dirs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // handleCreateDirectory creates the directory on disk (MkdirAll) then

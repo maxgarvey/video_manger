@@ -32,6 +32,15 @@ func NewSQLite(path string) (*SQLiteStore, error) {
 
 // --- Directories ---
 
+func (s *SQLiteStore) GetDirectory(ctx context.Context, id int64) (Directory, error) {
+	row := s.conn.QueryRowContext(ctx, `SELECT id, path FROM directories WHERE id = ?`, id)
+	var d Directory
+	if err := row.Scan(&d.ID, &d.Path); err != nil {
+		return Directory{}, err
+	}
+	return d, nil
+}
+
 func (s *SQLiteStore) AddDirectory(ctx context.Context, path string) (Directory, error) {
 	row, err := s.q.AddDirectory(ctx, path)
 	if err != nil {

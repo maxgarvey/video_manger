@@ -190,6 +190,21 @@
       </form>
     </section>
     <section>
+      <h2>Download from URL</h2>
+      <div id="ytdlp-dirs" hx-get="/directories" hx-trigger="load" style="display:none"></div>
+      <form hx-post="/ytdlp/download" hx-target="#video-list" hx-indicator="#ytdlp-status"
+            style="display:flex;flex-direction:column;gap:0.4rem">
+        <input type="text" name="url" placeholder="YouTube / video URL">
+        <select name="dir_id" id="ytdlp-dir-select"
+          style="background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.5rem;border-radius:4px;font-size:0.85rem"
+          hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
+        <button type="submit"
+          style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.35rem 0.7rem;border-radius:4px;cursor:pointer;font-size:0.85rem"
+        >⬇ Download</button>
+      </form>
+      <p id="ytdlp-status" class="htmx-indicator" style="font-size:0.8rem;color:#888;margin-top:0.3rem">Downloading…</p>
+    </section>
+    <section>
       <h2>Filter by Tag</h2>
       <div id="tag-filters" hx-get="/tags" hx-trigger="load"></div>
       <button hx-get="/videos" hx-target="#video-list"
