@@ -327,7 +327,20 @@
         style="margin-top:0.4rem;width:100%">Show all</button>
     </section>
     <section class="video-section">
-      <h2 style="display:flex;align-items:center;gap:0.4rem">Videos <span id="vl-spin" class="spinner htmx-indicator"></span></h2>
+      <h2 style="display:flex;align-items:center;gap:0.4rem">
+        Videos <span id="vl-spin" class="spinner htmx-indicator"></span>
+        <button class="btn-sm" style="margin-left:auto;font-size:0.7rem"
+          title="Open next unwatched video"
+          onclick="(function(){
+            var tid = document.getElementById('active-tag').value;
+            fetch('/videos/next-unwatched' + (tid ? '?tag_id='+tid : ''))
+              .then(function(r){ if(!r.ok) throw r; return r.json(); })
+              .then(function(d){ openTab(d.id, d.title); })
+              .catch(function(){ var n=document.createElement('span');
+                n.textContent='All watched!';n.style.cssText='color:#4a9;font-size:0.75rem;margin-left:0.4rem';
+                document.getElementById('vl-spin').after(n);setTimeout(function(){n.remove()},2500); });
+          })()">▶ Next</button>
+      </h2>
       <input id="video-search" type="text" name="q" placeholder="Search..."
         hx-get="/videos"
         hx-target="#video-list"
@@ -439,6 +452,16 @@
           if (v && !v.paused) v.pause();
         }
       });
+      // Refresh the info panel to match the newly-active tab.
+      fetch('/play/' + videoId).then(function(r) { return r.text(); }).then(function(html) {
+        var frag = document.createElement('template');
+        frag.innerHTML = html;
+        frag.content.querySelectorAll('[hx-swap-oob]').forEach(function(el) {
+          var target = document.getElementById(el.id);
+          if (target) { target.innerHTML = el.innerHTML; htmx.process(target); }
+          el.remove();
+        });
+      }).catch(function(){});
     }
 
     function closeTab(videoId) {

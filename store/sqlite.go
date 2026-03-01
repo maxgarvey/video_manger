@@ -157,6 +157,33 @@ func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
 	return scanVideos(rows)
 }
 
+// GetNextUnwatched returns the first video (by filename) that has no watch_history
+// entry. If tagID > 0, only videos with that tag are considered.
+func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video, error) {
+	var row *sql.Row
+	if tagID > 0 {
+		row = s.conn.QueryRowContext(ctx, `
+			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.rating
+			FROM videos v
+			JOIN video_tags vt ON v.id = vt.video_id
+			LEFT JOIN watch_history wh ON v.id = wh.video_id
+			WHERE vt.tag_id = ? AND wh.video_id IS NULL
+			ORDER BY COALESCE(NULLIF(v.display_name,''), v.filename)
+			LIMIT 1
+		`, tagID)
+	} else {
+		row = s.conn.QueryRowContext(ctx, `
+			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.rating
+			FROM videos v
+			LEFT JOIN watch_history wh ON v.id = wh.video_id
+			WHERE wh.video_id IS NULL
+			ORDER BY COALESCE(NULLIF(v.display_name,''), v.filename)
+			LIMIT 1
+		`)
+	}
+	return scanVideoRow(row)
+}
+
 func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
 	row := s.conn.QueryRowContext(ctx, `
 		SELECT id, filename, directory_id, directory_path, display_name, rating

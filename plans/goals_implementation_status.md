@@ -59,9 +59,9 @@ Ordered by complexity (easiest / least invasive first).
 | 39 | nit | `video_sort` setting: actually route to `ListVideosByRating` when sort=rating | ✅ Done |
 | 40 | UX 6a | Add "Rescan" button per directory (`POST /directories/{id}/sync`) | ✅ Done |
 | 41 | UX 6f | Use idiomorph `hx-ext="morph"` for video list swap to preserve scroll position | ✅ Done |
-| 42 | arch 5a | Graceful shutdown: SIGTERM handler + cancel root context + `Server.Shutdown` | ⬜ Todo |
-| 43 | bug 1a | `syncDir`: prune DB records for files deleted from disk | ⬜ Todo |
-| 44 | bug 1c | `handleConvert`: use background context so conversion survives browser disconnect | ⬜ Todo |
+| 42 | arch 5a | Graceful shutdown: SIGTERM handler + cancel root context + `Server.Shutdown` | ✅ Done |
+| 43 | bug 1a | `syncDir`: prune DB records for files deleted from disk | ✅ Done |
+| 44 | bug 1c | `handleConvert`: use background context so conversion survives browser disconnect | ✅ Done |
 | 45 | bug 1b | Multi-tab info panel: update panel when switching tabs | ⬜ Todo |
 | 46 | security 2b | `handleBrowseFS`: restrict path to home-dir subtree | ⬜ Todo |
 | 47 | testing 7c | Store tests for `GetRandomVideo` and `SearchVideos` | ⬜ Todo |

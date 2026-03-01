@@ -68,6 +68,7 @@ type Store interface {
 	SearchVideos(ctx context.Context, query string) ([]Video, error)
 	ListVideosByRating(ctx context.Context) ([]Video, error)
 	GetRandomVideo(ctx context.Context) (Video, error)
+	GetNextUnwatched(ctx context.Context, tagID int64) (Video, error)
 
 	// Settings
 	GetSetting(ctx context.Context, key string) (string, error)

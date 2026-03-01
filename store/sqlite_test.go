@@ -662,3 +662,97 @@ func TestListWatchHistory(t *testing.T) {
 		t.Error("expected non-empty WatchedAt for v2")
 	}
 }
+
+// --- GetRandomVideo ---
+
+func TestGetRandomVideo_Empty(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.GetRandomVideo(context.Background())
+	if err == nil {
+		t.Fatal("expected error when no videos exist, got nil")
+	}
+}
+
+func TestGetRandomVideo_ReturnsSomeVideo(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	d, _ := s.AddDirectory(ctx, "/vids")
+	s.UpsertVideo(ctx, d.ID, d.Path, "a.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "b.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "c.mp4")
+
+	v, err := s.GetRandomVideo(ctx)
+	if err != nil {
+		t.Fatalf("GetRandomVideo: %v", err)
+	}
+	if v.Filename != "a.mp4" && v.Filename != "b.mp4" && v.Filename != "c.mp4" {
+		t.Errorf("unexpected filename: %q", v.Filename)
+	}
+}
+
+// --- SearchVideos ---
+
+func TestSearchVideos_ByFilename(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	d, _ := s.AddDirectory(ctx, "/vids")
+	s.UpsertVideo(ctx, d.ID, d.Path, "nature_doc.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "cooking_show.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "nature_walk.mp4")
+
+	results, err := s.SearchVideos(ctx, "nature")
+	if err != nil {
+		t.Fatalf("SearchVideos: %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("expected 2 results, got %d", len(results))
+	}
+}
+
+func TestSearchVideos_ByDisplayName(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	d, _ := s.AddDirectory(ctx, "/vids")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep01.mp4")
+	s.UpdateVideoName(ctx, v.ID, "Planet Earth Episode 1")
+
+	results, err := s.SearchVideos(ctx, "planet earth")
+	if err != nil {
+		t.Fatalf("SearchVideos: %v", err)
+	}
+	if len(results) != 1 || results[0].ID != v.ID {
+		t.Errorf("expected 1 result for 'planet earth', got %+v", results)
+	}
+}
+
+func TestSearchVideos_LIKESpecialChars(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	d, _ := s.AddDirectory(ctx, "/vids")
+	s.UpsertVideo(ctx, d.ID, d.Path, "100%_real.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "other.mp4")
+
+	// A bare "%" should match literally, not wildcard-everything.
+	results, err := s.SearchVideos(ctx, "%")
+	if err != nil {
+		t.Fatalf("SearchVideos: %v", err)
+	}
+	if len(results) != 1 || results[0].Filename != "100%_real.mp4" {
+		t.Errorf("expected only 100%%_real.mp4, got %+v", results)
+	}
+}
+
+func TestSearchVideos_NoMatch(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	d, _ := s.AddDirectory(ctx, "/vids")
+	s.UpsertVideo(ctx, d.ID, d.Path, "something.mp4")
+
+	results, err := s.SearchVideos(ctx, "zzznomatch")
+	if err != nil {
+		t.Fatalf("SearchVideos: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results, got %d", len(results))
+	}
+}

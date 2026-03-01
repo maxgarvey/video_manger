@@ -226,6 +226,9 @@ func (s *server) routes() http.Handler {
 	// Random video ID (for initial tab load)
 	r.Get("/random-video", s.handleRandomVideoID)
 
+	// Next unwatched video
+	r.Get("/videos/next-unwatched", s.handleNextUnwatched)
+
 	return r
 }
 
@@ -1377,16 +1380,25 @@ func (s *server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
 // handleBrowseFS lists the immediate visible subdirectories of a path.
 // It is used by the folder-picker UI in the library sidebar.
 // The path defaults to the user's home directory when not supplied.
+// Browsing is restricted to the home-directory subtree to limit filesystem exposure.
 func (s *server) handleBrowseFS(w http.ResponseWriter, r *http.Request) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/"
+	}
+
 	path := r.URL.Query().Get("path")
 	if path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			home = "/"
-		}
 		path = home
 	}
 	path = filepath.Clean(path)
+
+	// Reject paths outside the home directory.
+	rel, err := filepath.Rel(home, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		http.Error(w, "path is outside the allowed directory", http.StatusForbidden)
+		return
+	}
 
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -1403,7 +1415,7 @@ func (s *server) handleBrowseFS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parent := filepath.Dir(path)
-	if parent == path { // already at root
+	if parent == path || parent == home { // already at root or at home boundary
 		parent = ""
 	}
 
@@ -1488,6 +1500,17 @@ func (s *server) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
 	if err := templates.ExecuteTemplate(w, "duplicates.html", groups); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (s *server) handleNextUnwatched(w http.ResponseWriter, r *http.Request) {
+	tagID, _ := strconv.ParseInt(r.URL.Query().Get("tag_id"), 10, 64)
+	video, err := s.store.GetNextUnwatched(r.Context(), tagID)
+	if err != nil {
+		http.Error(w, "no unwatched videos", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"id": video.ID, "title": video.Title()}) //nolint:errcheck
 }
 
 func (s *server) handleRandomVideoID(w http.ResponseWriter, r *http.Request) {
