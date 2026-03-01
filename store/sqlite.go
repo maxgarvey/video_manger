@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/maxgarvey/video_manger/db"
 	_ "modernc.org/sqlite"
@@ -177,12 +178,15 @@ func (s *SQLiteStore) DeleteVideo(ctx context.Context, id int64) error {
 }
 
 func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, error) {
+	// Escape LIKE special characters so a user query of "%" or "_" is treated
+	// literally and doesn't inadvertently match all rows.
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT id, filename, directory_id, directory_path, display_name, rating
 		FROM videos
-		WHERE LOWER(COALESCE(NULLIF(display_name, ''), filename)) LIKE LOWER(?)
+		WHERE LOWER(COALESCE(NULLIF(display_name, ''), filename)) LIKE LOWER(?) ESCAPE '\'
 		ORDER BY COALESCE(NULLIF(display_name, ''), filename)
-	`, "%"+query+"%")
+	`, "%"+escaped+"%")
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +221,12 @@ func (s *SQLiteStore) TagVideo(ctx context.Context, videoID, tagID int64) error 
 
 func (s *SQLiteStore) UntagVideo(ctx context.Context, videoID, tagID int64) error {
 	return s.q.UntagVideo(ctx, db.UntagVideoParams{VideoID: videoID, TagID: tagID})
+}
+
+func (s *SQLiteStore) PruneOrphanTags(ctx context.Context) error {
+	_, err := s.conn.ExecContext(ctx,
+		`DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM video_tags)`)
+	return err
 }
 
 func (s *SQLiteStore) ListTagsByVideo(ctx context.Context, videoID int64) ([]Tag, error) {

@@ -424,6 +424,7 @@ func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.store.PruneOrphanTags(r.Context()) //nolint:errcheck
 	tags, err := s.store.ListTagsByVideo(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -467,6 +468,7 @@ func (s *server) handleDeleteVideo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.store.PruneOrphanTags(r.Context()) //nolint:errcheck
 	s.serveVideoList(w, r)
 }
 
@@ -704,6 +706,9 @@ func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clean up the transcoded file after serving so it does not accumulate
+	// in the source directory or appear in a subsequent library sync.
+	defer os.Remove(outPath) //nolint:errcheck
 	w.Header().Set("Content-Disposition", `attachment; filename="`+outName+`"`)
 	http.ServeFile(w, r, outPath)
 }

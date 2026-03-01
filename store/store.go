@@ -86,4 +86,6 @@ type Store interface {
 	TagVideo(ctx context.Context, videoID, tagID int64) error
 	UntagVideo(ctx context.Context, videoID, tagID int64) error
 	ListTagsByVideo(ctx context.Context, videoID int64) ([]Tag, error)
+	// PruneOrphanTags removes tags that are no longer associated with any video.
+	PruneOrphanTags(ctx context.Context) error
 }

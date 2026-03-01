@@ -358,6 +358,84 @@ func TestListVideosByTag(t *testing.T) {
 	_ = v2
 }
 
+func TestPruneOrphanTags(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+	tag, _ := s.UpsertTag(ctx, "drama")
+	s.TagVideo(ctx, v.ID, tag.ID) //nolint:errcheck
+
+	// Remove the only association; tag should now be orphaned.
+	s.UntagVideo(ctx, v.ID, tag.ID) //nolint:errcheck
+	if err := s.PruneOrphanTags(ctx); err != nil {
+		t.Fatalf("PruneOrphanTags: %v", err)
+	}
+	tags, _ := s.ListTags(ctx)
+	if len(tags) != 0 {
+		t.Errorf("expected 0 tags after prune, got %d: %+v", len(tags), tags)
+	}
+}
+
+func TestPruneOrphanTags_KeepsUsed(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+	used, _ := s.UpsertTag(ctx, "comedy")
+	orphan, _ := s.UpsertTag(ctx, "unused")
+	s.TagVideo(ctx, v.ID, used.ID) //nolint:errcheck
+	_ = orphan
+
+	if err := s.PruneOrphanTags(ctx); err != nil {
+		t.Fatalf("PruneOrphanTags: %v", err)
+	}
+	tags, _ := s.ListTags(ctx)
+	if len(tags) != 1 || tags[0].Name != "comedy" {
+		t.Errorf("expected only 'comedy' tag to survive, got %+v", tags)
+	}
+}
+
+func TestSearchVideos_LikeWildcardEscaping(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	s.UpsertVideo(ctx, d.ID, d.Path, "action_film.mp4") //nolint:errcheck
+	s.UpsertVideo(ctx, d.ID, d.Path, "comedy.mp4")      //nolint:errcheck
+
+	// A literal "%" should not match all rows.
+	results, err := s.SearchVideos(ctx, "%")
+	if err != nil {
+		t.Fatalf("SearchVideos(%%): %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for literal %% query, got %d", len(results))
+	}
+
+	// A literal "_" should not act as a wildcard (matching everything);
+	// it should match only files whose name contains a literal underscore.
+	results, err = s.SearchVideos(ctx, "_")
+	if err != nil {
+		t.Fatalf("SearchVideos(_): %v", err)
+	}
+	// action_film.mp4 contains a literal '_'; comedy.mp4 does not.
+	if len(results) != 1 {
+		t.Errorf("expected 1 result for literal _ query (only file with underscore), got %d", len(results))
+	}
+
+	// Normal term should still work.
+	results, err = s.SearchVideos(ctx, "action")
+	if err != nil {
+		t.Fatalf("SearchVideos(action): %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result for 'action', got %d", len(results))
+	}
+}
+
 func TestTagVideo_Idempotent(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

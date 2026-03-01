@@ -191,7 +191,6 @@
     </section>
     <section>
       <h2>Download from URL</h2>
-      <div id="ytdlp-dirs" hx-get="/directories" hx-trigger="load" style="display:none"></div>
       <form hx-post="/ytdlp/download" hx-target="#video-list" hx-indicator="#ytdlp-status"
             style="display:flex;flex-direction:column;gap:0.4rem">
         <input type="text" name="url" placeholder="YouTube / video URL">
@@ -223,7 +222,9 @@
   </aside>
 
   <!-- Info panel overlay — content injected via hx-swap-oob by player.html -->
-  <div id="info-panel"></div>
+  <div id="info-panel">
+    <p style="color:#555;font-size:0.82rem">Select a video to see details.</p>
+  </div>
 
   <!-- Config panel overlay -->
   <div id="config-panel">
