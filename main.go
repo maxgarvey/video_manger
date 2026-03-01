@@ -77,6 +77,9 @@ func (s *server) routes() http.Handler {
 	r.Post("/videos/{id}/progress", s.handlePostProgress)
 	r.Get("/videos/{id}/progress", s.handleGetProgress)
 
+	// Rating
+	r.Post("/videos/{id}/rating", s.handleSetRating)
+
 	// File metadata (ffprobe/ffmpeg)
 	r.Get("/videos/{id}/metadata", s.handleGetMetadata)
 	r.Get("/videos/{id}/metadata/edit", s.handleEditMetadata)
@@ -458,6 +461,31 @@ func (s *server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
 		"position":   rec.Position,
 		"watched_at": rec.WatchedAt,
 	})
+}
+
+func (s *server) handleSetRating(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	rating, _ := strconv.Atoi(r.FormValue("rating"))
+	if rating < 0 || rating > 2 {
+		http.Error(w, "rating must be 0, 1, or 2", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SetVideoRating(r.Context(), id, rating); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "rating_buttons.html", video); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *server) handleGetMetadata(w http.ResponseWriter, r *http.Request) {

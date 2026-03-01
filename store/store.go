@@ -18,6 +18,7 @@ type Video struct {
 	DirectoryID   int64
 	DirectoryPath string
 	DisplayName   string
+	Rating        int // 0=neutral, 1=liked, 2=double-liked
 }
 
 // Title returns the display name if set, otherwise the filename.
@@ -61,6 +62,7 @@ type Store interface {
 	ListVideosByDirectory(ctx context.Context, dirID int64) ([]Video, error)
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	UpdateVideoName(ctx context.Context, id int64, name string) error
+	SetVideoRating(ctx context.Context, id int64, rating int) error
 	DeleteVideo(ctx context.Context, id int64) error
 	SearchVideos(ctx context.Context, query string) ([]Video, error)
 

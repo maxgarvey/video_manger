@@ -640,6 +640,50 @@ func TestHandleVideoList_ShowsWatchedIndicator(t *testing.T) {
 	}
 }
 
+func TestHandleSetRating(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "movie.mp4")
+
+	setRating := func(rating int) int {
+		form := url.Values{"rating": {strconv.Itoa(rating)}}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/rating", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		srv.routes().ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if code := setRating(1); code != http.StatusOK {
+		t.Fatalf("set liked: expected 200, got %d", code)
+	}
+	got, _ := srv.store.GetVideo(ctx, v.ID)
+	if got.Rating != 1 {
+		t.Errorf("expected rating 1, got %d", got.Rating)
+	}
+
+	if code := setRating(2); code != http.StatusOK {
+		t.Fatalf("set double-liked: expected 200, got %d", code)
+	}
+	got, _ = srv.store.GetVideo(ctx, v.ID)
+	if got.Rating != 2 {
+		t.Errorf("expected rating 2, got %d", got.Rating)
+	}
+
+	if code := setRating(0); code != http.StatusOK {
+		t.Fatalf("reset rating: expected 200, got %d", code)
+	}
+	got, _ = srv.store.GetVideo(ctx, v.ID)
+	if got.Rating != 0 {
+		t.Errorf("expected rating 0, got %d", got.Rating)
+	}
+
+	if code := setRating(3); code != http.StatusBadRequest {
+		t.Fatalf("invalid rating: expected 400, got %d", code)
+	}
+}
+
 func TestHandleDeleteVideo(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()

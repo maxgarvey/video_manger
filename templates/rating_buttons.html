@@ -1,0 +1,18 @@
+<div id="rating-{{.ID}}" style="display:flex;gap:0.4rem;align-items:center">
+  <button
+    hx-post="/videos/{{.ID}}/rating"
+    hx-vals='{"rating": "{{if eq .Rating 1}}0{{else}}1{{end}}"}'
+    hx-target="#rating-{{.ID}}"
+    hx-swap="outerHTML"
+    title="Like"
+    style="background:{{if ge .Rating 1}}#2a4a2a{{else}}#2a2a2a{{end}};border:1px solid {{if ge .Rating 1}}#4a9a4a{{else}}#444{{end}};color:{{if ge .Rating 1}}#8f8{{else}}#888{{end}};padding:0.3rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.85rem"
+  >👍{{if ge .Rating 1}} Liked{{end}}</button>
+  <button
+    hx-post="/videos/{{.ID}}/rating"
+    hx-vals='{"rating": "{{if eq .Rating 2}}0{{else}}2{{end}}"}'
+    hx-target="#rating-{{.ID}}"
+    hx-swap="outerHTML"
+    title="Favourite"
+    style="background:{{if eq .Rating 2}}#4a3a00{{else}}#2a2a2a{{end}};border:1px solid {{if eq .Rating 2}}#c8a000{{else}}#444{{end}};color:{{if eq .Rating 2}}#fc0{{else}}#888{{end}};padding:0.3rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.85rem"
+  >⭐{{if eq .Rating 2}} Fav{{end}}</button>
+</div>
