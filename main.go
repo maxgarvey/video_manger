@@ -94,6 +94,32 @@ type server struct {
 	sessionsMu   sync.RWMutex
 }
 
+// videoGroup is a view-layer grouping of videos sharing the same directory.
+type videoGroup struct {
+	Label  string // last path component of DirectoryPath
+	Videos []store.Video
+}
+
+// groupVideosByDir groups a flat video slice by DirectoryPath, preserving
+// the order videos appear in the input.
+func groupVideosByDir(videos []store.Video) []videoGroup {
+	var groups []videoGroup
+	idx := map[string]int{} // dirPath → slice index
+	for _, v := range videos {
+		p := v.DirectoryPath
+		if i, ok := idx[p]; ok {
+			groups[i].Videos = append(groups[i].Videos, v)
+		} else {
+			idx[p] = len(groups)
+			groups = append(groups, videoGroup{
+				Label:  filepath.Base(p),
+				Videos: []store.Video{v},
+			})
+		}
+	}
+	return groups
+}
+
 func main() {
 	dbPath := flag.String("db", "video_manger.db", "path to SQLite database file")
 	dir := flag.String("dir", "", "video directory to register on startup (optional)")
@@ -754,8 +780,9 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 	)
 	q := r.URL.Query()
 	sortOrder, _ := s.store.GetSetting(r.Context(), "video_sort")
+	isSearch := q.Get("q") != ""
 	switch {
-	case q.Get("q") != "":
+	case isSearch:
 		videos, err = s.store.SearchVideos(r.Context(), q.Get("q"))
 	case q.Get("tag_id") != "":
 		tagID, _ := strconv.ParseInt(q.Get("tag_id"), 10, 64)
@@ -783,12 +810,29 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 			}
 			return 0
 		})
+	} else if !isSearch {
+		// For non-search views, sort by directory then title so groups are contiguous.
+		slices.SortFunc(videos, func(a, b store.Video) int {
+			if a.DirectoryPath != b.DirectoryPath {
+				if a.DirectoryPath < b.DirectoryPath {
+					return -1
+				}
+				return 1
+			}
+			if a.Title() < b.Title() {
+				return -1
+			}
+			if a.Title() > b.Title() {
+				return 1
+			}
+			return 0
+		})
 	}
 	history, _ := s.store.ListWatchHistory(r.Context())
 	data := struct {
-		Videos  []store.Video
+		Groups  []videoGroup
 		History map[int64]store.WatchRecord
-	}{videos, history}
+	}{groupVideosByDir(videos), history}
 	if err := templates.ExecuteTemplate(w, "video_list.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

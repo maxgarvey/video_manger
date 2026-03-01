@@ -77,5 +77,5 @@ Ordered by complexity (easiest first).
 | 50 | 4 | Add show name to hover overlay | ✅ Done |
 | 51 | 5 | Video not found: offer delete or relocate | ✅ Done |
 | 52 | 2 | Library as semi-transparent full-pane overlay | ✅ Done |
-| 53 | 3 | Season/folder grouping in library UI | ⬜ Todo |
+| 53 | 3 | Season/folder grouping in library UI | ✅ Done |
 | 54 | 1 | Info panel always visible below video (scroll to reach) | ⬜ Todo |
