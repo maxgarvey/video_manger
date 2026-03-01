@@ -139,6 +139,35 @@ func TestUpdateVideoName(t *testing.T) {
 	}
 }
 
+func TestListVideosByDirectory(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d1, _ := s.AddDirectory(ctx, "/videos/a")
+	d2, _ := s.AddDirectory(ctx, "/videos/b")
+	s.UpsertVideo(ctx, d1.ID, "one.mp4")
+	s.UpsertVideo(ctx, d1.ID, "two.mp4")
+	s.UpsertVideo(ctx, d2.ID, "three.mp4")
+
+	vids, err := s.ListVideosByDirectory(ctx, d1.ID)
+	if err != nil {
+		t.Fatalf("ListVideosByDirectory: %v", err)
+	}
+	if len(vids) != 2 {
+		t.Errorf("expected 2 videos for d1, got %d", len(vids))
+	}
+	for _, v := range vids {
+		if v.DirectoryID != d1.ID {
+			t.Errorf("expected directory_id %d, got %d", d1.ID, v.DirectoryID)
+		}
+	}
+
+	vids2, _ := s.ListVideosByDirectory(ctx, d2.ID)
+	if len(vids2) != 1 {
+		t.Errorf("expected 1 video for d2, got %d", len(vids2))
+	}
+}
+
 func TestSearchVideos(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

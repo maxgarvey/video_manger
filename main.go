@@ -83,7 +83,9 @@ func (s *server) routes() http.Handler {
 	// Directories
 	r.Get("/directories", s.handleListDirectories)
 	r.Post("/directories", s.handleAddDirectory)
+	r.Get("/directories/{id}/delete-confirm", s.handleDirectoryDeleteConfirm)
 	r.Delete("/directories/{id}", s.handleDeleteDirectory)
+	r.Delete("/directories/{id}/files", s.handleDeleteDirectoryAndFiles)
 
 	return r
 }
@@ -481,7 +483,58 @@ func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) handleListDirectories(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleDirectoryDeleteConfirm(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	dirs, err := s.store.ListDirectories(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var dir store.Directory
+	for _, d := range dirs {
+		if d.ID == id {
+			dir = d
+			break
+		}
+	}
+	if dir.ID == 0 {
+		http.Error(w, "directory not found", http.StatusNotFound)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "directory_delete_confirm.html", dir); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleDeleteDirectoryAndFiles(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	// Collect file paths before the cascade delete wipes the rows.
+	videos, err := s.store.ListVideosByDirectory(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.DeleteDirectory(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, v := range videos {
+		if err := os.Remove(v.FilePath()); err != nil {
+			log.Printf("delete file %s: %v", v.FilePath(), err)
+		}
+	}
+	s.serveDirList(w, r)
+}
+
+func (s *server) serveDirList(w http.ResponseWriter, r *http.Request) {
 	dirs, err := s.store.ListDirectories(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -490,6 +543,10 @@ func (s *server) handleListDirectories(w http.ResponseWriter, r *http.Request) {
 	if err := templates.ExecuteTemplate(w, "directories.html", dirs); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (s *server) handleListDirectories(w http.ResponseWriter, r *http.Request) {
+	s.serveDirList(w, r)
 }
 
 func (s *server) handleAddDirectory(w http.ResponseWriter, r *http.Request) {
@@ -504,14 +561,7 @@ func (s *server) handleAddDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.syncDir(d)
-	dirs, err := s.store.ListDirectories(r.Context())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := templates.ExecuteTemplate(w, "directories.html", dirs); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	s.serveDirList(w, r)
 }
 
 func (s *server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
@@ -524,14 +574,7 @@ func (s *server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	dirs, err := s.store.ListDirectories(r.Context())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := templates.ExecuteTemplate(w, "directories.html", dirs); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	s.serveDirList(w, r)
 }
 
 func isVideoFile(name string) bool {
