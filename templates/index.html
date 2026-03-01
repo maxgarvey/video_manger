@@ -133,9 +133,12 @@
 </head>
 <body>
 
-  <!-- Full-screen player area -->
-  <main id="player">
-    <p style="color:#444">Select a video to play</p>
+  <!-- Full-screen player area — loads a random video automatically on start -->
+  <main id="player"
+        hx-get="/play/random"
+        hx-trigger="load"
+        hx-swap="innerHTML">
+    <p style="color:#444">Loading…</p>
   </main>
 
   <!-- Library toggle button — top left -->
