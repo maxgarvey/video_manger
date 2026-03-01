@@ -1,0 +1,20 @@
+<li style="display:flex;flex-direction:column;gap:0.4rem;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:4px;padding:0.5rem 0.6rem">
+  <span style="font-size:0.8rem;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Path}}">{{.Path}}</span>
+  <div style="display:flex;gap:0.3rem">
+    <button
+      hx-delete="/directories/{{.ID}}"
+      hx-target="#directories"
+      style="flex:1;background:#2a2a2a;border:1px solid #444;color:#ccc;padding:0.3rem 0.4rem;border-radius:4px;cursor:pointer;font-size:0.75rem"
+    >Remove from library</button>
+    <button
+      hx-delete="/directories/{{.ID}}/files"
+      hx-target="#directories"
+      style="flex:1;background:#2a1515;border:1px solid #5a2a2a;color:#f08080;padding:0.3rem 0.4rem;border-radius:4px;cursor:pointer;font-size:0.75rem"
+    >Remove and delete files</button>
+    <button
+      hx-get="/directories"
+      hx-target="#directories"
+      style="background:none;border:1px solid #3a3a3a;color:#555;padding:0.3rem 0.4rem;border-radius:4px;cursor:pointer;font-size:0.75rem"
+    >Cancel</button>
+  </div>
+</li>

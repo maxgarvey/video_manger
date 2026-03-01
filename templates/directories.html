@@ -4,10 +4,11 @@
   <li style="display:flex;align-items:center;gap:0.4rem">
     <span style="flex:1;font-size:0.8rem;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Path}}">{{.Path}}</span>
     <button
-      hx-delete="/directories/{{.ID}}"
-      hx-target="#directories"
-      hx-confirm="Remove '{{.Path}}'?"
-      style="background:none;border:none;color:#666;cursor:pointer;font-size:0.8rem;padding:0.1rem 0.3rem;flex-shrink:0"
+      hx-get="/directories/{{.ID}}/delete-confirm"
+      hx-target="closest li"
+      hx-swap="outerHTML"
+      style="background:none;border:none;color:#555;cursor:pointer;font-size:0.9rem;padding:0.2rem 0.35rem;flex-shrink:0;line-height:1"
+      title="Delete"
     >✕</button>
   </li>
   {{end}}

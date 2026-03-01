@@ -302,13 +302,69 @@ func TestHandleDirectories(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add dir: expected 200, got %d", rec.Code)
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "/my/videos") {
+	if !strings.Contains(rec.Body.String(), "/my/videos") {
 		t.Error("expected new directory in response")
 	}
-	// Confirm modal shows the directory path
-	if !strings.Contains(body, "Remove '/my/videos'?") {
-		t.Errorf("expected path in hx-confirm attribute, got: %s", body)
+}
+
+func TestHandleDirectoryDeleteConfirm(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/my/videos")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/directories/"+itoa(d.ID)+"/delete-confirm", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "/my/videos") {
+		t.Error("expected directory path in confirmation")
+	}
+	if !strings.Contains(body, "Remove from library") {
+		t.Error("expected library-only option")
+	}
+	if !strings.Contains(body, "Remove and delete files") {
+		t.Error("expected file-delete option")
+	}
+}
+
+func TestHandleDeleteDirectoryAndFiles(t *testing.T) {
+	dir := t.TempDir()
+	files := []string{"ep1.mp4", "ep2.mp4"}
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("fake"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	srv.store.UpsertVideo(ctx, d.ID, "ep1.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, "ep2.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/directories/"+itoa(d.ID)+"/files", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	// Directory and videos removed from DB
+	dirs, _ := srv.store.ListDirectories(ctx)
+	if len(dirs) != 0 {
+		t.Errorf("expected 0 directories, got %d", len(dirs))
+	}
+	videos, _ := srv.store.ListVideos(ctx)
+	if len(videos) != 0 {
+		t.Errorf("expected 0 videos, got %d", len(videos))
+	}
+	// Files removed from disk
+	for _, f := range files {
+		if _, err := os.Stat(filepath.Join(dir, f)); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be deleted from disk", f)
+		}
 	}
 }
 
