@@ -310,6 +310,38 @@ func TestHandleAddAndRemoveVideoTag(t *testing.T) {
 	}
 }
 
+func TestHandleInfo(t *testing.T) {
+	srv := newTestServer(t)
+	srv.port = "8080"
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/info", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"port"`) {
+		t.Error("expected port in /info response")
+	}
+	if !strings.Contains(body, `"addresses"`) {
+		t.Error("expected addresses in /info response")
+	}
+}
+
+func TestLocalAddresses(t *testing.T) {
+	addrs := localAddresses("8080")
+	// We can't assert specific IPs in tests, but the function should not panic
+	// and all returned values should be valid URLs.
+	for _, a := range addrs {
+		if !strings.HasPrefix(a, "http://") {
+			t.Errorf("expected http:// prefix, got %q", a)
+		}
+		if !strings.HasSuffix(a, ":8080") {
+			t.Errorf("expected :8080 suffix, got %q", a)
+		}
+	}
+}
+
 func TestHandleSettings(t *testing.T) {
 	srv := newTestServer(t)
 
