@@ -6,7 +6,7 @@
     <button
       hx-delete="/directories/{{.ID}}"
       hx-target="#directories"
-      hx-confirm="Remove this directory?"
+      hx-confirm="Remove '{{.Path}}'?"
       style="background:none;border:none;color:#666;cursor:pointer;font-size:0.8rem;padding:0.1rem 0.3rem;flex-shrink:0"
     >✕</button>
   </li>

@@ -184,6 +184,20 @@
     document.getElementById('player').addEventListener('htmx:afterSwap', function () {
       document.body.classList.remove('lib-open');
     });
+
+    // Keyboard shortcuts
+    // L — toggle library   I — toggle info panel   Escape — close both
+    document.addEventListener('keydown', function (e) {
+      if (e.target.matches('input, textarea, select') || e.target.isContentEditable) return;
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.key === 'l' || e.key === 'L') {
+        document.body.classList.toggle('lib-open');
+      } else if (e.key === 'i' || e.key === 'I') {
+        document.body.classList.toggle('info-open');
+      } else if (e.key === 'Escape') {
+        document.body.classList.remove('lib-open', 'info-open');
+      }
+    });
   </script>
 
 </body>
