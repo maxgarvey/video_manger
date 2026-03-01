@@ -37,7 +37,7 @@ Directories can also be added and removed from the UI at any time.
 - **Filter by tag** — click a tag in the sidebar to filter the video list
 - **Edit file metadata** — view and edit embedded metadata (title, description, genre, show, network, episode ID, season/episode number, date, comment) via ffmpeg — no re-encoding
 - **Delete videos** — remove from the library only, or delete the file from disk too
-- **Multiple directories** — register as many directories as you like; removing one cascades to its videos
+- **Multiple directories** — register as many directories as you like; removing one offers the choice to remove from library only or delete all video files from disk too
 
 ## Keyboard Shortcuts
 
