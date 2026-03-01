@@ -115,6 +115,8 @@ func main() {
 		log.Printf("  mDNS: http://video-manger.local:%s", *port)
 	}
 
+	checkBinaries()
+
 	go srv.startLibraryPoller(context.Background())
 
 	log.Printf("Starting server on http://localhost:%s", *port)
@@ -575,13 +577,11 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	watched, _ := s.store.ListWatchedIDs(r.Context())
 	history, _ := s.store.ListWatchHistory(r.Context())
 	data := struct {
 		Videos  []store.Video
-		Watched map[int64]bool
 		History map[int64]store.WatchRecord
-	}{videos, watched, history}
+	}{videos, history}
 	if err := templates.ExecuteTemplate(w, "video_list.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -696,14 +696,14 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 
 	ext := filepath.Ext(video.Filename)
 	base := strings.TrimSuffix(video.Filename, ext)
-	outName := base + cf.ext
-	outPath := filepath.Join(video.DirectoryPath, outName)
 
 	// Guard against overwriting the source file (e.g. mkv→mkv with copy codec).
-	if outPath == video.FilePath() {
+	if strings.EqualFold(ext, cf.ext) {
 		http.Error(w, "source and output are the same file; choose a different format", http.StatusBadRequest)
 		return
 	}
+	outName := freeOutputName(video.DirectoryPath, base, "", cf.ext)
+	outPath := filepath.Join(video.DirectoryPath, outName)
 
 	args := []string{"-y", "-i", video.FilePath()}
 	args = append(args, cf.videoArgs...)
@@ -1250,9 +1250,21 @@ func (s *server) handleDirectoryOptions(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// handleCreateDirectory creates the directory on disk (MkdirAll) then
-// registers and syncs it, identical to handleAddDirectory but with the
-// extra filesystem creation step.
+// addAndSyncDir registers path in the DB, syncs its contents, then renders
+// the updated directory list. It is the shared tail of handleAddDirectory and
+// handleCreateDirectory.
+func (s *server) addAndSyncDir(w http.ResponseWriter, r *http.Request, path string) {
+	d, err := s.store.AddDirectory(r.Context(), path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.syncDir(d)
+	s.serveDirList(w, r)
+}
+
+// handleCreateDirectory creates the directory on disk (MkdirAll) then registers
+// and syncs it.
 func (s *server) handleCreateDirectory(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSpace(r.FormValue("path"))
 	if path == "" {
@@ -1263,13 +1275,7 @@ func (s *server) handleCreateDirectory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	d, err := s.store.AddDirectory(r.Context(), path)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.syncDir(d)
-	s.serveDirList(w, r)
+	s.addAndSyncDir(w, r, path)
 }
 
 func (s *server) handleAddDirectory(w http.ResponseWriter, r *http.Request) {
@@ -1278,13 +1284,7 @@ func (s *server) handleAddDirectory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path required", http.StatusBadRequest)
 		return
 	}
-	d, err := s.store.AddDirectory(r.Context(), path)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.syncDir(d)
-	s.serveDirList(w, r)
+	s.addAndSyncDir(w, r, path)
 }
 
 func (s *server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
@@ -1459,7 +1459,7 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 
 	ext := filepath.Ext(video.Filename)
 	base := strings.TrimSuffix(video.Filename, ext)
-	outName := base + "_trim" + ext
+	outName := freeOutputName(video.DirectoryPath, base, "_trim", ext)
 	outPath := filepath.Join(video.DirectoryPath, outName)
 
 	args := []string{"-y", "-ss", start}
@@ -1487,6 +1487,31 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.serveVideoList(w, r)
+}
+
+// freeOutputName returns the first non-existing filename of the form
+// base+suffix+ext, base+suffix_2+ext, base+suffix_3+ext, … inside dir.
+func freeOutputName(dir, base, suffix, ext string) string {
+	candidate := base + suffix + ext
+	if _, err := os.Stat(filepath.Join(dir, candidate)); os.IsNotExist(err) {
+		return candidate
+	}
+	for i := 2; ; i++ {
+		candidate = fmt.Sprintf("%s%s_%d%s", base, suffix, i, ext)
+		if _, err := os.Stat(filepath.Join(dir, candidate)); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+}
+
+// checkBinaries warns on startup if any optional external tool is missing.
+// The server starts regardless; affected endpoints will return 500 when invoked.
+func checkBinaries() {
+	for _, bin := range []string{"ffmpeg", "ffprobe", "yt-dlp"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			log.Printf("WARNING: %q not found in PATH — related features will be unavailable", bin)
+		}
+	}
 }
 
 func isVideoFile(name string) bool {

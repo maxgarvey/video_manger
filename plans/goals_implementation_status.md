@@ -44,14 +44,14 @@ Ordered by complexity (easiest / least invasive first).
 
 | # | Self-review ref | Feature | Status |
 |---|-----------------|---------|--------|
-| 27 | dead code 3a | Remove unused `handleRandomPlayer` + `GET /play/random` route | ⬜ Todo |
-| 28 | dead code 3b | Remove discarded `strconv.Atoi(*port)` result | ⬜ Todo |
-| 29 | quality 5c | Make `DupGroup` unexported (`dupGroup`) | ⬜ Todo |
-| 30 | quality 5b | `handleDirectoryDeleteConfirm`: use `GetDirectory` instead of linear scan | ⬜ Todo |
-| 31 | UX 6h | Tab strip: add full-title `title` tooltip to tab buttons | ⬜ Todo |
-| 32 | security 2c | Settings: never echo TMDB API key back as input value | ⬜ Todo |
-| 33 | nit | Fix silently-discarded `io.ReadAll` error in `tmdbGet` | ⬜ Todo |
-| 34 | nit | Clean up residual inline button styles in `tags.html` | ⬜ Todo |
+| 27 | dead code 3a | Remove unused `handleRandomPlayer` + `GET /play/random` route | ✅ Done |
+| 28 | dead code 3b | Remove discarded `strconv.Atoi(*port)` result | ✅ Done |
+| 29 | quality 5c | Make `DupGroup` unexported (`dupGroup`) | ✅ Done |
+| 30 | quality 5b | `handleDirectoryDeleteConfirm`: use `GetDirectory` instead of linear scan | ✅ Done |
+| 31 | UX 6h | Tab strip: add full-title `title` tooltip to tab buttons | ✅ Done |
+| 32 | security 2c | Settings: never echo TMDB API key back as input value | ✅ Done |
+| 33 | nit | Fix silently-discarded `io.ReadAll` error in `tmdbGet` | ✅ Done |
+| 34 | nit | Clean up residual inline button styles in `tags.html` | ✅ Done |
 | 35 | arch 5f | Startup check: warn if `ffmpeg`, `ffprobe`, or `yt-dlp` missing from PATH | ⬜ Todo |
 | 36 | perf 4a | `serveVideoList`: replace two `watch_history` full scans with one | ⬜ Todo |
 | 37 | quality 5d | Deduplicate `handleAddDirectory` / `handleCreateDirectory` into shared helper | ⬜ Todo |
