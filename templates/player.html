@@ -161,6 +161,19 @@
        hx-get="/videos/{{.Video.ID}}/metadata"
        hx-trigger="load"></div>
 
+  <!-- Copy to library -->
+  {{if .LibraryPath}}
+  <div style="display:flex;gap:0.4rem;align-items:center;padding-top:0.25rem">
+    <button class="btn-sm"
+      hx-post="/videos/{{.Video.ID}}/copy-to-library"
+      hx-target="#copy-lib-status-{{.Video.ID}}"
+      hx-swap="innerHTML"
+      title="Copy this file to {{.LibraryPath}}"
+    >📋 Copy to library</button>
+    <span id="copy-lib-status-{{.Video.ID}}" style="font-size:0.78rem;color:#888"></span>
+  </div>
+  {{end}}
+
   <!-- Export & Convert -->
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap;padding-top:0.25rem">
     <form hx-post="/videos/{{.Video.ID}}/export/usb"

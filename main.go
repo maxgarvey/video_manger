@@ -291,6 +291,7 @@ func (s *server) routes() http.Handler {
 	r.Get("/videos/{id}/progress", s.handleGetProgress)
 	r.Post("/videos/{id}/watched", s.handleMarkWatched)
 	r.Delete("/videos/{id}/progress", s.handleClearProgress)
+	r.Post("/videos/{id}/copy-to-library", s.handleCopyToLibrary)
 
 	// Rating
 	r.Post("/videos/{id}/rating", s.handleSetRating)
@@ -537,13 +538,15 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 			showName = meta.Show
 		}
 	}
+	libPath, _ := s.store.GetSetting(r.Context(), "library_path")
 	data := struct {
-		Video       store.Video
-		Tags        []store.Tag
-		AllTags     []store.Tag
-		ShowName    string
+		Video        store.Video
+		Tags         []store.Tag
+		AllTags      []store.Tag
+		ShowName     string
 		FileNotFound bool
-	}{video, tags, allTags, showName, fileNotFound}
+		LibraryPath  string
+	}{video, tags, allTags, showName, fileNotFound, strings.TrimSpace(libPath)}
 	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -907,6 +910,67 @@ func (s *server) handleClearProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.serveVideoList(w, r)
+}
+
+func (s *server) handleCopyToLibrary(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	libPath, _ := s.store.GetSetting(r.Context(), "library_path")
+	libPath = strings.TrimSpace(libPath)
+	if libPath == "" {
+		http.Error(w, "Library path not configured — set it in Settings.", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	src := video.FilePath()
+	if _, err := os.Stat(src); err != nil {
+		http.Error(w, "source file not found", http.StatusNotFound)
+		return
+	}
+	if err := os.MkdirAll(libPath, 0755); err != nil {
+		http.Error(w, "cannot create library directory: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	base := filepath.Base(src)
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	dst := filepath.Join(libPath, base)
+	for i := 2; ; i++ {
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			break
+		}
+		dst = filepath.Join(libPath, fmt.Sprintf("%s_%d%s", stem, i, ext))
+	}
+	if err := copyFile(src, dst); err != nil {
+		http.Error(w, "copy failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintf(w, `<span style="color:#4a9a4a;font-size:0.8rem">✓ Copied to %s</span>`, filepath.Base(dst))
+}
+
+// copyFile copies src to dst using a streaming io.Copy.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
@@ -1482,14 +1546,17 @@ func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	autoplay, _ := s.store.GetSetting(r.Context(), "autoplay_random")
 	sortOrder, _ := s.store.GetSetting(r.Context(), "video_sort")
 	tmdbKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
+	libPath, _ := s.store.GetSetting(r.Context(), "library_path")
 	data := struct {
 		AutoplayRandom bool
 		VideoSort      string
 		TMDBKey        string
+		LibraryPath    string
 	}{
 		AutoplayRandom: autoplay != "false",
 		VideoSort:      sortOrder,
 		TMDBKey:        tmdbKey,
+		LibraryPath:    libPath,
 	}
 	if err := templates.ExecuteTemplate(w, "settings.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1508,6 +1575,7 @@ func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	settings := map[string]string{
 		"autoplay_random": autoplay,
 		"video_sort":      sortOrder,
+		"library_path":    strings.TrimSpace(r.FormValue("library_path")),
 	}
 	// Only overwrite the key if the user submitted a non-empty value; leaving
 	// the field blank preserves the existing key.

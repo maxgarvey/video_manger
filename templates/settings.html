@@ -24,6 +24,13 @@
     <span style="font-size:0.75rem;color:#555">Used for 🔍 Look up in the player info panel.</span>
   </div>
 
+  <div style="display:flex;flex-direction:column;gap:0.3rem">
+    <span style="font-size:0.8rem;color:#aaa">Library path{{if .LibraryPath}} <span style="color:#4a9a4a;font-size:0.75rem">(set)</span>{{end}}</span>
+    <input type="text" name="library_path" value="{{.LibraryPath}}" placeholder="/path/to/library"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem;font-family:monospace">
+    <span style="font-size:0.75rem;color:#555">Files can be copied here with "Copy to library" from the player.</span>
+  </div>
+
   <button type="submit" style="align-self:flex-start">Save</button>
 </form>
 
