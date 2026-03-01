@@ -91,6 +91,10 @@ func (s *server) routes() http.Handler {
 	r.Delete("/videos/{id}/tags/{tagID}", s.handleRemoveVideoTag)
 	r.Get("/tags", s.handleListTags)
 
+	// Settings
+	r.Get("/settings", s.handleGetSettings)
+	r.Post("/settings", s.handleSaveSettings)
+
 	// Directories
 	r.Get("/directories", s.handleListDirectories)
 	r.Post("/directories", s.handleAddDirectory)
@@ -201,6 +205,11 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleRandomPlayer(w http.ResponseWriter, r *http.Request) {
+	autoplay, _ := s.store.GetSetting(r.Context(), "autoplay_random")
+	if autoplay == "false" {
+		w.Write([]byte(`<p style="color:#444">Select a video to play.</p>`)) //nolint:errcheck
+		return
+	}
 	videos, err := s.store.ListVideos(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -399,19 +408,23 @@ func (s *server) handleDeleteVideoAndFile(w http.ResponseWriter, r *http.Request
 	s.serveVideoList(w, r)
 }
 
-// serveVideoList renders the video list, respecting tag_id and q query params.
+// serveVideoList renders the video list, respecting tag_id, q, and the
+// video_sort setting.
 func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 	var (
 		videos []store.Video
 		err    error
 	)
 	q := r.URL.Query()
+	sortOrder, _ := s.store.GetSetting(r.Context(), "video_sort")
 	switch {
 	case q.Get("q") != "":
 		videos, err = s.store.SearchVideos(r.Context(), q.Get("q"))
 	case q.Get("tag_id") != "":
 		tagID, _ := strconv.ParseInt(q.Get("tag_id"), 10, 64)
 		videos, err = s.store.ListVideosByTag(r.Context(), tagID)
+	case sortOrder == "rating":
+		videos, err = s.store.ListVideosByRating(r.Context())
 	default:
 		videos, err = s.store.ListVideos(r.Context())
 	}
@@ -646,6 +659,35 @@ func (s *server) handleDeleteDirectoryAndFiles(w http.ResponseWriter, r *http.Re
 		return
 	}
 	s.serveDirList(w, r)
+}
+
+func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	autoplay, _ := s.store.GetSetting(r.Context(), "autoplay_random")
+	sortOrder, _ := s.store.GetSetting(r.Context(), "video_sort")
+	data := struct {
+		AutoplayRandom bool
+		VideoSort      string
+	}{
+		AutoplayRandom: autoplay != "false",
+		VideoSort:      sortOrder,
+	}
+	if err := templates.ExecuteTemplate(w, "settings.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
+	autoplay := "false"
+	if r.FormValue("autoplay_random") == "on" {
+		autoplay = "true"
+	}
+	sortOrder := r.FormValue("video_sort")
+	if sortOrder != "name" && sortOrder != "rating" {
+		sortOrder = "name"
+	}
+	s.store.SetSetting(r.Context(), "autoplay_random", autoplay)   //nolint:errcheck
+	s.store.SetSetting(r.Context(), "video_sort", sortOrder)        //nolint:errcheck
+	s.handleGetSettings(w, r)
 }
 
 func (s *server) serveDirList(w http.ResponseWriter, r *http.Request) {

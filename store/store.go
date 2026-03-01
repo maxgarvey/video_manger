@@ -65,6 +65,11 @@ type Store interface {
 	SetVideoRating(ctx context.Context, id int64, rating int) error
 	DeleteVideo(ctx context.Context, id int64) error
 	SearchVideos(ctx context.Context, query string) ([]Video, error)
+	ListVideosByRating(ctx context.Context) ([]Video, error)
+
+	// Settings
+	GetSetting(ctx context.Context, key string) (string, error)
+	SetSetting(ctx context.Context, key, value string) error
 
 	// Watch history
 	RecordWatch(ctx context.Context, videoID int64, position float64) error

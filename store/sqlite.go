@@ -121,6 +121,18 @@ func (s *SQLiteStore) SetVideoRating(ctx context.Context, id int64, rating int) 
 	return err
 }
 
+func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT id, filename, directory_id, directory_path, display_name, rating
+		FROM videos
+		ORDER BY rating DESC, COALESCE(NULLIF(display_name, ''), filename)
+	`)
+	if err != nil {
+		return nil, err
+	}
+	return scanVideos(rows)
+}
+
 func (s *SQLiteStore) UpdateVideoName(ctx context.Context, id int64, name string) error {
 	return s.q.UpdateVideoName(ctx, db.UpdateVideoNameParams{
 		ID:          id,
@@ -217,6 +229,25 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 		videos = append(videos, v)
 	}
 	return videos, rows.Err()
+}
+
+// --- Settings ---
+
+func (s *SQLiteStore) GetSetting(ctx context.Context, key string) (string, error) {
+	var value string
+	err := s.conn.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+func (s *SQLiteStore) SetSetting(ctx context.Context, key, value string) error {
+	_, err := s.conn.ExecContext(ctx,
+		`INSERT INTO settings (key, value) VALUES (?, ?)
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+		key, value)
+	return err
 }
 
 // --- Watch history ---
