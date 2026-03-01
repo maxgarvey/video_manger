@@ -159,6 +159,30 @@ func (s *SQLiteStore) DeleteVideo(ctx context.Context, id int64) error {
 	return err
 }
 
+func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, error) {
+	pattern := "%" + query + "%"
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT v.id, v.filename, v.directory_id, v.display_name, d.path AS directory_path
+		FROM videos v
+		JOIN directories d ON d.id = v.directory_id
+		WHERE LOWER(COALESCE(NULLIF(v.display_name, ''), v.filename)) LIKE LOWER(?)
+		ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename)
+	`, pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var videos []Video
+	for rows.Next() {
+		var v Video
+		if err := rows.Scan(&v.ID, &v.Filename, &v.DirectoryID, &v.DisplayName, &v.DirectoryPath); err != nil {
+			return nil, err
+		}
+		videos = append(videos, v)
+	}
+	return videos, rows.Err()
+}
+
 // --- Tags ---
 
 func (s *SQLiteStore) UpsertTag(ctx context.Context, name string) (Tag, error) {

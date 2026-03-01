@@ -139,6 +139,40 @@ func TestUpdateVideoName(t *testing.T) {
 	}
 }
 
+func TestSearchVideos(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	s.UpsertVideo(ctx, d.ID, "bobs_burgers_s01e01.mp4")
+	s.UpsertVideo(ctx, d.ID, "bobs_burgers_s01e02.mp4")
+	s.UpsertVideo(ctx, d.ID, "archer_s01e01.mp4")
+
+	results, err := s.SearchVideos(ctx, "bobs")
+	if err != nil {
+		t.Fatalf("SearchVideos: %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("expected 2 results for 'bobs', got %d", len(results))
+	}
+
+	results, err = s.SearchVideos(ctx, "ARCHER")
+	if err != nil {
+		t.Fatalf("SearchVideos case-insensitive: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result for 'ARCHER', got %d", len(results))
+	}
+
+	results, err = s.SearchVideos(ctx, "nomatch")
+	if err != nil {
+		t.Fatalf("SearchVideos no match: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for 'nomatch', got %d", len(results))
+	}
+}
+
 func TestDeleteVideo(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
