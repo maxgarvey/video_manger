@@ -1,0 +1,24 @@
+<div style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:1rem;margin-top:0.5rem">
+  <h3 style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#888;margin:0 0 0.75rem">Trim Video</h3>
+  <form hx-post="/videos/{{.}}/trim"
+        hx-target="#video-list"
+        hx-indicator="#trim-status-{{.}}"
+        style="display:flex;flex-direction:column;gap:0.5rem">
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:0.35rem 0.5rem;align-items:center;font-size:0.82rem">
+      <label style="color:#888;white-space:nowrap">Start</label>
+      <input type="text" name="start" placeholder="0:00 or 0 (default: start)" value="0"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem;font-family:monospace">
+      <label style="color:#888;white-space:nowrap">End</label>
+      <input type="text" name="end" placeholder="1:30 or 90.5 (default: end)"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem;font-family:monospace">
+    </div>
+    <div style="font-size:0.75rem;color:#555">
+      Accepts <code style="color:#777">HH:MM:SS</code>, <code style="color:#777">MM:SS</code>, or seconds.
+      Output saved as <code style="color:#777">filename_trim.ext</code> in the same directory.
+    </div>
+    <button type="submit" class="btn-success btn-sm" style="align-self:flex-start">✂ Trim</button>
+  </form>
+  <div id="trim-status-{{.}}" class="htmx-indicator" style="font-size:0.78rem;color:#888;margin-top:0.4rem">
+    <span class="spinner"></span> Trimming…
+  </div>
+</div>

@@ -194,6 +194,10 @@ func (s *server) routes() http.Handler {
 	// Duplicate detection
 	r.Get("/duplicates", s.handleListDuplicates)
 
+	// Video trimming (temporal crop)
+	r.Get("/videos/{id}/trim", s.handleTrimPanel)
+	r.Post("/videos/{id}/trim", s.handleTrim)
+
 	return r
 }
 
@@ -1437,6 +1441,67 @@ func (s *server) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
 	if err := templates.ExecuteTemplate(w, "duplicates.html", groups); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (s *server) handleTrimPanel(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "trim_panel.html", id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
+
+	start := strings.TrimSpace(r.FormValue("start"))
+	end := strings.TrimSpace(r.FormValue("end"))
+	if start == "" {
+		start = "0"
+	}
+
+	ext := filepath.Ext(video.Filename)
+	base := strings.TrimSuffix(video.Filename, ext)
+	outName := base + "_trim" + ext
+	outPath := filepath.Join(video.DirectoryPath, outName)
+
+	args := []string{"-y", "-ss", start}
+	if end != "" {
+		args = append(args, "-to", end)
+	}
+	args = append(args, "-i", video.FilePath(), "-c", "copy", outPath)
+
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		os.Remove(outPath) //nolint:errcheck
+		log.Printf("ffmpeg trim %s: %v\nstderr: %s", video.FilePath(), err, stderr.String())
+		http.Error(w, "trim failed: "+stderr.String(), http.StatusInternalServerError)
+		return
+	}
+
+	if video.DirectoryID != 0 {
+		if dir, err := s.store.GetDirectory(r.Context(), video.DirectoryID); err == nil {
+			if _, err := s.store.UpsertVideo(r.Context(), dir.ID, dir.Path, outName); err != nil {
+				log.Printf("register trimmed file %s: %v", outName, err)
+			}
+		}
+	}
+
+	s.serveVideoList(w, r)
 }
 
 func isVideoFile(name string) bool {

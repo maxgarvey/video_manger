@@ -140,8 +140,8 @@
   </div>
   <div id="convert-status-{{.Video.ID}}" class="htmx-indicator" style="font-size:0.78rem;color:#888"><span class="spinner"></span> Processing…</div>
 
-  <!-- TMDB Lookup & Share -->
-  <div style="display:flex;gap:0.4rem;padding-top:0.25rem">
+  <!-- TMDB Lookup, Share & Trim -->
+  <div style="display:flex;gap:0.4rem;padding-top:0.25rem;flex-wrap:wrap">
     <button class="btn-sm"
       hx-get="/videos/{{.Video.ID}}/lookup"
       hx-target="#lookup-modal-{{.Video.ID}}"
@@ -154,8 +154,15 @@
       hx-swap="innerHTML"
       title="Share streaming link"
     >📤 Share</button>
+    <button class="btn-sm"
+      hx-get="/videos/{{.Video.ID}}/trim"
+      hx-target="#trim-modal-{{.Video.ID}}"
+      hx-swap="innerHTML"
+      title="Trim video by start/end time"
+    >✂ Trim</button>
   </div>
   <div id="lookup-modal-{{.Video.ID}}"></div>
   <div id="share-modal-{{.Video.ID}}"></div>
+  <div id="trim-modal-{{.Video.ID}}"></div>
 
 </div>
