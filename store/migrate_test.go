@@ -40,19 +40,25 @@ func TestRunMigrations_Idempotent(t *testing.T) {
 	if err := runMigrations(conn); err != nil {
 		t.Fatalf("first runMigrations: %v", err)
 	}
+	versions1, err := ListMigrations(conn)
+	if err != nil {
+		t.Fatalf("ListMigrations after first run: %v", err)
+	}
+
 	if err := runMigrations(conn); err != nil {
 		t.Fatalf("second runMigrations: %v", err)
 	}
-
-	// Should still have exactly one applied migration.
-	versions, err := ListMigrations(conn)
+	versions2, err := ListMigrations(conn)
 	if err != nil {
-		t.Fatalf("ListMigrations: %v", err)
+		t.Fatalf("ListMigrations after second run: %v", err)
 	}
-	if len(versions) != 1 {
-		t.Errorf("expected 1 migration recorded, got %d: %v", len(versions), versions)
+
+	// Running twice should not add more migrations.
+	if len(versions1) != len(versions2) {
+		t.Errorf("expected same migration count after double run: first=%v second=%v", versions1, versions2)
 	}
-	if versions[0] != "001_initial" {
-		t.Errorf("expected version 001_initial, got %q", versions[0])
+	// First migration should always be 001_initial.
+	if len(versions1) == 0 || versions1[0] != "001_initial" {
+		t.Errorf("expected first migration 001_initial, got %v", versions1)
 	}
 }

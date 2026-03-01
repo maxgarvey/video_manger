@@ -1,7 +1,44 @@
-<video controls autoplay style="width:100%;height:100%;display:block;object-fit:contain">
+<video id="vid-{{.Video.ID}}" controls autoplay style="width:100%;height:100%;display:block;object-fit:contain"
+  data-video-id="{{.Video.ID}}">
   <source src="/video/{{.Video.ID}}">
   Your browser does not support the video tag.
 </video>
+<script>
+(function () {
+  var vid = document.getElementById('vid-{{.Video.ID}}');
+  var videoID = '{{.Video.ID}}';
+  var saveTimer = null;
+
+  function saveProgress() {
+    if (vid.currentTime < 1) return;
+    navigator.sendBeacon('/videos/' + videoID + '/progress',
+      new URLSearchParams({ position: vid.currentTime }));
+  }
+
+  // Restore last position once metadata is loaded.
+  fetch('/videos/' + videoID + '/progress')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.position > 1) {
+        vid.addEventListener('loadedmetadata', function() {
+          vid.currentTime = d.position;
+        }, { once: true });
+      }
+    });
+
+  // Save on pause and before page unload.
+  vid.addEventListener('pause', saveProgress);
+  window.addEventListener('beforeunload', saveProgress);
+
+  // Save periodically while playing (every 5s).
+  vid.addEventListener('play', function() {
+    saveTimer = setInterval(saveProgress, 5000);
+  });
+  vid.addEventListener('pause', function() {
+    clearInterval(saveTimer);
+  });
+})();
+</script>
 
 <!-- Out-of-band: populate the info panel overlay -->
 <div id="info-panel" hx-swap-oob="true">

@@ -585,6 +585,61 @@ func TestHandleVideoSearch(t *testing.T) {
 	}
 }
 
+func TestHandleProgress(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "ep1.mp4")
+
+	// GET before any watch — position 0.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/progress", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET progress (none): expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"position":0`) {
+		t.Errorf("expected position:0 for unwatched video, got %s", rec.Body.String())
+	}
+
+	// POST progress.
+	form := url.Values{"position": {"42.5"}}
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/progress", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("POST progress: expected 204, got %d", rec.Code)
+	}
+
+	// GET after watch — position 42.5.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/progress", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "42.5") {
+		t.Errorf("expected position 42.5, got %s", rec.Body.String())
+	}
+}
+
+func TestHandleVideoList_ShowsWatchedIndicator(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "watched.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "unwatched.mp4")
+	srv.store.RecordWatch(ctx, v1.ID, 10.0)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	// Watched video should show checkmark indicator.
+	if !strings.Contains(body, "Watched") {
+		t.Error("expected watched indicator in video list")
+	}
+}
+
 func TestHandleDeleteVideo(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()

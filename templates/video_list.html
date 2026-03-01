@@ -1,13 +1,13 @@
-{{if .}}
+{{if .Videos}}
 <ul style="list-style:none;display:flex;flex-direction:column;gap:0.3rem">
-  {{range .}}
+  {{range .Videos}}
   <li style="display:flex;align-items:center;gap:0.25rem">
     <button
       hx-get="/play/{{.ID}}"
       hx-target="#player"
       style="flex:1;text-align:left;background:#2a2a2a;border:1px solid #333;color:#eee;padding:0.45rem 0.7rem;border-radius:4px;cursor:pointer;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
       title="{{.Filename}}"
-    >{{.Title}}</button>
+    >{{if index $.Watched .ID}}<span title="Watched" style="color:#4a9;margin-right:0.3rem;font-size:0.75rem">✓</span>{{end}}{{.Title}}</button>
     <button
       hx-get="/videos/{{.ID}}/delete-confirm"
       hx-target="closest li"
