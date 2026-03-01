@@ -7,8 +7,8 @@ Ordered by implementation priority (easiest/most foundational first).
 | 1 | 8 | Recursive directory scan | ✅ Done |
 | 2 | 3 | Auto-tag videos with directory name | ✅ Done |
 | 3 | 2 | Formalize migrations directory | ✅ Done |
-| 4 | 4 | Autoplay random episode on start | 🔄 In Progress |
-| 5 | 13 | Create new folders in-app | ⬜ Pending |
+| 4 | 4 | Autoplay random episode on start | ✅ Done |
+| 5 | 13 | Create new folders in-app | 🔄 In Progress |
 | 6 | 6 | Track watched timestamps | ⬜ Pending |
 | 7 | 7 | Like and double-like | ⬜ Pending |
 | 8 | 5 | Configuration menu drawer | ⬜ Pending |
