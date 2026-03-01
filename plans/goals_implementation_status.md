@@ -27,7 +27,7 @@ Ordered by complexity (easiest first).
 | # | TODOS # | Feature | Status |
 |---|---------|---------|--------|
 | 16 | 2 | Collapse download-URL section behind click | ✅ Done |
-| 17 | 10 | Show last-watched timestamp on video rows | ⬜ Pending |
+| 17 | 10 | Show last-watched timestamp on video rows | ✅ Done |
 | 18 | 5 | Consistent, minimal button styling across all templates | ⬜ Pending |
 | 19 | 7 | Better dropdown/details indicators (triangle, highlight state) | ⬜ Pending |
 | 20 | 9 | Auto-update library as new files are added (polling) | ⬜ Pending |

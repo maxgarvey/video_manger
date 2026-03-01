@@ -349,3 +349,20 @@ func (s *SQLiteStore) ListWatchedIDs(ctx context.Context) (map[int64]bool, error
 	}
 	return ids, rows.Err()
 }
+
+func (s *SQLiteStore) ListWatchHistory(ctx context.Context) (map[int64]WatchRecord, error) {
+	rows, err := s.conn.QueryContext(ctx, `SELECT video_id, position, watched_at FROM watch_history`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := make(map[int64]WatchRecord)
+	for rows.Next() {
+		var w WatchRecord
+		if err := rows.Scan(&w.VideoID, &w.Position, &w.WatchedAt); err != nil {
+			return nil, err
+		}
+		m[w.VideoID] = w
+	}
+	return m, rows.Err()
+}

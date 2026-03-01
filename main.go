@@ -32,8 +32,44 @@ import (
 var templateFS embed.FS
 
 var templates = template.Must(template.New("").Funcs(template.FuncMap{
-	"base": filepath.Base,
+	"base":    filepath.Base,
+	"reltime": reltime,
 }).ParseFS(templateFS, "templates/*.html"))
+
+// reltime formats a SQLite datetime string (UTC, "2006-01-02 15:04:05") as a
+// human-readable relative duration: "just now", "5 mins ago", "yesterday", "Jan 2".
+func reltime(s string) string {
+	if s == "" {
+		return ""
+	}
+	t, err := time.Parse("2006-01-02 15:04:05", s)
+	if err != nil {
+		return s
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		m := int(d.Minutes())
+		if m == 1 {
+			return "1 min ago"
+		}
+		return fmt.Sprintf("%d mins ago", m)
+	case d < 24*time.Hour:
+		h := int(d.Hours())
+		if h == 1 {
+			return "1 hr ago"
+		}
+		return fmt.Sprintf("%d hrs ago", h)
+	case d < 48*time.Hour:
+		return "yesterday"
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+	default:
+		return t.Format("Jan 2")
+	}
+}
 
 type server struct {
 	store    store.Store
@@ -523,10 +559,12 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	watched, _ := s.store.ListWatchedIDs(r.Context())
+	history, _ := s.store.ListWatchHistory(r.Context())
 	data := struct {
 		Videos  []store.Video
 		Watched map[int64]bool
-	}{videos, watched}
+		History map[int64]store.WatchRecord
+	}{videos, watched, history}
 	if err := templates.ExecuteTemplate(w, "video_list.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

@@ -627,3 +627,38 @@ func TestRecordAndGetWatch(t *testing.T) {
 		t.Errorf("expected updated position 200.0, got %f", rec2.Position)
 	}
 }
+
+func TestListWatchHistory(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v1, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep1.mp4")
+	v2, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep2.mp4")
+
+	// No watches yet — map should be empty.
+	m, err := s.ListWatchHistory(ctx)
+	if err != nil {
+		t.Fatalf("ListWatchHistory (empty): %v", err)
+	}
+	if len(m) != 0 {
+		t.Errorf("expected empty history, got %d entries", len(m))
+	}
+
+	s.RecordWatch(ctx, v1.ID, 30.0) //nolint:errcheck
+	s.RecordWatch(ctx, v2.ID, 90.0) //nolint:errcheck
+
+	m, err = s.ListWatchHistory(ctx)
+	if err != nil {
+		t.Fatalf("ListWatchHistory: %v", err)
+	}
+	if len(m) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(m))
+	}
+	if m[v1.ID].Position != 30.0 {
+		t.Errorf("expected position 30.0 for v1, got %f", m[v1.ID].Position)
+	}
+	if m[v2.ID].WatchedAt == "" {
+		t.Error("expected non-empty WatchedAt for v2")
+	}
+}

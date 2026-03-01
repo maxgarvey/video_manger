@@ -1414,6 +1414,31 @@ func TestHandleLookupSearch_Success(t *testing.T) {
 	}
 }
 
+func TestHandleVideoList_ShowsLastWatched(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "recent.mp4")
+	srv.store.RecordWatch(ctx, v.ID, 10.0) //nolint:errcheck
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	// Should contain a relative timestamp (exact text varies, but the watched
+	// indicator and at least one of these strings must appear).
+	hasTimestamp := strings.Contains(body, "just now") ||
+		strings.Contains(body, "ago") ||
+		strings.Contains(body, "yesterday")
+	if !hasTimestamp {
+		t.Error("expected a relative timestamp for the watched video in the list")
+	}
+}
+
 func itoa(i int64) string {
 	return strconv.FormatInt(i, 10)
 }
