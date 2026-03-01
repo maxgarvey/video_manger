@@ -1100,6 +1100,75 @@ func TestSyncDir_IdempotentOnResync(t *testing.T) {
 	}
 }
 
+func TestHandleGetLookupModal_NoKey(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/lookup", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Settings") {
+		t.Error("expected 'Settings' directive in response when no API key configured")
+	}
+}
+
+func TestHandleLookupSearch_NoKey(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	form := url.Values{"q": {"batman"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/lookup/search", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when no API key, got %d", rec.Code)
+	}
+}
+
+func TestHandleLookupSearch_BadRequest(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-key") //nolint:errcheck
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	form := url.Values{"q": {""}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/lookup/search", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty query, got %d", rec.Code)
+	}
+}
+
+func TestHandleLookupApply_BadVideo(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-key") //nolint:errcheck
+
+	form := url.Values{"media_type": {"movie"}, "tmdb_id": {"12345"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/999/lookup/apply", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown video, got %d", rec.Code)
+	}
+}
+
 func itoa(i int64) string {
 	return strconv.FormatInt(i, 10)
 }

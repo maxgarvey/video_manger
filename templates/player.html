@@ -129,4 +129,16 @@
   </div>
   <div id="convert-status-{{.Video.ID}}" class="htmx-indicator" style="font-size:0.78rem;color:#888">Processing…</div>
 
+  <!-- TMDB Lookup -->
+  <div style="padding-top:0.25rem">
+    <button
+      hx-get="/videos/{{.Video.ID}}/lookup"
+      hx-target="#lookup-modal-{{.Video.ID}}"
+      hx-swap="innerHTML"
+      style="background:#2a2a2a;border:1px solid #444;color:#aaa;padding:0.3rem 0.7rem;border-radius:4px;cursor:pointer;font-size:0.8rem"
+      title="Look up metadata on TMDB"
+    >🔍 Look up</button>
+  </div>
+  <div id="lookup-modal-{{.Video.ID}}"></div>
+
 </div>

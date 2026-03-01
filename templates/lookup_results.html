@@ -1,0 +1,48 @@
+{{if .Results}}
+<ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.5rem">
+{{range .Results}}
+<li style="background:#222;border:1px solid #333;border-radius:4px;padding:0.6rem">
+  <div style="font-weight:bold;font-size:0.85rem;color:#eee">
+    {{.DisplayTitle}}{{if .Year}} ({{.Year}}){{end}}
+    <span style="font-size:0.75rem;color:#666;margin-left:0.3rem">[{{.MediaType}}]</span>
+  </div>
+  {{if .Overview}}
+  <div style="font-size:0.78rem;color:#888;margin-top:0.2rem;overflow:hidden;max-height:2.4rem">
+    {{.Overview}}
+  </div>
+  {{end}}
+  {{if eq .MediaType "movie"}}
+  <form hx-post="/videos/{{$.VideoID}}/lookup/apply"
+        hx-target="#file-meta-{{$.VideoID}}"
+        hx-swap="innerHTML"
+        style="margin-top:0.4rem">
+    <input type="hidden" name="media_type" value="movie">
+    <input type="hidden" name="tmdb_id" value="{{.ID}}">
+    <button type="submit"
+      style="background:#1a3a1a;border:1px solid #3a6a3a;color:#8f8;padding:0.25rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.78rem">
+      Apply
+    </button>
+  </form>
+  {{else if eq .MediaType "tv"}}
+  <form hx-post="/videos/{{$.VideoID}}/lookup/apply"
+        hx-target="#file-meta-{{$.VideoID}}"
+        hx-swap="innerHTML"
+        style="margin-top:0.4rem;display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap">
+    <input type="hidden" name="media_type" value="tv">
+    <input type="hidden" name="tmdb_id" value="{{.ID}}">
+    <input type="number" name="season" placeholder="Season" min="1" value="1"
+      style="width:70px;background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.3rem;border-radius:4px;font-size:0.78rem">
+    <input type="number" name="episode" placeholder="Episode" min="1" value="1"
+      style="width:70px;background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.3rem;border-radius:4px;font-size:0.78rem">
+    <button type="submit"
+      style="background:#1a3a1a;border:1px solid #3a6a3a;color:#8f8;padding:0.25rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.78rem">
+      Apply
+    </button>
+  </form>
+  {{end}}
+</li>
+{{end}}
+</ul>
+{{else}}
+<p style="font-size:0.82rem;color:#888">No results found.</p>
+{{end}}

@@ -17,6 +17,13 @@
     </label>
   </div>
 
+  <div style="display:flex;flex-direction:column;gap:0.3rem">
+    <span style="font-size:0.8rem;color:#aaa">TMDB API key</span>
+    <input type="text" name="tmdb_api_key" value="{{.TMDBKey}}" placeholder="Paste your TMDB v3 bearer token…"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem;font-family:monospace">
+    <span style="font-size:0.75rem;color:#555">Used for 🔍 Look up in the player info panel.</span>
+  </div>
+
   <button type="submit" style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.4rem 0.8rem;border-radius:4px;cursor:pointer;font-size:0.85rem;align-self:flex-start">Save</button>
 </form>
 

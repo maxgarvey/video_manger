@@ -1,0 +1,21 @@
+<div style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:1rem;margin-top:0.5rem">
+{{if .HasKey}}
+  <h3 style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#888;margin:0 0 0.75rem">TMDB Lookup</h3>
+  <form hx-post="/videos/{{.VideoID}}/lookup/search"
+        hx-target="#lookup-results-{{.VideoID}}"
+        hx-swap="innerHTML"
+        style="display:flex;flex-direction:column;gap:0.5rem">
+    <input type="text" name="q" placeholder="Movie or show title..." required
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
+    <button type="submit"
+      style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.3rem 0.7rem;border-radius:4px;cursor:pointer;font-size:0.8rem;align-self:flex-start">
+      Search TMDB
+    </button>
+  </form>
+  <div id="lookup-results-{{.VideoID}}" style="margin-top:0.5rem"></div>
+{{else}}
+  <p style="font-size:0.82rem;color:#888;margin:0">
+    No TMDB API key configured. Open <strong style="color:#ccc">Settings</strong> (⚙️ button) to add one.
+  </p>
+{{end}}
+</div>
