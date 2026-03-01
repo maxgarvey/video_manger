@@ -64,14 +64,14 @@ func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, dirPath stri
 		VALUES (?, ?, ?)
 		ON CONFLICT (filename, directory_path)
 			DO UPDATE SET directory_id = excluded.directory_id
-		RETURNING id, filename, directory_id, directory_path, display_name
+		RETURNING id, filename, directory_id, directory_path, display_name, rating
 	`, filename, dirID, dirPath)
 	return scanVideoRow(row)
 }
 
 func (s *SQLiteStore) ListVideos(ctx context.Context) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT id, filename, directory_id, directory_path, display_name
+		SELECT id, filename, directory_id, directory_path, display_name, rating
 		FROM videos
 		ORDER BY COALESCE(NULLIF(display_name, ''), filename)
 	`)
@@ -83,7 +83,7 @@ func (s *SQLiteStore) ListVideos(ctx context.Context) ([]Video, error) {
 
 func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.rating
 		FROM videos v
 		JOIN video_tags vt ON v.id = vt.video_id
 		WHERE vt.tag_id = ?
@@ -97,7 +97,7 @@ func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video
 
 func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT id, filename, directory_id, directory_path, display_name
+		SELECT id, filename, directory_id, directory_path, display_name, rating
 		FROM videos
 		WHERE directory_id = ?
 		ORDER BY filename
@@ -110,10 +110,15 @@ func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([
 
 func (s *SQLiteStore) GetVideo(ctx context.Context, id int64) (Video, error) {
 	row := s.conn.QueryRowContext(ctx, `
-		SELECT id, filename, directory_id, directory_path, display_name
+		SELECT id, filename, directory_id, directory_path, display_name, rating
 		FROM videos WHERE id = ?
 	`, id)
 	return scanVideoRow(row)
+}
+
+func (s *SQLiteStore) SetVideoRating(ctx context.Context, id int64, rating int) error {
+	_, err := s.conn.ExecContext(ctx, `UPDATE videos SET rating = ? WHERE id = ?`, rating, id)
+	return err
 }
 
 func (s *SQLiteStore) UpdateVideoName(ctx context.Context, id int64, name string) error {
@@ -130,7 +135,7 @@ func (s *SQLiteStore) DeleteVideo(ctx context.Context, id int64) error {
 
 func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT id, filename, directory_id, directory_path, display_name
+		SELECT id, filename, directory_id, directory_path, display_name, rating
 		FROM videos
 		WHERE LOWER(COALESCE(NULLIF(display_name, ''), filename)) LIKE LOWER(?)
 		ORDER BY COALESCE(NULLIF(display_name, ''), filename)
@@ -188,7 +193,7 @@ func (s *SQLiteStore) ListTagsByVideo(ctx context.Context, videoID int64) ([]Tag
 func scanVideoRow(row *sql.Row) (Video, error) {
 	var v Video
 	var dirID sql.NullInt64
-	if err := row.Scan(&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName); err != nil {
+	if err := row.Scan(&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &v.Rating); err != nil {
 		return Video{}, err
 	}
 	if dirID.Valid {
@@ -203,7 +208,7 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 	for rows.Next() {
 		var v Video
 		var dirID sql.NullInt64
-		if err := rows.Scan(&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName); err != nil {
+		if err := rows.Scan(&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &v.Rating); err != nil {
 			return nil, err
 		}
 		if dirID.Valid {
