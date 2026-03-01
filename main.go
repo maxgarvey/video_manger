@@ -256,6 +256,7 @@ func (s *server) routes() http.Handler {
 	r.Get("/videos/{id}/delete-confirm", s.handleVideoDeleteConfirm)
 	r.Delete("/videos/{id}", s.handleDeleteVideo)
 	r.Delete("/videos/{id}/file", s.handleDeleteVideoAndFile)
+	r.Post("/videos/{id}/relocate", s.handleRelocateVideo)
 
 	// Watch history
 	r.Post("/videos/{id}/progress", s.handlePostProgress)
@@ -497,16 +498,22 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	_, statErr := os.Stat(video.FilePath())
+	fileNotFound := statErr != nil
+
 	showName := ""
-	if meta, err := metadata.Read(video.FilePath()); err == nil {
-		showName = meta.Show
+	if !fileNotFound {
+		if meta, err := metadata.Read(video.FilePath()); err == nil {
+			showName = meta.Show
+		}
 	}
 	data := struct {
-		Video    store.Video
-		Tags     []store.Tag
-		AllTags  []store.Tag
-		ShowName string
-	}{video, tags, allTags, showName}
+		Video       store.Video
+		Tags        []store.Tag
+		AllTags     []store.Tag
+		ShowName    string
+		FileNotFound bool
+	}{video, tags, allTags, showName, fileNotFound}
 	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -689,6 +696,53 @@ func (s *server) handleDeleteVideoAndFile(w http.ResponseWriter, r *http.Request
 		log.Printf("delete file %s: %v", video.FilePath(), err)
 	}
 	s.serveVideoList(w, r)
+}
+
+func (s *server) handleRelocateVideo(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	newPath := r.FormValue("newpath")
+	if newPath == "" {
+		http.Error(w, "newpath required", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(newPath); err != nil {
+		http.Error(w, "file not accessible at new path", http.StatusBadRequest)
+		return
+	}
+	newDir := filepath.Dir(newPath)
+	newFilename := filepath.Base(newPath)
+
+	// Find or create a directory record for the parent dir.
+	dirs, err := s.store.ListDirectories(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var dirID int64
+	for _, d := range dirs {
+		if d.Path == newDir {
+			dirID = d.ID
+			break
+		}
+	}
+	if dirID == 0 {
+		dir, err := s.store.AddDirectory(r.Context(), newDir)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		dirID = dir.ID
+	}
+
+	if err := s.store.UpdateVideoPath(r.Context(), id, dirID, newDir, newFilename); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.handlePlayer(w, r)
 }
 
 // serveVideoList renders the video list, respecting tag_id, q, and the

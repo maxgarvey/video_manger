@@ -65,6 +65,7 @@ type Store interface {
 	UpdateVideoName(ctx context.Context, id int64, name string) error
 	SetVideoRating(ctx context.Context, id int64, rating int) error
 	DeleteVideo(ctx context.Context, id int64) error
+	UpdateVideoPath(ctx context.Context, id, dirID int64, dirPath, filename string) error
 	SearchVideos(ctx context.Context, query string) ([]Video, error)
 	ListVideosByRating(ctx context.Context) ([]Video, error)
 	GetRandomVideo(ctx context.Context) (Video, error)

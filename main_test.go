@@ -147,9 +147,14 @@ func TestHandleVideoList_FilterByTag(t *testing.T) {
 }
 
 func TestHandlePlayer(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "myvideo.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	srv := newTestServer(t)
 	ctx := context.Background()
-	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	d, _ := srv.store.AddDirectory(ctx, dir)
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "myvideo.mp4")
 
 	rec := httptest.NewRecorder()
@@ -161,6 +166,28 @@ func TestHandlePlayer(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "<video") {
 		t.Error("expected <video> element in player response")
+	}
+}
+
+func TestHandlePlayer_FileNotFound(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "missing.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/play/"+itoa(v.ID), nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "<video") {
+		t.Error("should not render <video> element when file is missing")
+	}
+	if !strings.Contains(body, "File not found") {
+		t.Error("expected 'File not found' message in player response")
 	}
 }
 

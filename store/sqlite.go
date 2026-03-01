@@ -204,6 +204,13 @@ func (s *SQLiteStore) DeleteVideo(ctx context.Context, id int64) error {
 	return err
 }
 
+func (s *SQLiteStore) UpdateVideoPath(ctx context.Context, id, dirID int64, dirPath, filename string) error {
+	_, err := s.conn.ExecContext(ctx,
+		`UPDATE videos SET directory_id=?, directory_path=?, filename=? WHERE id=?`,
+		dirID, dirPath, filename, id)
+	return err
+}
+
 func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, error) {
 	// Escape LIKE special characters so a user query of "%" or "_" is treated
 	// literally and doesn't inadvertently match all rows.
