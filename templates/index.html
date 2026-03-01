@@ -10,39 +10,98 @@
 
     body {
       font-family: system-ui, sans-serif;
-      background: #111;
+      background: #000;
       color: #eee;
+      width: 100vw;
       height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-
-    header {
-      padding: 0.75rem 1.5rem;
-      background: #1a1a1a;
-      border-bottom: 1px solid #333;
-      font-size: 1.1rem;
-      font-weight: bold;
-    }
-
-    .layout {
-      display: flex;
-      flex: 1;
       overflow: hidden;
     }
 
-    aside {
+    /* Full-screen player */
+    #player {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── Overlay chrome ─────────────────────────────────────────────────
+       Chrome elements (toggle buttons) are invisible at rest and fade in
+       on body hover or while a panel is open.                           */
+    .chrome {
+      position: fixed;
+      z-index: 90;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    body:hover .chrome,
+    body.lib-open .chrome,
+    body.info-open .chrome {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .chrome-btn {
+      background: rgba(0, 0, 0, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #eee;
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-family: inherit;
+      backdrop-filter: blur(6px);
+    }
+    .chrome-btn:hover { background: rgba(50, 50, 50, 0.85); }
+
+    /* Library button — top left; slides right when sidebar is open */
+    #lib-btn { top: 1rem; left: 1rem; transition: opacity 0.2s, left 0.22s ease; }
+    body.lib-open #lib-btn { left: 292px; }
+
+    /* Info button — bottom right; slides up when info panel is open */
+    #info-btn { bottom: 1rem; right: 1rem; transition: opacity 0.2s, bottom 0.22s ease; }
+    body.info-open #info-btn { bottom: calc(min(260px, 40vh) + 1rem); }
+
+    /* ── Library sidebar ────────────────────────────────────────────── */
+    #library {
+      position: fixed;
+      z-index: 200;
+      top: 0; left: 0; bottom: 0;
       width: 280px;
-      min-width: 280px;
-      background: #1a1a1a;
-      border-right: 1px solid #333;
+      background: rgba(18, 18, 18, 0.96);
+      backdrop-filter: blur(10px);
+      border-right: 1px solid #2a2a2a;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 1.5rem;
       padding: 1rem;
+      transform: translateX(-100%);
+      transition: transform 0.22s ease;
     }
+    body.lib-open #library { transform: translateX(0); }
 
+    /* ── Info panel ─────────────────────────────────────────────────── */
+    #info-panel {
+      position: fixed;
+      z-index: 150;
+      left: 0; right: 0; bottom: 0;
+      max-height: min(260px, 40vh);
+      background: rgba(20, 20, 20, 0.96);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid #2a2a2a;
+      overflow-y: auto;
+      padding: 0.75rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      transform: translateY(100%);
+      transition: transform 0.22s ease;
+    }
+    body.info-open #info-panel { transform: translateY(0); }
+
+    /* ── Library widget styles ──────────────────────────────────────── */
     section h2 {
       font-size: 0.7rem;
       text-transform: uppercase;
@@ -50,18 +109,6 @@
       color: #666;
       margin-bottom: 0.6rem;
     }
-
-    main {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #000;
-      overflow: auto;
-    }
-
-    main > p { color: #444; }
-
     input[type=text] {
       background: #222;
       border: 1px solid #444;
@@ -71,7 +118,6 @@
       font-size: 0.85rem;
       width: 100%;
     }
-
     button, .btn {
       background: #2a2a2a;
       border: 1px solid #444;
@@ -81,41 +127,57 @@
       cursor: pointer;
       font-size: 0.85rem;
     }
-
     button:hover { background: #333; }
-
     .tag-filter-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
   </style>
 </head>
 <body>
-  <header>video_manger</header>
-  <div class="layout">
-    <aside>
 
-      <section>
-        <h2>Directories</h2>
-        <div id="directories" hx-get="/directories" hx-trigger="load"></div>
-        <form hx-post="/directories" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.5rem">
-          <input type="text" name="path" placeholder="/path/to/videos">
-          <button type="submit">Add</button>
-        </form>
-      </section>
+  <!-- Full-screen player area -->
+  <main id="player">
+    <p style="color:#444">Select a video to play</p>
+  </main>
 
-      <section>
-        <h2>Filter by Tag</h2>
-        <div id="tag-filters" hx-get="/tags" hx-trigger="load"></div>
-        <button hx-get="/videos" hx-target="#video-list" style="margin-top:0.4rem;width:100%">Show all</button>
-      </section>
-
-      <section>
-        <h2>Videos</h2>
-        <div id="video-list" hx-get="/videos" hx-trigger="load"></div>
-      </section>
-
-    </aside>
-    <main id="player">
-      <p>Select a video to play</p>
-    </main>
+  <!-- Library toggle button — top left -->
+  <div class="chrome" id="lib-btn">
+    <button class="chrome-btn" onclick="document.body.classList.toggle('lib-open')">☰ Library</button>
   </div>
+
+  <!-- Info toggle button — bottom right -->
+  <div class="chrome" id="info-btn">
+    <button class="chrome-btn" onclick="document.body.classList.toggle('info-open')">ⓘ Info</button>
+  </div>
+
+  <!-- Library sidebar overlay -->
+  <aside id="library">
+    <section>
+      <h2>Directories</h2>
+      <div id="directories" hx-get="/directories" hx-trigger="load"></div>
+      <form hx-post="/directories" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.5rem">
+        <input type="text" name="path" placeholder="/path/to/videos">
+        <button type="submit">Add</button>
+      </form>
+    </section>
+    <section>
+      <h2>Filter by Tag</h2>
+      <div id="tag-filters" hx-get="/tags" hx-trigger="load"></div>
+      <button hx-get="/videos" hx-target="#video-list" style="margin-top:0.4rem;width:100%">Show all</button>
+    </section>
+    <section>
+      <h2>Videos</h2>
+      <div id="video-list" hx-get="/videos" hx-trigger="load"></div>
+    </section>
+  </aside>
+
+  <!-- Info panel overlay — content injected via hx-swap-oob by player.html -->
+  <div id="info-panel"></div>
+
+  <script>
+    // Close the library automatically when a video is selected
+    document.getElementById('player').addEventListener('htmx:afterSwap', function () {
+      document.body.classList.remove('lib-open');
+    });
+  </script>
+
 </body>
 </html>

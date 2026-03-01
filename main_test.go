@@ -65,8 +65,11 @@ func TestHandleIndex(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "video_manger") {
+	if !strings.Contains(body, "Video Manger") {
 		t.Error("expected title in response body")
+	}
+	if !strings.Contains(body, `id="player"`) {
+		t.Error("expected player element in response body")
 	}
 	if !strings.Contains(body, "htmx") {
 		t.Error("expected htmx script in response body")
