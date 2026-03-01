@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -63,6 +64,7 @@ func (s *server) routes() http.Handler {
 
 	// Videos
 	r.Get("/videos", s.handleVideoList)
+	r.Get("/play/random", s.handleRandomPlayer)
 	r.Get("/play/{id}", s.handlePlayer)
 	r.Get("/video/{id}", s.handleVideoFile)
 	r.Put("/videos/{id}/name", s.handleUpdateVideoName)
@@ -179,6 +181,29 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	data := struct {
+		Video   store.Video
+		Tags    []store.Tag
+		AllTags []store.Tag
+	}{video, tags, allTags}
+	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleRandomPlayer(w http.ResponseWriter, r *http.Request) {
+	videos, err := s.store.ListVideos(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(videos) == 0 {
+		w.Write([]byte(`<p style="color:#444">No videos yet — add a directory to get started.</p>`)) //nolint:errcheck
+		return
+	}
+	video := videos[rand.Intn(len(videos))]
+	tags, _ := s.store.ListTagsByVideo(r.Context(), video.ID)
+	allTags, _ := s.store.ListTags(r.Context())
 	data := struct {
 		Video   store.Video
 		Tags    []store.Tag
