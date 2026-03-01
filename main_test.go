@@ -631,16 +631,16 @@ func TestHandleUpdateMetadata(t *testing.T) {
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "show.mp4")
 
 	form := url.Values{
-		"title":          {"My Show"},
-		"description":    {"A great show"},
-		"genre":          {"Drama"},
-		"date":           {"2024-01-01"},
-		"show":           {"My Show"},
-		"network":        {"HBO"},
-		"episode_id":     {"S01E01"},
-		"season_number":  {"1"},
-		"episode_sort":   {"1"},
-		"comment":        {""},
+		"title":         {"My Show"},
+		"description":   {"A great show"},
+		"genre":         {"Drama"},
+		"date":          {"2024-01-01"},
+		"show":          {"My Show"},
+		"network":       {"HBO"},
+		"episode_id":    {"S01E01"},
+		"season_number": {"1"},
+		"episode_sort":  {"1"},
+		"comment":       {""},
 	}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/videos/"+itoa(v.ID)+"/metadata", strings.NewReader(form.Encode()))

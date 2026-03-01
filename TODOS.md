@@ -15,19 +15,17 @@ in the plans folder called "goals implementation status" with current status.
 Before fine-grained planning, read the list and arrange them in the order that
 makes the most sense. With a bias toward ease of complexity and implementation.
 
-1. Make A button that calls to look up title, tag, data. Allow user to specify tv show name, episode name, movie title, etc. on an intermediary pop up form (modal perhaps?)
-2. Create a migrations directory for further changes to schema and a way to build and tear down
-3. Automatically tag video files with directory
-4. Auto play a random episode on start
-5. Add a configuration menu via another drawer/popup
-6. Track watched video timestamps and don't re-show videos recently watched
-7. Support like and double like
-8. Support recursive directory scan for import
-9. Online sharing on local network
-10. Support P2P sharing
-11. Can we leverage DNS at all for easier access?
-12. Use yt-dlp to pull new videos and import them directly
-13. Enable the creation of new folders
-14. Add a functionality to put .mp4s on a USB stick in a format that BluRay players can read
-15. Allow converting between video formats in the app
+1.Display the title, filename, and other available metadata when moving the
+mouse over the video display
+2. Move the download from URL UI behind a click and have a folder picker or a
+path entry as string.
+3. Add in between states/animations to UI
+4. improve the library navigation, make video rows smaller but with more info, take up more of the screen
+5. Improve the styling of buttons. making things consistent and minimal
+6. allow "cropping" of a video via the UI to cut part out if you want using ffmpeg in the backend
+7. improve dropdowns add better ui indication, triangles that turn, or buttons that turn highlighted or not, more obviously pushable.
+8. allow playing multiple videos at once via tabs internal to the page
+9. auto update library as new files are added
+10. Indicate the last time watched of an episode
+11. Detect duplicates of the same file
 

@@ -19,3 +19,21 @@ Ordered by implementation priority (easiest/most foundational first).
 | 13 | 15 | Video format conversion | ✅ Done |
 | 14 | 1 | External metadata lookup (TMDB/TVDB) | ✅ Done |
 | 15 | 10 | P2P sharing | ✅ Done |
+
+## Round 2
+
+Ordered by complexity (easiest first).
+
+| # | TODOS # | Feature | Status |
+|---|---------|---------|--------|
+| 16 | 2 | Collapse download-URL section behind click | ✅ Done |
+| 17 | 10 | Show last-watched timestamp on video rows | ⬜ Pending |
+| 18 | 5 | Consistent, minimal button styling across all templates | ⬜ Pending |
+| 19 | 7 | Better dropdown/details indicators (triangle, highlight state) | ⬜ Pending |
+| 20 | 9 | Auto-update library as new files are added (polling) | ⬜ Pending |
+| 21 | 1 | Hover overlay on video player showing title / metadata | ⬜ Pending |
+| 22 | 11 | Detect duplicate files (by size+name hash) | ⬜ Pending |
+| 23 | 3 | In-between states / animations (htmx indicators, transitions) | ⬜ Pending |
+| 24 | 4 | Library nav: smaller rows, more info, takes more screen | ⬜ Pending |
+| 25 | 6 | Video cropping via UI using ffmpeg | ⬜ Pending |
+| 26 | 8 | Multiple video tabs (play several at once) | ⬜ Pending |

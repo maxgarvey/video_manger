@@ -38,7 +38,8 @@
     }
     body:hover .chrome,
     body.lib-open .chrome,
-    body.info-open .chrome {
+    body.info-open .chrome,
+    body.cfg-open .chrome {
       opacity: 1;
       pointer-events: auto;
     }
@@ -63,8 +64,9 @@
     #info-btn { bottom: 1rem; right: 1rem; transition: opacity 0.2s, bottom 0.22s ease; }
     body.info-open #info-btn { bottom: calc(min(260px, 40vh) + 1rem); }
 
-    /* Config button — top right */
-    #cfg-btn { top: 1rem; right: 1rem; }
+    /* Config button — top right; slides left when config panel is open */
+    #cfg-btn { top: 1rem; right: 1rem; transition: opacity 0.2s, right 0.22s ease; }
+    body.cfg-open #cfg-btn { right: 272px; }
 
     /* ── Config panel ────────────────────────────────────────────────── */
     #config-panel {
@@ -177,32 +179,47 @@
 
   <!-- Library sidebar overlay -->
   <aside id="library">
-    <section>
-      <h2>Directories</h2>
-      <div id="directories" hx-get="/directories" hx-trigger="load"></div>
-      <form hx-post="/directories" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.5rem">
-        <input type="text" name="path" placeholder="/path/to/videos">
-        <button type="submit">Add</button>
-      </form>
-      <form hx-post="/directories/create" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.3rem">
-        <input type="text" name="path" placeholder="/path/to/new/folder">
-        <button type="submit" title="Create folder on disk and add to library">New</button>
-      </form>
-    </section>
-    <section>
-      <h2>Download from URL</h2>
-      <form hx-post="/ytdlp/download" hx-target="#video-list" hx-indicator="#ytdlp-status"
-            style="display:flex;flex-direction:column;gap:0.4rem">
-        <input type="text" name="url" placeholder="YouTube / video URL">
-        <select name="dir_id" id="ytdlp-dir-select"
-          style="background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.5rem;border-radius:4px;font-size:0.85rem"
-          hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
-        <button type="submit"
-          style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.35rem 0.7rem;border-radius:4px;cursor:pointer;font-size:0.85rem"
-        >⬇ Download</button>
-      </form>
-      <p id="ytdlp-status" class="htmx-indicator" style="font-size:0.8rem;color:#888;margin-top:0.3rem">Downloading…</p>
-    </section>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:-0.5rem">
+      <button onclick="document.body.classList.remove('lib-open')"
+        style="background:none;border:none;color:#666;cursor:pointer;font-size:1.2rem;line-height:1;padding:0.1rem 0.3rem"
+        title="Close library">✕</button>
+    </div>
+    <details>
+      <summary style="cursor:pointer;list-style:none;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:0.5rem;user-select:none">
+        Directories
+      </summary>
+      <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.5rem">
+        <div id="directories" hx-get="/directories" hx-trigger="load"></div>
+        <button hx-get="/fs" hx-target="#dir-browser-wrap" hx-swap="innerHTML"
+          style="text-align:left;font-size:0.82rem">
+          📁 Browse to add folder…
+        </button>
+        <div id="dir-browser-wrap"></div>
+        <details style="margin-top:0.1rem">
+          <summary style="font-size:0.78rem;color:#666;cursor:pointer;user-select:none">Create new folder on disk</summary>
+          <form hx-post="/directories/create" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.4rem">
+            <input type="text" name="path" placeholder="/path/to/new/folder">
+            <button type="submit" title="Create folder on disk and add to library">New</button>
+          </form>
+        </details>
+      </div>
+    </details>
+    <details>
+      <summary style="cursor:pointer;list-style:none;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:0.5rem;user-select:none">
+        Download from URL
+      </summary>
+      <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
+        <form hx-post="/ytdlp/download" hx-target="#video-list" hx-indicator="#ytdlp-status"
+              style="display:flex;flex-direction:column;gap:0.4rem">
+          <input type="text" name="url" placeholder="YouTube / video URL">
+          <select name="dir_id" id="ytdlp-dir-select"
+            style="background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.5rem;border-radius:4px;font-size:0.85rem"
+            hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
+          <button type="submit">⬇ Download</button>
+        </form>
+        <p id="ytdlp-status" class="htmx-indicator" style="font-size:0.8rem;color:#888">Downloading…</p>
+      </div>
+    </details>
     <section>
       <h2>Filter by Tag</h2>
       <div id="tag-filters" hx-get="/tags" hx-trigger="load"></div>
@@ -228,6 +245,11 @@
 
   <!-- Config panel overlay -->
   <div id="config-panel">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem">
+      <button onclick="document.body.classList.remove('cfg-open')"
+        style="background:none;border:none;color:#666;cursor:pointer;font-size:1.2rem;line-height:1;padding:0.1rem 0.3rem"
+        title="Close settings">✕</button>
+    </div>
     <div id="settings-panel" hx-get="/settings" hx-trigger="load"></div>
   </div>
 

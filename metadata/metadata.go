@@ -36,10 +36,10 @@ func (m Meta) HasData() bool {
 // A nil pointer means "leave this field unchanged".
 type Updates struct {
 	// Standard fields
-	Title       *string  // nil = preserve, "" = clear
+	Title       *string // nil = preserve, "" = clear
 	Description *string
 	Genre       *string
-	Date        *string  // YYYY-MM-DD
+	Date        *string // YYYY-MM-DD
 	Comment     *string
 	Keywords    []string // nil = preserve, []string{} = clear
 

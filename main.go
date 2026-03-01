@@ -31,7 +31,9 @@ import (
 //go:embed templates/*
 var templateFS embed.FS
 
-var templates = template.Must(template.ParseFS(templateFS, "templates/*.html"))
+var templates = template.Must(template.New("").Funcs(template.FuncMap{
+	"base": filepath.Base,
+}).ParseFS(templateFS, "templates/*.html"))
 
 type server struct {
 	store    store.Store
@@ -131,6 +133,9 @@ func (s *server) routes() http.Handler {
 	// Settings
 	r.Get("/settings", s.handleGetSettings)
 	r.Post("/settings", s.handleSaveSettings)
+
+	// Filesystem browser (used by folder picker in sidebar)
+	r.Get("/fs", s.handleBrowseFS)
 
 	// Directories
 	r.Get("/directories", s.handleListDirectories)
@@ -909,8 +914,8 @@ func (s *server) handleDeleteDirectoryAndFiles(w http.ResponseWriter, r *http.Re
 type tmdbSearchResult struct {
 	ID          int     `json:"id"`
 	MediaType   string  `json:"media_type"`
-	Title       string  `json:"title"`       // movies
-	Name        string  `json:"name"`        // TV
+	Title       string  `json:"title"` // movies
+	Name        string  `json:"name"`  // TV
 	Overview    string  `json:"overview"`
 	ReleaseDate string  `json:"release_date"`
 	FirstAir    string  `json:"first_air_date"`
@@ -936,19 +941,19 @@ func (r tmdbSearchResult) Year() string {
 }
 
 type tmdbMovieDetail struct {
-	Title    string `json:"title"`
-	Overview string `json:"overview"`
+	Title    string                  `json:"title"`
+	Overview string                  `json:"overview"`
 	Genres   []struct{ Name string } `json:"genres"`
-	Release  string `json:"release_date"`
+	Release  string                  `json:"release_date"`
 }
 
 type tmdbEpisodeDetail struct {
-	Name         string `json:"name"`
-	Overview     string `json:"overview"`
-	AirDate      string `json:"air_date"`
-	EpisodeNum   int    `json:"episode_number"`
-	SeasonNum    int    `json:"season_number"`
-	ShowName     string // populated from series call
+	Name       string `json:"name"`
+	Overview   string `json:"overview"`
+	AirDate    string `json:"air_date"`
+	EpisodeNum int    `json:"episode_number"`
+	SeasonNum  int    `json:"season_number"`
+	ShowName   string // populated from series call
 }
 
 // tmdbClient is a dedicated HTTP client for TMDB API calls with a
@@ -1075,7 +1080,9 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 		seasonStr := r.FormValue("season")
 		episodeStr := r.FormValue("episode")
 		// Fetch series name — best-effort; log but do not abort.
-		var series struct{ Name string `json:"name"` }
+		var series struct {
+			Name string `json:"name"`
+		}
 		if err := tmdbGet(apiKey, "/3/tv/"+tmdbID, &series); err != nil {
 			log.Printf("TMDB series fetch %s: %v", tmdbID, err)
 		}
@@ -1240,6 +1247,52 @@ func (s *server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.serveDirList(w, r)
+}
+
+// --- Filesystem browser ---
+
+// handleBrowseFS lists the immediate visible subdirectories of a path.
+// It is used by the folder-picker UI in the library sidebar.
+// The path defaults to the user's home directory when not supplied.
+func (s *server) handleBrowseFS(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			home = "/"
+		}
+		path = home
+	}
+	path = filepath.Clean(path)
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		http.Error(w, "cannot read directory: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var dirs []string
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		dirs = append(dirs, filepath.Join(path, e.Name()))
+	}
+
+	parent := filepath.Dir(path)
+	if parent == path { // already at root
+		parent = ""
+	}
+
+	data := struct {
+		Path    string
+		Parent  string
+		Entries []string
+	}{path, parent, dirs}
+
+	if err := templates.ExecuteTemplate(w, "dir_browser.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // --- P2P sharing ---
