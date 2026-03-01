@@ -209,6 +209,55 @@ func TestSearchVideos(t *testing.T) {
 	}
 }
 
+func TestGetRandomVideo(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Empty library — should return an error.
+	if _, err := s.GetRandomVideo(ctx); err == nil {
+		t.Error("expected error from GetRandomVideo on empty store, got nil")
+	}
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	s.UpsertVideo(ctx, d.ID, d.Path, "a.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "b.mp4")
+
+	v, err := s.GetRandomVideo(ctx)
+	if err != nil {
+		t.Fatalf("GetRandomVideo: %v", err)
+	}
+	if v.Filename != "a.mp4" && v.Filename != "b.mp4" {
+		t.Errorf("unexpected filename from GetRandomVideo: %q", v.Filename)
+	}
+}
+
+func TestSaveSettings(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SaveSettings(ctx, map[string]string{
+		"autoplay_random": "false",
+		"video_sort":      "rating",
+		"tmdb_api_key":    "tok123",
+	}); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+
+	for key, want := range map[string]string{
+		"autoplay_random": "false",
+		"video_sort":      "rating",
+		"tmdb_api_key":    "tok123",
+	} {
+		got, err := s.GetSetting(ctx, key)
+		if err != nil {
+			t.Fatalf("GetSetting(%q): %v", key, err)
+		}
+		if got != want {
+			t.Errorf("GetSetting(%q) = %q, want %q", key, got, want)
+		}
+	}
+}
+
 func TestDeleteVideo(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

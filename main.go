@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -298,16 +297,12 @@ func (s *server) handleRandomPlayer(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<p style="color:#444">Select a video to play.</p>`)) //nolint:errcheck
 		return
 	}
-	videos, err := s.store.ListVideos(r.Context())
+	video, err := s.store.GetRandomVideo(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if len(videos) == 0 {
+		// No videos yet.
 		w.Write([]byte(`<p style="color:#444">No videos yet — add a directory to get started.</p>`)) //nolint:errcheck
 		return
 	}
-	video := videos[rand.Intn(len(videos))]
 	tags, _ := s.store.ListTagsByVideo(r.Context(), video.ID)
 	allTags, _ := s.store.ListTags(r.Context())
 	data := struct {
@@ -1155,9 +1150,14 @@ func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		sortOrder = "name"
 	}
 	tmdbKey := strings.TrimSpace(r.FormValue("tmdb_api_key"))
-	s.store.SetSetting(r.Context(), "autoplay_random", autoplay)   //nolint:errcheck
-	s.store.SetSetting(r.Context(), "video_sort", sortOrder)        //nolint:errcheck
-	s.store.SetSetting(r.Context(), "tmdb_api_key", tmdbKey)        //nolint:errcheck
+	if err := s.store.SaveSettings(r.Context(), map[string]string{
+		"autoplay_random": autoplay,
+		"video_sort":      sortOrder,
+		"tmdb_api_key":    tmdbKey,
+	}); err != nil {
+		http.Error(w, "save settings: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	s.handleGetSettings(w, r)
 }
 

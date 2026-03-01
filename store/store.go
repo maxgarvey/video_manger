@@ -67,10 +67,13 @@ type Store interface {
 	DeleteVideo(ctx context.Context, id int64) error
 	SearchVideos(ctx context.Context, query string) ([]Video, error)
 	ListVideosByRating(ctx context.Context) ([]Video, error)
+	GetRandomVideo(ctx context.Context) (Video, error)
 
 	// Settings
 	GetSetting(ctx context.Context, key string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error
+	// SaveSettings atomically writes multiple key-value pairs in a single transaction.
+	SaveSettings(ctx context.Context, pairs map[string]string) error
 
 	// Watch history
 	RecordWatch(ctx context.Context, videoID int64, position float64) error

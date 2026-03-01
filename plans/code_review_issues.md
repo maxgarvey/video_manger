@@ -61,14 +61,14 @@ Legend: ⬜ Pending | 🔄 In Progress | ✅ Fixed | 📝 Documented (won't fix)
 | # | Issue | Status |
 |---|-------|--------|
 | D1 | Mixed raw SQL and sqlc-generated queries; `db/` package is partial and creates split maintenance | 📝 |
-| D2 | `handleRandomPlayer` loads all videos into memory to pick one; should use `ORDER BY RANDOM() LIMIT 1` | ⬜ |
-| D3 | No SQLite WAL mode or `SetMaxOpenConns(1)`; concurrent requests risk "database is locked" | ⬜ |
+| D2 | `handleRandomPlayer` loads all videos into memory to pick one; should use `ORDER BY RANDOM() LIMIT 1` | ✅ |
+| D3 | No SQLite WAL mode or `SetMaxOpenConns(1)`; concurrent requests risk "database is locked" | ✅ |
 | D4 | `localAddresses` calls `net.Interfaces()` on every `/share` and `/info` request | 📝 |
-| D5 | `SQLiteStore` has no `Close()` method; underlying `*sql.DB` never explicitly closed | ⬜ |
+| D5 | `SQLiteStore` has no `Close()` method; underlying `*sql.DB` never explicitly closed | ✅ |
 | D6 | Unused hidden `<div id="ytdlp-dirs">` in `index.html` fires a redundant `/directories` request on load | ⬜ |
 | D7 | Unused tags accumulate forever; deleted videos leave orphan tag rows | ⬜ |
 | D8 | Rating button markup is duplicated in `player.html` and `rating_buttons.html` | 📝 |
-| D9 | `handleSaveSettings`: three `SetSetting` calls are not atomic; partial save possible on error | ⬜ |
+| D9 | `handleSaveSettings`: three `SetSetting` calls are not atomic; partial save possible on error | ✅ |
 
 ---
 

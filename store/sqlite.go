@@ -21,13 +21,27 @@ func NewSQLite(path string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return nil, err
+	// Limit to one open connection to avoid "database is locked" errors
+	// under concurrent requests with SQLite's default journal mode.
+	conn.SetMaxOpenConns(1)
+	for _, pragma := range []string{
+		"PRAGMA foreign_keys = ON",
+		"PRAGMA journal_mode = WAL",
+		"PRAGMA busy_timeout = 5000",
+	} {
+		if _, err := conn.Exec(pragma); err != nil {
+			return nil, err
+		}
 	}
 	if err := runMigrations(conn); err != nil {
 		return nil, err
 	}
 	return &SQLiteStore{q: db.New(conn), conn: conn}, nil
+}
+
+// Close releases the underlying database connection.
+func (s *SQLiteStore) Close() error {
+	return s.conn.Close()
 }
 
 // --- Directories ---
@@ -140,6 +154,14 @@ func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
 		return nil, err
 	}
 	return scanVideos(rows)
+}
+
+func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
+	row := s.conn.QueryRowContext(ctx, `
+		SELECT id, filename, directory_id, directory_path, display_name, rating
+		FROM videos ORDER BY RANDOM() LIMIT 1
+	`)
+	return scanVideoRow(row)
 }
 
 func (s *SQLiteStore) UpdateVideoName(ctx context.Context, id int64, name string) error {
@@ -257,6 +279,23 @@ func (s *SQLiteStore) SetSetting(ctx context.Context, key, value string) error {
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
 		key, value)
 	return err
+}
+
+func (s *SQLiteStore) SaveSettings(ctx context.Context, pairs map[string]string) error {
+	tx, err := s.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	for k, v := range pairs {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO settings (key, value) VALUES (?, ?)
+			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+			k, v); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // --- Watch history ---
