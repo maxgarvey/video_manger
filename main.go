@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/grandcat/zeroconf"
 	"github.com/maxgarvey/video_manger/metadata"
 	"github.com/maxgarvey/video_manger/store"
 )
@@ -30,8 +31,9 @@ var templateFS embed.FS
 var templates = template.Must(template.ParseFS(templateFS, "templates/*.html"))
 
 type server struct {
-	store store.Store
-	port  string
+	store    store.Store
+	port     string
+	mdnsName string // e.g. "video-manger.local"
 }
 
 func main() {
@@ -45,7 +47,7 @@ func main() {
 		log.Fatalf("open db: %v", err)
 	}
 
-	srv := &server{store: s, port: *port}
+	srv := &server{store: s, port: *port, mdnsName: "video-manger.local"}
 
 	if *dir != "" {
 		d, err := srv.store.AddDirectory(context.Background(), *dir)
@@ -54,6 +56,15 @@ func main() {
 		} else {
 			srv.syncDir(d)
 		}
+	}
+
+	portInt, _ := strconv.Atoi(*port)
+	mdns, err := zeroconf.Register("video-manger", "_http._tcp", "local.", portInt, nil, nil)
+	if err != nil {
+		log.Printf("mDNS register: %v (continuing without mDNS)", err)
+	} else {
+		defer mdns.Shutdown()
+		log.Printf("  mDNS: http://video-manger.local:%s", *port)
 	}
 
 	log.Printf("Starting server on http://localhost:%s", *port)
@@ -180,10 +191,15 @@ func (s *server) syncTagsToFile(ctx context.Context, video store.Video) {
 
 func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	addrs := localAddresses(s.port)
+	mdns := ""
+	if s.mdnsName != "" {
+		mdns = "http://" + s.mdnsName + ":" + s.port
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 		"port":      s.port,
 		"addresses": addrs,
+		"mdns":      mdns,
 	})
 }
 
