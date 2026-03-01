@@ -225,9 +225,13 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 }
 
 func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
+	// Use OFFSET instead of ORDER BY RANDOM() to avoid a full-table sort.
+	// MAX(1, …) prevents modulo-by-zero when the table is empty; the query
+	// still returns no rows because there are none to offset into.
 	row := s.conn.QueryRowContext(ctx, `
 		SELECT id, filename, directory_id, directory_path, display_name, rating
-		FROM videos ORDER BY RANDOM() LIMIT 1
+		FROM videos
+		LIMIT 1 OFFSET ABS(RANDOM()) % MAX(1, (SELECT COUNT(*) FROM videos))
 	`)
 	return scanVideoRow(row)
 }
@@ -415,23 +419,6 @@ func (s *SQLiteStore) GetWatch(ctx context.Context, videoID int64) (WatchRecord,
 		return WatchRecord{}, err
 	}
 	return w, nil
-}
-
-func (s *SQLiteStore) ListWatchedIDs(ctx context.Context) (map[int64]bool, error) {
-	rows, err := s.conn.QueryContext(ctx, `SELECT video_id FROM watch_history`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	ids := make(map[int64]bool)
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids[id] = true
-	}
-	return ids, rows.Err()
 }
 
 func (s *SQLiteStore) ListWatchHistory(ctx context.Context) (map[int64]WatchRecord, error) {

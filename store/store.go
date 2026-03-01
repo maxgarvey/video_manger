@@ -85,7 +85,6 @@ type Store interface {
 	RecordWatch(ctx context.Context, videoID int64, position float64) error
 	ClearWatch(ctx context.Context, videoID int64) error
 	GetWatch(ctx context.Context, videoID int64) (WatchRecord, error)
-	ListWatchedIDs(ctx context.Context) (map[int64]bool, error)
 	ListWatchHistory(ctx context.Context) (map[int64]WatchRecord, error)
 
 	// Tag management

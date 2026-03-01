@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -86,6 +87,14 @@ func reltime(s string) string {
 	}
 }
 
+// ytdlpJob tracks a running yt-dlp download. Lines are sent to ch as
+// they are produced; ch is closed when the download finishes. err is set
+// (if non-nil) before ch is closed.
+type ytdlpJob struct {
+	ch  chan string
+	err error
+}
+
 type server struct {
 	store        store.Store
 	port         string
@@ -96,6 +105,8 @@ type server struct {
 	syncingDirs  map[int64]struct{}
 	syncingMu    sync.Mutex
 	convertSem   chan struct{} // limits concurrent ffmpeg/yt-dlp processes
+	jobs         map[string]*ytdlpJob // active yt-dlp download jobs
+	jobsMu       sync.Mutex
 }
 
 // videoGroup is a view-layer grouping of videos sharing the same directory.
@@ -143,6 +154,7 @@ func main() {
 		sessions:    make(map[string]time.Time),
 		syncingDirs: make(map[int64]struct{}),
 		convertSem:  make(chan struct{}, 2),
+		jobs:        make(map[string]*ytdlpJob),
 	}
 	if *password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)
@@ -313,6 +325,7 @@ func (s *server) routes() http.Handler {
 
 	// yt-dlp download
 	r.Post("/ytdlp/download", s.handleYTDLPDownload)
+	r.Get("/ytdlp/job/{jobID}/events", s.handleYTDLPJobEvents)
 
 	// Metadata lookup (TMDB)
 	r.Get("/videos/{id}/lookup", s.handleLookupModal)
@@ -1112,26 +1125,120 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Allow up to 10 minutes for large downloads.
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancel()
+	// Generate an opaque job ID.
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		http.Error(w, "could not generate job id", http.StatusInternalServerError)
+		return
+	}
+	jobID := hex.EncodeToString(raw)
 
-	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "yt-dlp",
-		"--no-playlist",
-		"-o", filepath.Join(dir.Path, "%(title)s.%(ext)s"),
-		rawURL,
-	)
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		log.Printf("yt-dlp %s: %v\nstderr: %s", rawURL, err, stderr.String())
-		http.Error(w, "download failed: "+stderr.String(), http.StatusInternalServerError)
+	job := &ytdlpJob{ch: make(chan string, 2048)}
+	s.jobsMu.Lock()
+	s.jobs[jobID] = job
+	s.jobsMu.Unlock()
+
+	// Run the download in the background so the POST returns quickly.
+	go func() {
+		defer func() {
+			close(job.ch)
+			// Retain job for 10 minutes so late SSE clients can still read it.
+			time.AfterFunc(10*time.Minute, func() {
+				s.jobsMu.Lock()
+				delete(s.jobs, jobID)
+				s.jobsMu.Unlock()
+			})
+		}()
+
+		// Non-blocking send to avoid goroutine leaks if the channel fills.
+		send := func(line string) {
+			select {
+			case job.ch <- line:
+			default:
+			}
+		}
+
+		// Wait for a concurrency slot (same limit as ffmpeg operations).
+		send("[queue] Waiting for download slot…")
+		s.convertSem <- struct{}{}
+		defer func() { <-s.convertSem }()
+
+		pr, pw := io.Pipe()
+		cmd := exec.Command("yt-dlp", //nolint:gosec
+			"--no-playlist",
+			"--newline",
+			"-o", filepath.Join(dir.Path, "%(title)s.%(ext)s"),
+			rawURL,
+		)
+		cmd.Stdout = pw
+		cmd.Stderr = pw
+
+		if err := cmd.Start(); err != nil {
+			job.err = err
+			return
+		}
+
+		// Forward yt-dlp output lines to the job channel while it runs.
+		scanDone := make(chan struct{})
+		go func() {
+			defer close(scanDone)
+			sc := bufio.NewScanner(pr)
+			for sc.Scan() {
+				send(sc.Text())
+			}
+		}()
+		job.err = cmd.Wait()
+		pw.Close()
+		<-scanDone
+
+		if job.err == nil {
+			send("[video_manger] Syncing library…")
+			s.syncDir(dir)
+			send("[video_manger] Done!")
+		}
+	}()
+
+	// Return a progress container that streams output via SSE.
+	if err := templates.ExecuteTemplate(w, "ytdlp_progress.html", jobID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// handleYTDLPJobEvents streams yt-dlp output for a background download job
+// as Server-Sent Events. Sends a "done" or "error" event when the job finishes.
+func (s *server) handleYTDLPJobEvents(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobID")
+	s.jobsMu.Lock()
+	job, ok := s.jobs[jobID]
+	s.jobsMu.Unlock()
+	if !ok {
+		http.Error(w, "job not found", http.StatusNotFound)
 		return
 	}
 
-	// Sync the directory to register the new file.
-	s.syncDir(dir)
-	s.serveVideoList(w, r)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	for line := range job.ch {
+		// SSE data fields cannot contain bare newlines.
+		safe := strings.ReplaceAll(strings.ReplaceAll(line, "\r", ""), "\n", " ")
+		fmt.Fprintf(w, "data: %s\n\n", safe)
+		flusher.Flush()
+	}
+
+	if job.err != nil {
+		msg := strings.ReplaceAll(job.err.Error(), "\n", " ")
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", msg)
+	} else {
+		fmt.Fprintf(w, "event: done\ndata: \n\n")
+	}
+	flusher.Flush()
 }
 
 type convertFormat struct {
@@ -1676,12 +1783,12 @@ func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		AutoplayRandom bool
 		VideoSort      string
-		TMDBKey        string
+		HasTMDBKey     bool
 		LibraryPath    string
 	}{
 		AutoplayRandom: autoplay != "false",
 		VideoSort:      sortOrder,
-		TMDBKey:        tmdbKey,
+		HasTMDBKey:     tmdbKey != "",
 		LibraryPath:    libPath,
 	}
 	if err := templates.ExecuteTemplate(w, "settings.html", data); err != nil {

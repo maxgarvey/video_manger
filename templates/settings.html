@@ -18,8 +18,8 @@
   </div>
 
   <div style="display:flex;flex-direction:column;gap:0.3rem">
-    <span style="font-size:0.8rem;color:#aaa">TMDB API key{{if .TMDBKey}} <span style="color:#4a9a4a;font-size:0.75rem">(set)</span>{{end}}</span>
-    <input type="password" name="tmdb_api_key" placeholder="{{if .TMDBKey}}Leave blank to keep existing key…{{else}}Paste your TMDB v3 bearer token…{{end}}"
+    <span style="font-size:0.8rem;color:#aaa">TMDB API key{{if .HasTMDBKey}} <span style="color:#4a9a4a;font-size:0.75rem">(set)</span>{{end}}</span>
+    <input type="password" name="tmdb_api_key" placeholder="{{if .HasTMDBKey}}Leave blank to keep existing key…{{else}}Paste your TMDB v3 bearer token…{{end}}"
       style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem;font-family:monospace">
     <span style="font-size:0.75rem;color:#555">Used for 🔍 Look up in the player info panel.</span>
   </div>

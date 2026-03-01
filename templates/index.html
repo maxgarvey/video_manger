@@ -335,7 +335,7 @@
           Download from URL
         </summary>
         <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
-          <form hx-post="/ytdlp/download" hx-target="#video-list" hx-indicator="#ytdlp-status"
+          <form hx-post="/ytdlp/download" hx-target="#ytdlp-output"
                 style="display:flex;flex-direction:column;gap:0.4rem">
             <input type="text" name="url" placeholder="YouTube / video URL">
             <select name="dir_id" id="ytdlp-dir-select"
@@ -343,7 +343,7 @@
               hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
             <button type="submit">⬇ Download</button>
           </form>
-          <p id="ytdlp-status" class="htmx-indicator" style="font-size:0.8rem;color:#888"><span class="spinner"></span> Downloading…</p>
+          <div id="ytdlp-output" style="margin-top:0.4rem;display:flex;flex-direction:column;gap:0.3rem"></div>
         </div>
       </details>
       <section>

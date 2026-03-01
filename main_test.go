@@ -24,7 +24,7 @@ func newTestServer(t *testing.T) *server {
 	if err != nil {
 		t.Fatalf("NewSQLite: %v", err)
 	}
-	return &server{store: s, sessions: make(map[string]time.Time), syncingDirs: make(map[int64]struct{}), convertSem: make(chan struct{}, 2)}
+	return &server{store: s, sessions: make(map[string]time.Time), syncingDirs: make(map[int64]struct{}), convertSem: make(chan struct{}, 2), jobs: make(map[string]*ytdlpJob)}
 }
 
 // --- Unit tests ---
@@ -749,19 +749,25 @@ func TestHandleYTDLP_InvalidDir(t *testing.T) {
 }
 
 func TestHandleYTDLP_NotInstalled(t *testing.T) {
+	// With the async SSE approach, POST always returns 200 + a progress page.
+	// The yt-dlp "not found" error is surfaced via the SSE stream, not the HTTP
+	// status code of the initial POST.
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, t.TempDir())
 
-	t.Setenv("PATH", t.TempDir()) // empty PATH
+	t.Setenv("PATH", t.TempDir()) // empty PATH — yt-dlp not found
 
 	form := url.Values{"url": {"https://example.com/v"}, "dir_id": {itoa(d.ID)}}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when yt-dlp missing, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (progress page), got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "EventSource") {
+		t.Error("expected progress page with EventSource in response body")
 	}
 }
 

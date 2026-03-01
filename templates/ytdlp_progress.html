@@ -1,0 +1,32 @@
+<pre id="ytdlp-out"
+  style="font-size:0.72rem;color:#aaa;background:#111;border:1px solid #333;border-radius:4px;
+         padding:0.5rem;max-height:10rem;overflow-y:auto;margin:0;white-space:pre-wrap;word-break:break-all"></pre>
+<span id="ytdlp-msg" style="font-size:0.8rem;color:#888"><span class="spinner"></span> Downloading…</span>
+<script>
+(function() {
+  var pre = document.getElementById('ytdlp-out');
+  var msg = document.getElementById('ytdlp-msg');
+  var es = new EventSource('/ytdlp/job/{{.}}/events');
+  es.onmessage = function(e) {
+    pre.textContent += e.data + '\n';
+    pre.scrollTop = pre.scrollHeight;
+  };
+  es.addEventListener('done', function() {
+    es.close();
+    msg.innerHTML = '✓ Download complete';
+    msg.style.color = '#4a9a4a';
+    htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'morph:innerHTML'});
+  });
+  es.addEventListener('error', function(evt) {
+    es.close();
+    msg.innerHTML = '✗ Download failed';
+    msg.style.color = '#c44';
+  });
+  es.onerror = function() {
+    es.close();
+    if (msg.textContent.indexOf('✓') === -1 && msg.textContent.indexOf('✗') === -1) {
+      msg.innerHTML = '<span style="color:#c44">Connection lost</span>';
+    }
+  };
+})();
+</script>
