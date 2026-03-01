@@ -12,8 +12,8 @@ Ordered by implementation priority (easiest/most foundational first).
 | 6 | 6 | Track watched timestamps | ✅ Done |
 | 7 | 7 | Like and double-like | ✅ Done |
 | 8 | 5 | Configuration menu drawer | ✅ Done |
-| 9 | 14 | Export to USB/BluRay format | 🔄 In Progress |
-| 10 | 12 | yt-dlp import | ⬜ Pending |
+| 9 | 14 | Export to USB/BluRay format | ✅ Done |
+| 10 | 12 | yt-dlp import | 🔄 In Progress |
 | 11 | 9 | LAN sharing (show local IP) | ⬜ Pending |
 | 12 | 11 | mDNS `.local` hostname | ⬜ Pending |
 | 13 | 15 | Video format conversion | ⬜ Pending |

@@ -52,6 +52,7 @@ type WatchRecord struct {
 type Store interface {
 	// Directory management
 	AddDirectory(ctx context.Context, path string) (Directory, error)
+	GetDirectory(ctx context.Context, id int64) (Directory, error)
 	ListDirectories(ctx context.Context) ([]Directory, error)
 	DeleteDirectory(ctx context.Context, id int64) error
 

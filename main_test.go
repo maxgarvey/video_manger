@@ -696,6 +696,59 @@ func TestHandleVideoList_ShowsWatchedIndicator(t *testing.T) {
 	}
 }
 
+func TestHandleYTDLP_MissingURL(t *testing.T) {
+	srv := newTestServer(t)
+	form := url.Values{"dir_id": {"1"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleYTDLP_MissingDirID(t *testing.T) {
+	srv := newTestServer(t)
+	form := url.Values{"url": {"https://example.com/video"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleYTDLP_InvalidDir(t *testing.T) {
+	srv := newTestServer(t)
+	form := url.Values{"url": {"https://example.com/video"}, "dir_id": {"999"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown dir, got %d", rec.Code)
+	}
+}
+
+func TestHandleYTDLP_NotInstalled(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, t.TempDir())
+
+	t.Setenv("PATH", t.TempDir()) // empty PATH
+
+	form := url.Values{"url": {"https://example.com/v"}, "dir_id": {itoa(d.ID)}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when yt-dlp missing, got %d", rec.Code)
+	}
+}
+
 func TestHandleExportUSB_BadVideo(t *testing.T) {
 	srv := newTestServer(t)
 	rec := httptest.NewRecorder()
