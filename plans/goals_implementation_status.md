@@ -32,7 +32,7 @@ Ordered by complexity (easiest first).
 | 19 | 7 | Better dropdown/details indicators (triangle, highlight state) | ✅ Done |
 | 20 | 9 | Auto-update library as new files are added (polling) | ✅ Done |
 | 21 | 1 | Hover overlay on video player showing title / metadata | ✅ Done |
-| 22 | 11 | Detect duplicate files (by size+name hash) | ⬜ Pending |
+| 22 | 11 | Detect duplicate files (by size+name hash) | ✅ Done |
 | 23 | 3 | In-between states / animations (htmx indicators, transitions) | ⬜ Pending |
 | 24 | 4 | Library nav: smaller rows, more info, takes more screen | ⬜ Pending |
 | 25 | 6 | Video cropping via UI using ffmpeg | ⬜ Pending |

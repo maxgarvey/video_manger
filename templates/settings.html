@@ -28,6 +28,16 @@
 </form>
 
 <div style="margin-top:1.5rem;display:flex;flex-direction:column;gap:0.5rem">
+  <h2 style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin:0">Library</h2>
+  <button class="btn-sm"
+    hx-get="/duplicates"
+    hx-target="#duplicates-wrap"
+    hx-swap="innerHTML"
+    style="align-self:flex-start">🔍 Find duplicates</button>
+  <div id="duplicates-wrap"></div>
+</div>
+
+<div style="margin-top:1.5rem;display:flex;flex-direction:column;gap:0.5rem">
   <h2 style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin:0">LAN Access</h2>
   <p style="font-size:0.78rem;color:#888">Open on other devices on your network:</p>
   <div id="lan-info" hx-get="/info" hx-trigger="load"

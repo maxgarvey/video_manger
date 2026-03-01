@@ -184,6 +184,9 @@ func (s *server) routes() http.Handler {
 	r.Delete("/directories/{id}", s.handleDeleteDirectory)
 	r.Delete("/directories/{id}/files", s.handleDeleteDirectoryAndFiles)
 
+	// Duplicate detection
+	r.Get("/duplicates", s.handleListDuplicates)
+
 	return r
 }
 
@@ -1383,6 +1386,48 @@ func (s *server) handleSharePanel(w http.ResponseWriter, r *http.Request) {
 		Links   []string
 	}{id, links}
 	if err := templates.ExecuteTemplate(w, "share_panel.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// DupGroup holds a set of videos that appear to be duplicates (same filename + size).
+type DupGroup struct {
+	Filename string
+	SizeMB   string
+	Videos   []store.Video
+}
+
+func (s *server) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
+	videos, err := s.store.ListVideos(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type key struct {
+		name string
+		size int64
+	}
+	buckets := map[key][]store.Video{}
+	for _, v := range videos {
+		info, err := os.Stat(v.FilePath())
+		if err != nil {
+			continue // file missing from disk; skip
+		}
+		k := key{v.Filename, info.Size()}
+		buckets[k] = append(buckets[k], v)
+	}
+
+	var groups []DupGroup
+	for k, vs := range buckets {
+		if len(vs) < 2 {
+			continue
+		}
+		sizeMB := fmt.Sprintf("%.1f MB", float64(k.size)/(1024*1024))
+		groups = append(groups, DupGroup{Filename: k.name, SizeMB: sizeMB, Videos: vs})
+	}
+
+	if err := templates.ExecuteTemplate(w, "duplicates.html", groups); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

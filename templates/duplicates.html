@@ -1,0 +1,30 @@
+{{if .}}
+<div style="display:flex;flex-direction:column;gap:0.75rem;margin-top:0.75rem">
+  {{range .}}
+  <div style="background:#1a1a1a;border:1px solid #3a3a3a;border-radius:4px;padding:0.6rem 0.7rem">
+    <div style="font-size:0.8rem;color:#aaa;margin-bottom:0.4rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Filename}}">
+      📄 {{.Filename}} <span style="color:#555;font-size:0.75rem">({{.SizeMB}})</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.25rem">
+      {{range .Videos}}
+      <div style="display:flex;align-items:center;gap:0.4rem">
+        <span style="flex:1;font-size:0.75rem;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.FilePath}}">{{.DirectoryPath}}/</span>
+        <button class="btn-sm btn-danger"
+          hx-delete="/videos/{{.ID}}/file"
+          hx-swap="none"
+          hx-on::after-request="htmx.ajax('GET','/duplicates',{target:'#duplicates-wrap',swap:'innerHTML'})"
+          title="Delete file from disk">✕ Delete</button>
+        <button class="btn-sm btn-ghost"
+          hx-delete="/videos/{{.ID}}"
+          hx-swap="none"
+          hx-on::after-request="htmx.ajax('GET','/duplicates',{target:'#duplicates-wrap',swap:'innerHTML'})"
+          title="Remove from library only">Remove</button>
+      </div>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<p style="font-size:0.82rem;color:#555;margin-top:0.5rem">No duplicate files found.</p>
+{{end}}
