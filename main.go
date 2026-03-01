@@ -198,6 +198,9 @@ func (s *server) routes() http.Handler {
 	r.Get("/videos/{id}/trim", s.handleTrimPanel)
 	r.Post("/videos/{id}/trim", s.handleTrim)
 
+	// Random video ID (for initial tab load)
+	r.Get("/random-video", s.handleRandomVideoID)
+
 	return r
 }
 
@@ -1441,6 +1444,16 @@ func (s *server) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
 	if err := templates.ExecuteTemplate(w, "duplicates.html", groups); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (s *server) handleRandomVideoID(w http.ResponseWriter, r *http.Request) {
+	video, err := s.store.GetRandomVideo(r.Context())
+	if err != nil {
+		http.Error(w, "no videos", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"id": video.ID, "title": video.Title()}) //nolint:errcheck
 }
 
 func (s *server) handleTrimPanel(w http.ResponseWriter, r *http.Request) {

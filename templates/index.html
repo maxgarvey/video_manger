@@ -179,6 +179,42 @@
       vertical-align: middle;
     }
 
+    /* ── Multi-tab player ───────────────────────────────────────────── */
+    #player { position: fixed; inset: 0; }
+    #tab-panes { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .tab-pane { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; }
+    .tab-pane.active { display: flex; }
+    #tab-strip {
+      position: fixed;
+      top: 0; left: 50%; transform: translateX(-50%);
+      z-index: 95;
+      display: none;
+      gap: 0.2rem;
+      padding: 0.3rem 0.5rem;
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(8px);
+      border-radius: 0 0 8px 8px;
+      max-width: 70vw;
+      overflow-x: auto;
+      align-items: center;
+    }
+    .tab-btn {
+      background: rgba(35, 35, 35, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #999;
+      padding: 0.18rem 0.4rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.72rem;
+      white-space: nowrap;
+      display: flex; align-items: center; gap: 0.25rem;
+      flex-shrink: 0; user-select: none;
+    }
+    .tab-btn.active { background: rgba(60, 60, 60, 0.95); color: #ddd; border-color: rgba(255,255,255,0.22); }
+    .tab-label { overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+    .tab-close { background: none; border: none; color: #555; cursor: pointer; font-size: 0.62rem; padding: 0; line-height: 1; flex-shrink: 0; }
+    .tab-close:hover { color: #f08080; }
+
     /* ── Player hover overlay ──────────────────────────────────────── */
     #player-overlay {
       position: absolute;
@@ -189,7 +225,7 @@
       transition: opacity 0.25s ease;
       pointer-events: none;
     }
-    #player:hover #player-overlay { opacity: 1; }
+    .tab-pane:hover #player-overlay { opacity: 1; }
 
     /* ── Details / summary disclosure ──────────────────────────────── */
     details > summary {
@@ -214,12 +250,14 @@
 </head>
 <body>
 
-  <!-- Full-screen player area — loads a random video automatically on start -->
-  <main id="player"
-        hx-get="/play/random"
-        hx-trigger="load"
-        hx-swap="innerHTML">
-    <p style="color:#444">Loading…</p>
+  <!-- Tab strip — only visible when ≥2 tabs are open -->
+  <div id="tab-strip"></div>
+
+  <!-- Full-screen player area — tab panes inserted here by JS -->
+  <main id="player">
+    <div id="tab-panes">
+      <p style="color:#444">Loading…</p>
+    </div>
   </main>
 
   <!-- Library toggle button — top left -->
@@ -321,14 +359,117 @@
   </div>
 
   <script>
-    // Close the library automatically when a video is selected
-    document.getElementById('player').addEventListener('htmx:afterSwap', function () {
+    // ── Multi-tab player system ─────────────────────────────────────
+    const videoTabs = {}; // videoId → { pane, tabBtn }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    async function openTab(videoId, title) {
+      // If already open, just switch to it
+      if (videoTabs[videoId]) {
+        activateTab(videoId);
+        document.body.classList.remove('lib-open');
+        return;
+      }
+
+      const resp = await fetch('/play/' + videoId);
+      if (!resp.ok) return;
+      const html = await resp.text();
+
+      // Parse response into a DocumentFragment
+      const tmpl = document.createElement('template');
+      tmpl.innerHTML = html;
+      const frag = tmpl.content;
+
+      // Process htmx OOB swaps (e.g. #info-panel)
+      frag.querySelectorAll('[hx-swap-oob]').forEach(function(el) {
+        var target = document.getElementById(el.id);
+        if (target) { target.innerHTML = el.innerHTML; htmx.process(target); }
+        el.remove();
+      });
+
+      // Create tab pane from remaining fragment
+      var pane = document.createElement('div');
+      pane.className = 'tab-pane';
+      pane.appendChild(frag);
+
+      // Remove any stale loading placeholder on first tab
+      var placeholder = document.getElementById('tab-panes').querySelector('p');
+      if (placeholder) placeholder.remove();
+      document.getElementById('tab-panes').appendChild(pane);
+
+      // Re-execute inline scripts (progress tracking etc.)
+      pane.querySelectorAll('script').forEach(function(orig) {
+        var s = document.createElement('script');
+        s.textContent = orig.textContent;
+        document.head.appendChild(s).remove();
+        orig.remove();
+      });
+      htmx.process(pane);
+
+      // Create tab button
+      var tabBtn = document.createElement('div');
+      tabBtn.className = 'tab-btn';
+      tabBtn.onclick = function() { activateTab(videoId); };
+      tabBtn.innerHTML =
+        '<span class="tab-label">' + escHtml(title) + '</span>' +
+        '<button class="tab-close" onclick="event.stopPropagation();closeTab(' + videoId + ')">✕</button>';
+      document.getElementById('tab-strip').appendChild(tabBtn);
+
+      videoTabs[videoId] = { pane: pane, tabBtn: tabBtn };
+      activateTab(videoId);
+      updateTabStrip();
       document.body.classList.remove('lib-open');
+    }
+
+    function activateTab(videoId) {
+      Object.keys(videoTabs).forEach(function(id) {
+        var t = videoTabs[id];
+        var active = (id == videoId);
+        t.pane.classList.toggle('active', active);
+        t.tabBtn.classList.toggle('active', active);
+        if (!active) {
+          var v = t.pane.querySelector('video');
+          if (v && !v.paused) v.pause();
+        }
+      });
+    }
+
+    function closeTab(videoId) {
+      var tab = videoTabs[videoId];
+      if (!tab) return;
+      // Pause the video before removing
+      var v = tab.pane.querySelector('video');
+      if (v) v.pause();
+      tab.pane.remove();
+      tab.tabBtn.remove();
+      delete videoTabs[videoId];
+      var remaining = Object.keys(videoTabs);
+      if (remaining.length > 0) {
+        activateTab(remaining[remaining.length - 1]);
+      } else {
+        document.getElementById('tab-panes').innerHTML = '<p style="color:#444">Select a video from the library.</p>';
+        document.getElementById('info-panel').innerHTML = '<p style="color:#555;font-size:0.82rem">Select a video to see details.</p>';
+      }
+      updateTabStrip();
+    }
+
+    function updateTabStrip() {
+      document.getElementById('tab-strip').style.display =
+        Object.keys(videoTabs).length > 1 ? 'flex' : 'none';
+    }
+
+    // Auto-load a random video on start
+    fetch('/random-video').then(function(r) {
+      return r.ok ? r.json() : null;
+    }).then(function(d) {
+      if (d) openTab(d.id, d.title);
     });
 
-    // Keyboard shortcuts
-    // L — toggle library   I — toggle info panel   Escape — close both
-    document.addEventListener('keydown', function (e) {
+    // Keyboard shortcuts: L=library  I=info  S=settings  Esc=close all
+    document.addEventListener('keydown', function(e) {
       if (e.target.matches('input, textarea, select') || e.target.isContentEditable) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.key === 'l' || e.key === 'L') {

@@ -4,8 +4,9 @@
   <li style="display:flex;align-items:center;gap:0.15rem">
     {{$w := index $.History .ID}}
     <button
-      hx-get="/play/{{.ID}}"
-      hx-target="#player"
+      onclick="openTab(Number(this.dataset.id), this.dataset.title)"
+      data-id="{{.ID}}"
+      data-title="{{.Title}}"
       class="btn-sm"
       style="flex:1;text-align:left;display:flex;align-items:center;gap:0.25rem;min-width:0;padding:0.2rem 0.4rem"
       title="{{.Title}} ({{.Filename}})"

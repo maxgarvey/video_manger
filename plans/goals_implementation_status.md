@@ -36,4 +36,4 @@ Ordered by complexity (easiest first).
 | 23 | 3 | In-between states / animations (htmx indicators, transitions) | ✅ Done |
 | 24 | 4 | Library nav: smaller rows, more info, takes more screen | ✅ Done |
 | 25 | 6 | Video cropping via UI using ffmpeg | ✅ Done |
-| 26 | 8 | Multiple video tabs (play several at once) | ⬜ Pending |
+| 26 | 8 | Multiple video tabs (play several at once) | ✅ Done |
