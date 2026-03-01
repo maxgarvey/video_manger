@@ -412,6 +412,7 @@
       // Create tab button
       var tabBtn = document.createElement('div');
       tabBtn.className = 'tab-btn';
+      tabBtn.title = title;
       tabBtn.onclick = function() { activateTab(videoId); };
       tabBtn.innerHTML =
         '<span class="tab-label">' + escHtml(title) + '</span>' +

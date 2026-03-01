@@ -87,36 +87,6 @@ func TestHandleIndex(t *testing.T) {
 	}
 }
 
-func TestHandleRandomPlayer_NoVideos(t *testing.T) {
-	srv := newTestServer(t)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/play/random", nil)
-	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	if strings.Contains(rec.Body.String(), "<video") {
-		t.Error("expected no <video> element when no videos exist")
-	}
-}
-
-func TestHandleRandomPlayer_WithVideos(t *testing.T) {
-	srv := newTestServer(t)
-	ctx := context.Background()
-	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	srv.store.UpsertVideo(ctx, d.ID, d.Path, "a.mp4")
-	srv.store.UpsertVideo(ctx, d.ID, d.Path, "b.mp4")
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/play/random", nil)
-	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "<video") {
-		t.Error("expected <video> element in random player response")
-	}
-}
 
 func TestHandleVideoList_Empty(t *testing.T) {
 	srv := newTestServer(t)
@@ -382,23 +352,6 @@ func TestHandleSettings(t *testing.T) {
 	}
 }
 
-func TestHandleRandomPlayer_AutoplayDisabled(t *testing.T) {
-	srv := newTestServer(t)
-	ctx := context.Background()
-	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	srv.store.UpsertVideo(ctx, d.ID, d.Path, "a.mp4")
-	srv.store.SetSetting(ctx, "autoplay_random", "false")
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/play/random", nil)
-	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	if strings.Contains(rec.Body.String(), "<video") {
-		t.Error("expected no <video> element when autoplay is disabled")
-	}
-}
 
 func TestHandleDirectories(t *testing.T) {
 	srv := newTestServer(t)

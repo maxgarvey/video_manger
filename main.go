@@ -106,7 +106,7 @@ func main() {
 		}
 	}
 
-	portInt, _ := strconv.Atoi(*port)
+	portInt, _ := strconv.Atoi(*port) // zero is fine; zeroconf is best-effort
 	mdns, err := zeroconf.Register("video-manger", "_http._tcp", "local.", portInt, nil, nil)
 	if err != nil {
 		log.Printf("mDNS register: %v (continuing without mDNS)", err)
@@ -134,7 +134,6 @@ func (s *server) routes() http.Handler {
 
 	// Videos
 	r.Get("/videos", s.handleVideoList)
-	r.Get("/play/random", s.handleRandomPlayer)
 	r.Get("/play/{id}", s.handlePlayer)
 	r.Get("/video/{id}", s.handleVideoFile)
 	r.Put("/videos/{id}/name", s.handleUpdateVideoName)
@@ -373,29 +372,6 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) handleRandomPlayer(w http.ResponseWriter, r *http.Request) {
-	autoplay, _ := s.store.GetSetting(r.Context(), "autoplay_random")
-	if autoplay == "false" {
-		w.Write([]byte(`<p style="color:#444">Select a video to play.</p>`)) //nolint:errcheck
-		return
-	}
-	video, err := s.store.GetRandomVideo(r.Context())
-	if err != nil {
-		// No videos yet.
-		w.Write([]byte(`<p style="color:#444">No videos yet — add a directory to get started.</p>`)) //nolint:errcheck
-		return
-	}
-	tags, _ := s.store.ListTagsByVideo(r.Context(), video.ID)
-	allTags, _ := s.store.ListTags(r.Context())
-	data := struct {
-		Video   store.Video
-		Tags    []store.Tag
-		AllTags []store.Tag
-	}{video, tags, allTags}
-	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
 
 func (s *server) handleVideoFile(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -938,19 +914,8 @@ func (s *server) handleDirectoryDeleteConfirm(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-	dirs, err := s.store.ListDirectories(r.Context())
+	dir, err := s.store.GetDirectory(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	var dir store.Directory
-	for _, d := range dirs {
-		if d.ID == id {
-			dir = d
-			break
-		}
-	}
-	if dir.ID == 0 {
 		http.Error(w, "directory not found", http.StatusNotFound)
 		return
 	}
@@ -1051,7 +1016,10 @@ func tmdbGet(apiKey, path string, out any) error {
 		return err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("TMDB %s: read body: %w", path, err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("TMDB %s: %d %s", path, resp.StatusCode, string(body))
 	}
@@ -1240,12 +1208,16 @@ func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if sortOrder != "name" && sortOrder != "rating" {
 		sortOrder = "name"
 	}
-	tmdbKey := strings.TrimSpace(r.FormValue("tmdb_api_key"))
-	if err := s.store.SaveSettings(r.Context(), map[string]string{
+	settings := map[string]string{
 		"autoplay_random": autoplay,
 		"video_sort":      sortOrder,
-		"tmdb_api_key":    tmdbKey,
-	}); err != nil {
+	}
+	// Only overwrite the key if the user submitted a non-empty value; leaving
+	// the field blank preserves the existing key.
+	if newKey := strings.TrimSpace(r.FormValue("tmdb_api_key")); newKey != "" {
+		settings["tmdb_api_key"] = newKey
+	}
+	if err := s.store.SaveSettings(r.Context(), settings); err != nil {
 		http.Error(w, "save settings: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1404,8 +1376,8 @@ func (s *server) handleSharePanel(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// DupGroup holds a set of videos that appear to be duplicates (same filename + size).
-type DupGroup struct {
+// dupGroup holds a set of videos that appear to be duplicates (same filename + size).
+type dupGroup struct {
 	Filename string
 	SizeMB   string
 	Videos   []store.Video
@@ -1432,13 +1404,13 @@ func (s *server) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
 		buckets[k] = append(buckets[k], v)
 	}
 
-	var groups []DupGroup
+	var groups []dupGroup
 	for k, vs := range buckets {
 		if len(vs) < 2 {
 			continue
 		}
 		sizeMB := fmt.Sprintf("%.1f MB", float64(k.size)/(1024*1024))
-		groups = append(groups, DupGroup{Filename: k.name, SizeMB: sizeMB, Videos: vs})
+		groups = append(groups, dupGroup{Filename: k.name, SizeMB: sizeMB, Videos: vs})
 	}
 
 	if err := templates.ExecuteTemplate(w, "duplicates.html", groups); err != nil {

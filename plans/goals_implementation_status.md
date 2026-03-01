@@ -37,3 +37,33 @@ Ordered by complexity (easiest first).
 | 24 | 4 | Library nav: smaller rows, more info, takes more screen | ✅ Done |
 | 25 | 6 | Video cropping via UI using ffmpeg | ✅ Done |
 | 26 | 8 | Multiple video tabs (play several at once) | ✅ Done |
+
+## Round 3 — Self-Review Action Items
+
+Ordered by complexity (easiest / least invasive first).
+
+| # | Self-review ref | Feature | Status |
+|---|-----------------|---------|--------|
+| 27 | dead code 3a | Remove unused `handleRandomPlayer` + `GET /play/random` route | ⬜ Todo |
+| 28 | dead code 3b | Remove discarded `strconv.Atoi(*port)` result | ⬜ Todo |
+| 29 | quality 5c | Make `DupGroup` unexported (`dupGroup`) | ⬜ Todo |
+| 30 | quality 5b | `handleDirectoryDeleteConfirm`: use `GetDirectory` instead of linear scan | ⬜ Todo |
+| 31 | UX 6h | Tab strip: add full-title `title` tooltip to tab buttons | ⬜ Todo |
+| 32 | security 2c | Settings: never echo TMDB API key back as input value | ⬜ Todo |
+| 33 | nit | Fix silently-discarded `io.ReadAll` error in `tmdbGet` | ⬜ Todo |
+| 34 | nit | Clean up residual inline button styles in `tags.html` | ⬜ Todo |
+| 35 | arch 5f | Startup check: warn if `ffmpeg`, `ffprobe`, or `yt-dlp` missing from PATH | ⬜ Todo |
+| 36 | perf 4a | `serveVideoList`: replace two `watch_history` full scans with one | ⬜ Todo |
+| 37 | quality 5d | Deduplicate `handleAddDirectory` / `handleCreateDirectory` into shared helper | ⬜ Todo |
+| 38 | UX 6b | Trim: append counter suffix instead of silently overwriting existing `_trim` file | ⬜ Todo |
+| 39 | nit | `video_sort` setting: actually route to `ListVideosByRating` when sort=rating | ⬜ Todo |
+| 40 | UX 6a | Add "Rescan" button per directory (`POST /directories/{id}/sync`) | ⬜ Todo |
+| 41 | UX 6f | Use idiomorph `hx-ext="morph"` for video list swap to preserve scroll position | ⬜ Todo |
+| 42 | arch 5a | Graceful shutdown: SIGTERM handler + cancel root context + `Server.Shutdown` | ⬜ Todo |
+| 43 | bug 1a | `syncDir`: prune DB records for files deleted from disk | ⬜ Todo |
+| 44 | bug 1c | `handleConvert`: use background context so conversion survives browser disconnect | ⬜ Todo |
+| 45 | bug 1b | Multi-tab info panel: update panel when switching tabs | ⬜ Todo |
+| 46 | security 2b | `handleBrowseFS`: restrict path to home-dir subtree | ⬜ Todo |
+| 47 | testing 7c | Store tests for `GetRandomVideo` and `SearchVideos` | ⬜ Todo |
+| 48 | UX 6i | "Next unwatched" button per tag/directory | ⬜ Todo |
+| 49 | security 2a | Optional password protection (bcrypt + cookie session) | ⬜ Todo |
