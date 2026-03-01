@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	"github.com/maxgarvey/video_manger/db"
 	_ "modernc.org/sqlite"
@@ -15,105 +14,20 @@ type SQLiteStore struct {
 	conn *sql.DB
 }
 
-// NewSQLite opens (or creates) a SQLite database at path and applies the schema.
+// NewSQLite opens (or creates) a SQLite database at path and applies all
+// pending migrations from the embedded migrations/ directory.
 func NewSQLite(path string) (*SQLiteStore, error) {
 	conn, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
-	if err := applySchema(conn); err != nil {
+	if _, err := conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, err
+	}
+	if err := runMigrations(conn); err != nil {
 		return nil, err
 	}
 	return &SQLiteStore{q: db.New(conn), conn: conn}, nil
-}
-
-func applySchema(conn *sql.DB) error {
-	// Create all non-video tables (idempotent).
-	if _, err := conn.Exec(`
-		CREATE TABLE IF NOT EXISTS directories (
-			id   INTEGER PRIMARY KEY AUTOINCREMENT,
-			path TEXT    NOT NULL UNIQUE
-		);
-		CREATE TABLE IF NOT EXISTS tags (
-			id   INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT    NOT NULL UNIQUE
-		);
-		CREATE TABLE IF NOT EXISTS video_tags (
-			video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
-			tag_id   INTEGER NOT NULL REFERENCES tags(id)   ON DELETE CASCADE,
-			PRIMARY KEY(video_id, tag_id)
-		);
-		PRAGMA foreign_keys = ON;
-	`); err != nil {
-		return err
-	}
-	return migrateVideos(conn)
-}
-
-// migrateVideos ensures the videos table exists with the current schema:
-//   - directory_id nullable (ON DELETE SET NULL so videos survive directory removal)
-//   - directory_path stored directly (accessible even when directory_id is NULL)
-//   - UNIQUE(filename, directory_path) instead of (filename, directory_id)
-func migrateVideos(conn *sql.DB) error {
-	// Check whether the table exists at all.
-	var exists int
-	if err := conn.QueryRow(
-		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='videos'`,
-	).Scan(&exists); err != nil {
-		return err
-	}
-	if exists == 0 {
-		_, err := conn.Exec(`
-			CREATE TABLE videos (
-				id             INTEGER PRIMARY KEY AUTOINCREMENT,
-				filename       TEXT    NOT NULL,
-				directory_id   INTEGER REFERENCES directories(id) ON DELETE SET NULL,
-				directory_path TEXT    NOT NULL DEFAULT '',
-				display_name   TEXT    NOT NULL DEFAULT '',
-				UNIQUE(filename, directory_path)
-			)`)
-		return err
-	}
-
-	// Table exists — check whether it already has the directory_path column.
-	var hasPath int
-	if err := conn.QueryRow(
-		`SELECT COUNT(*) FROM pragma_table_info('videos') WHERE name='directory_path'`,
-	).Scan(&hasPath); err != nil {
-		return err
-	}
-	if hasPath > 0 {
-		return nil // Already up to date.
-	}
-
-	// Recreate the table with the new schema, carrying over all existing data.
-	// PRAGMA foreign_keys must be OFF while we drop and rename tables.
-	steps := []string{
-		`PRAGMA foreign_keys = OFF`,
-		`CREATE TABLE videos_new (
-			id             INTEGER PRIMARY KEY AUTOINCREMENT,
-			filename       TEXT    NOT NULL,
-			directory_id   INTEGER REFERENCES directories(id) ON DELETE SET NULL,
-			directory_path TEXT    NOT NULL DEFAULT '',
-			display_name   TEXT    NOT NULL DEFAULT '',
-			UNIQUE(filename, directory_path)
-		)`,
-		// Copy rows; populate directory_path from the directories join.
-		`INSERT INTO videos_new (id, filename, directory_id, directory_path, display_name)
-			SELECT v.id, v.filename, v.directory_id,
-			       COALESCE(d.path, ''), v.display_name
-			FROM videos v
-			LEFT JOIN directories d ON d.id = v.directory_id`,
-		`DROP TABLE videos`,
-		`ALTER TABLE videos_new RENAME TO videos`,
-		`PRAGMA foreign_keys = ON`,
-	}
-	for _, s := range steps {
-		if _, err := conn.Exec(s); err != nil {
-			return fmt.Errorf("migrate videos: %w (step: %.60s)", err, s)
-		}
-	}
-	return nil
 }
 
 // --- Directories ---
