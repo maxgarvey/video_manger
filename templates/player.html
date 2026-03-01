@@ -40,6 +40,20 @@
 })();
 </script>
 
+<!-- Title overlay — fades in when hovering the player -->
+<div id="player-overlay">
+  <div style="font-size:1.05rem;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.9)">
+    {{if eq .Video.Rating 2}}⭐ {{else if eq .Video.Rating 1}}👍 {{end}}{{.Video.Title}}
+  </div>
+  {{if .Tags}}
+  <div style="display:flex;gap:0.25rem;flex-wrap:wrap;margin-top:0.35rem">
+    {{range .Tags}}
+    <span style="font-size:0.75rem;background:rgba(255,255,255,0.15);border-radius:10px;padding:0.1rem 0.45rem;color:#ddd">{{.Name}}</span>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+
 <!-- Out-of-band: populate the info panel overlay -->
 <div id="info-panel" hx-swap-oob="true">
 

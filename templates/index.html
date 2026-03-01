@@ -161,6 +161,18 @@
     .btn-icon:hover { background: none; color: #888; }
     .tag-filter-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
+    /* ── Player hover overlay ──────────────────────────────────────── */
+    #player-overlay {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(0, 0, 0, 0.82));
+      padding: 3rem 1.5rem 1rem;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      pointer-events: none;
+    }
+    #player:hover #player-overlay { opacity: 1; }
+
     /* ── Details / summary disclosure ──────────────────────────────── */
     details > summary {
       list-style: none;

@@ -31,7 +31,7 @@ Ordered by complexity (easiest first).
 | 18 | 5 | Consistent, minimal button styling across all templates | ✅ Done |
 | 19 | 7 | Better dropdown/details indicators (triangle, highlight state) | ✅ Done |
 | 20 | 9 | Auto-update library as new files are added (polling) | ✅ Done |
-| 21 | 1 | Hover overlay on video player showing title / metadata | ⬜ Pending |
+| 21 | 1 | Hover overlay on video player showing title / metadata | ✅ Done |
 | 22 | 11 | Detect duplicate files (by size+name hash) | ⬜ Pending |
 | 23 | 3 | In-between states / animations (htmx indicators, transitions) | ⬜ Pending |
 | 24 | 4 | Library nav: smaller rows, more info, takes more screen | ⬜ Pending |
