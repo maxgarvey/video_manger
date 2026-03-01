@@ -298,6 +298,30 @@ func TestHandleDirectories(t *testing.T) {
 	}
 }
 
+func TestHandleVideoSearch(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	srv.store.UpsertVideo(ctx, d.ID, "nature_doc.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, "nature_short.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, "comedy_special.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos?q=nature", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "nature_doc.mp4") || !strings.Contains(body, "nature_short.mp4") {
+		t.Error("expected both nature videos in results")
+	}
+	if strings.Contains(body, "comedy_special.mp4") {
+		t.Error("expected comedy video to be filtered out")
+	}
+}
+
 func TestHandleDeleteVideo(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()

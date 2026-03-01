@@ -54,6 +54,7 @@ type Store interface {
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	UpdateVideoName(ctx context.Context, id int64, name string) error
 	DeleteVideo(ctx context.Context, id int64) error
+	SearchVideos(ctx context.Context, query string) ([]Video, error)
 
 	// Tag management
 	UpsertTag(ctx context.Context, name string) (Tag, error)

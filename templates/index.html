@@ -161,10 +161,17 @@
     <section>
       <h2>Filter by Tag</h2>
       <div id="tag-filters" hx-get="/tags" hx-trigger="load"></div>
-      <button hx-get="/videos" hx-target="#video-list" style="margin-top:0.4rem;width:100%">Show all</button>
+      <button hx-get="/videos" hx-target="#video-list"
+        onclick="document.getElementById('video-search').value=''"
+        style="margin-top:0.4rem;width:100%">Show all</button>
     </section>
     <section>
       <h2>Videos</h2>
+      <input id="video-search" type="text" name="q" placeholder="Search..."
+        hx-get="/videos"
+        hx-target="#video-list"
+        hx-trigger="input changed delay:150ms"
+        style="margin-bottom:0.5rem">
       <div id="video-list" hx-get="/videos" hx-trigger="load"></div>
     </section>
   </aside>

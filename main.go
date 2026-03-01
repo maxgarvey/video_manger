@@ -352,16 +352,20 @@ func (s *server) handleDeleteVideoAndFile(w http.ResponseWriter, r *http.Request
 	s.serveVideoList(w, r)
 }
 
-// serveVideoList renders the current video list (respecting tag filter if present).
+// serveVideoList renders the video list, respecting tag_id and q query params.
 func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 	var (
 		videos []store.Video
 		err    error
 	)
-	if tagStr := r.URL.Query().Get("tag_id"); tagStr != "" {
-		tagID, _ := strconv.ParseInt(tagStr, 10, 64)
+	q := r.URL.Query()
+	switch {
+	case q.Get("q") != "":
+		videos, err = s.store.SearchVideos(r.Context(), q.Get("q"))
+	case q.Get("tag_id") != "":
+		tagID, _ := strconv.ParseInt(q.Get("tag_id"), 10, 64)
 		videos, err = s.store.ListVideosByTag(r.Context(), tagID)
-	} else {
+	default:
 		videos, err = s.store.ListVideos(r.Context())
 	}
 	if err != nil {
