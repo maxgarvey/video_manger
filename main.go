@@ -1079,10 +1079,15 @@ func (s *server) handleGetMetadata(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("ffprobe %s: %v", video.FilePath(), err)
 	}
+	streams, err := metadata.ReadStreams(video.FilePath())
+	if err != nil {
+		log.Printf("ffprobe streams %s: %v", video.FilePath(), err)
+	}
 	data := struct {
 		VideoID int64
 		Native  metadata.Meta
-	}{id, native}
+		Streams []metadata.Stream
+	}{id, native, streams}
 	if err := templates.ExecuteTemplate(w, "file_metadata.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

@@ -43,3 +43,32 @@
     hx-target="#file-meta-{{.VideoID}}">Add</button>
 </div>
 {{end}}
+{{if .Streams}}
+<div style="border-top:1px solid #2a2a2a;padding-top:0.6rem;margin-top:0.4rem">
+  <span style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555">Codec Info</span>
+  {{range .Streams}}
+  <dl style="display:grid;grid-template-columns:auto 1fr;gap:0.15rem 0.75rem;font-size:0.78rem;margin-top:0.35rem">
+    {{if eq .CodecType "video"}}
+    <dt style="color:#666;white-space:nowrap">Video</dt><dd style="color:#bbb;font-weight:600">{{.CodecName}}</dd>
+    {{if and .Width .Height}}
+    <dt style="color:#666;white-space:nowrap">Resolution</dt><dd style="color:#bbb">{{.Width}}×{{.Height}}</dd>
+    {{end}}
+    {{if .FrameRate}}
+    <dt style="color:#666;white-space:nowrap">Frame rate</dt><dd style="color:#bbb">{{.FrameRate}} fps</dd>
+    {{end}}
+    {{else if eq .CodecType "audio"}}
+    <dt style="color:#666;white-space:nowrap">Audio</dt><dd style="color:#bbb;font-weight:600">{{.CodecName}}</dd>
+    {{if .SampleRate}}
+    <dt style="color:#666;white-space:nowrap">Sample rate</dt><dd style="color:#bbb">{{.SampleRate}} Hz</dd>
+    {{end}}
+    {{if .Channels}}
+    <dt style="color:#666;white-space:nowrap">Channels</dt><dd style="color:#bbb">{{.Channels}}</dd>
+    {{end}}
+    {{end}}
+    {{if .BitRate}}
+    <dt style="color:#666;white-space:nowrap">Bit rate</dt><dd style="color:#bbb">{{.BitRate}} bps</dd>
+    {{end}}
+  </dl>
+  {{end}}
+</div>
+{{end}}

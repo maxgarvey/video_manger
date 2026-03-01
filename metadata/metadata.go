@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -130,6 +131,37 @@ func Write(path string, u Updates) error {
 	return os.Rename(tmpPath, path)
 }
 
+// Stream holds codec information for a single audio or video stream.
+type Stream struct {
+	CodecType  string // "video" or "audio"
+	CodecName  string // e.g. "h264", "aac"
+	Width      int    // video only
+	Height     int    // video only
+	FrameRate  string // video only, e.g. "23.976"
+	BitRate    string // bits/s
+	SampleRate string // audio only, e.g. "44100"
+	Channels   int    // audio only
+}
+
+// ReadStreams calls ffprobe with -show_streams and returns per-stream
+// codec details. Returns nil slice (no error) if ffprobe is unavailable.
+func ReadStreams(path string) ([]Stream, error) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		return nil, nil
+	}
+	out, err := exec.Command(
+		"ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_streams",
+		path,
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("ffprobe: %w", err)
+	}
+	return parseStreams(out)
+}
+
 // --- internal ---
 
 type ffprobeOutput struct {
@@ -176,4 +208,51 @@ func firstOf(tags map[string]string, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+type ffprobeStreamsOutput struct {
+	Streams []struct {
+		CodecType        string `json:"codec_type"`
+		CodecName        string `json:"codec_name"`
+		Width            int    `json:"width"`
+		Height           int    `json:"height"`
+		AvgFrameRate     string `json:"avg_frame_rate"`
+		BitRate          string `json:"bit_rate"`
+		SampleRate       string `json:"sample_rate"`
+		Channels         int    `json:"channels"`
+	} `json:"streams"`
+}
+
+func parseStreams(data []byte) ([]Stream, error) {
+	var raw ffprobeStreamsOutput
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse ffprobe streams: %w", err)
+	}
+	var out []Stream
+	for _, s := range raw.Streams {
+		st := Stream{
+			CodecType:  s.CodecType,
+			CodecName:  s.CodecName,
+			Width:      s.Width,
+			Height:     s.Height,
+			BitRate:    s.BitRate,
+			SampleRate: s.SampleRate,
+			Channels:   s.Channels,
+		}
+		// Convert fractional frame rate "num/den" to a decimal string.
+		if s.AvgFrameRate != "" && s.AvgFrameRate != "0/0" {
+			parts := strings.SplitN(s.AvgFrameRate, "/", 2)
+			if len(parts) == 2 {
+				num, errN := strconv.ParseFloat(parts[0], 64)
+				den, errD := strconv.ParseFloat(parts[1], 64)
+				if errN == nil && errD == nil && den != 0 {
+					st.FrameRate = strconv.FormatFloat(num/den, 'f', 3, 64)
+				}
+			} else {
+				st.FrameRate = s.AvgFrameRate
+			}
+		}
+		out = append(out, st)
+	}
+	return out, nil
 }
