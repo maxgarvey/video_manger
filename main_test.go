@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -904,6 +905,53 @@ func TestHandleSetRating(t *testing.T) {
 
 	if code := setRating(3); code != http.StatusBadRequest {
 		t.Fatalf("invalid rating: expected 400, got %d", code)
+	}
+}
+
+func TestHandleSetRating_BadVideo(t *testing.T) {
+	srv := newTestServer(t)
+	form := url.Values{"rating": {"1"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/999/rating", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown video, got %d", rec.Code)
+	}
+}
+
+func TestHandleProgress_JSONConsistency(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "ep.mp4")
+
+	// Before any watch — should return JSON with position:0
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/progress", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var pre map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &pre); err != nil {
+		t.Fatalf("pre-watch response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if pre["position"] == nil {
+		t.Error("expected 'position' key in pre-watch response")
+	}
+
+	// After recording a position — should also return valid JSON
+	srv.store.RecordWatch(ctx, v.ID, 55.0) //nolint:errcheck
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/progress", nil)
+	srv.routes().ServeHTTP(rec, req)
+	var post map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &post); err != nil {
+		t.Fatalf("post-watch response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if post["position"] != 55.0 {
+		t.Errorf("expected position 55.0, got %v", post["position"])
 	}
 }
 

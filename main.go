@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -151,7 +152,7 @@ func (s *server) routes() http.Handler {
 // If ffprobe is available, native title is read and used to pre-populate
 // display_name for videos that don't yet have one set.
 func (s *server) syncDir(d store.Directory) {
-	filepath.WalkDir(d.Path, func(path string, de fs.DirEntry, err error) error { //nolint:errcheck
+	if err := filepath.WalkDir(d.Path, func(path string, de fs.DirEntry, err error) error {
 		if err != nil {
 			log.Printf("sync walk %s: %v", path, err)
 			return nil // keep walking
@@ -180,7 +181,9 @@ func (s *server) syncDir(d store.Directory) {
 			log.Printf("tag video %d with dir tag: %v", v.ID, err)
 		}
 		return nil
-	})
+	}); err != nil {
+		log.Printf("syncDir walk %s: %v", d.Path, err)
+	}
 }
 
 // syncTagsToFile writes the current DB tags for a video back to the file as keywords.
@@ -547,14 +550,13 @@ func (s *server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	rec, err := s.store.GetWatch(r.Context(), id)
 	if err != nil {
 		// Not yet watched — return zero position.
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"position":0,"watched_at":""}`)) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"position": 0, "watched_at": ""}) //nolint:errcheck
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 		"position":   rec.Position,
 		"watched_at": rec.WatchedAt,
@@ -584,7 +586,7 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Allow up to 10 minutes for large downloads.
-	ctx, cancel := context.WithTimeout(r.Context(), 10*60*1e9)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
 
 	var stderr bytes.Buffer
@@ -707,6 +709,12 @@ func (s *server) handleSetRating(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+	// Verify the video exists before updating (SetVideoRating is a blind UPDATE).
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
 	rating, _ := strconv.Atoi(r.FormValue("rating"))
 	if rating < 0 || rating > 2 {
 		http.Error(w, "rating must be 0, 1, or 2", http.StatusBadRequest)
@@ -716,7 +724,7 @@ func (s *server) handleSetRating(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	video, err := s.store.GetVideo(r.Context(), id)
+	video, err = s.store.GetVideo(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
