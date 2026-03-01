@@ -53,17 +53,24 @@ func TestDeleteDirectory(t *testing.T) {
 	}
 }
 
-func TestDeleteDirectory_CascadesVideos(t *testing.T) {
+func TestDeleteDirectory_OrphansVideos(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	s.UpsertVideo(ctx, d.ID, "clip.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
 	s.DeleteDirectory(ctx, d.ID)
 
+	// Videos survive directory removal; directory_id becomes NULL.
 	videos, _ := s.ListVideos(ctx)
-	if len(videos) != 0 {
-		t.Errorf("expected videos to be cascade-deleted, got %d", len(videos))
+	if len(videos) != 1 {
+		t.Fatalf("expected video to survive directory deletion, got %d videos", len(videos))
+	}
+	if videos[0].DirectoryID != 0 {
+		t.Errorf("expected DirectoryID=0 (orphaned), got %d", videos[0].DirectoryID)
+	}
+	if videos[0].DirectoryPath != "/videos" {
+		t.Errorf("expected DirectoryPath=/videos, got %q", videos[0].DirectoryPath)
 	}
 }
 
@@ -74,11 +81,11 @@ func TestUpsertVideo_Idempotentent(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	v1, err := s.UpsertVideo(ctx, d.ID, "movie.mp4")
+	v1, err := s.UpsertVideo(ctx, d.ID, d.Path, "movie.mp4")
 	if err != nil {
 		t.Fatalf("UpsertVideo first: %v", err)
 	}
-	v2, err := s.UpsertVideo(ctx, d.ID, "movie.mp4")
+	v2, err := s.UpsertVideo(ctx, d.ID, d.Path, "movie.mp4")
 	if err != nil {
 		t.Fatalf("UpsertVideo second: %v", err)
 	}
@@ -92,8 +99,8 @@ func TestListVideos(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	s.UpsertVideo(ctx, d.ID, "alpha.mp4")
-	s.UpsertVideo(ctx, d.ID, "beta.mkv")
+	s.UpsertVideo(ctx, d.ID, d.Path, "alpha.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "beta.mkv")
 
 	videos, err := s.ListVideos(ctx)
 	if err != nil {
@@ -112,7 +119,7 @@ func TestGetVideo(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	v, _ := s.UpsertVideo(ctx, d.ID, "film.mp4")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
 
 	got, err := s.GetVideo(ctx, v.ID)
 	if err != nil {
@@ -128,7 +135,7 @@ func TestUpdateVideoName(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	v, _ := s.UpsertVideo(ctx, d.ID, "raw_footage.mp4")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "raw_footage.mp4")
 
 	if err := s.UpdateVideoName(ctx, v.ID, "Summer Trip"); err != nil {
 		t.Fatalf("UpdateVideoName: %v", err)
@@ -145,9 +152,9 @@ func TestListVideosByDirectory(t *testing.T) {
 
 	d1, _ := s.AddDirectory(ctx, "/videos/a")
 	d2, _ := s.AddDirectory(ctx, "/videos/b")
-	s.UpsertVideo(ctx, d1.ID, "one.mp4")
-	s.UpsertVideo(ctx, d1.ID, "two.mp4")
-	s.UpsertVideo(ctx, d2.ID, "three.mp4")
+	s.UpsertVideo(ctx, d1.ID, d1.Path, "one.mp4")
+	s.UpsertVideo(ctx, d1.ID, d1.Path, "two.mp4")
+	s.UpsertVideo(ctx, d2.ID, d2.Path, "three.mp4")
 
 	vids, err := s.ListVideosByDirectory(ctx, d1.ID)
 	if err != nil {
@@ -173,9 +180,9 @@ func TestSearchVideos(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	s.UpsertVideo(ctx, d.ID, "bobs_burgers_s01e01.mp4")
-	s.UpsertVideo(ctx, d.ID, "bobs_burgers_s01e02.mp4")
-	s.UpsertVideo(ctx, d.ID, "archer_s01e01.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "bobs_burgers_s01e01.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "bobs_burgers_s01e02.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "archer_s01e01.mp4")
 
 	results, err := s.SearchVideos(ctx, "bobs")
 	if err != nil {
@@ -207,7 +214,7 @@ func TestDeleteVideo(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	v, _ := s.UpsertVideo(ctx, d.ID, "to_delete.mp4")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "to_delete.mp4")
 
 	if err := s.DeleteVideo(ctx, v.ID); err != nil {
 		t.Fatalf("DeleteVideo: %v", err)
@@ -226,7 +233,7 @@ func TestVideoTitle_FallsBackToFilename(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	v, _ := s.UpsertVideo(ctx, d.ID, "untitled.mp4")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "untitled.mp4")
 
 	got, _ := s.GetVideo(ctx, v.ID)
 	if got.Title() != "untitled.mp4" {
@@ -258,7 +265,7 @@ func TestTagAndUntagVideo(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	v, _ := s.UpsertVideo(ctx, d.ID, "film.mp4")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
 	tag, _ := s.UpsertTag(ctx, "comedy")
 
 	if err := s.TagVideo(ctx, v.ID, tag.ID); err != nil {
@@ -286,8 +293,8 @@ func TestListVideosByTag(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	v1, _ := s.UpsertVideo(ctx, d.ID, "alpha.mp4")
-	v2, _ := s.UpsertVideo(ctx, d.ID, "beta.mp4")
+	v1, _ := s.UpsertVideo(ctx, d.ID, d.Path, "alpha.mp4")
+	v2, _ := s.UpsertVideo(ctx, d.ID, d.Path, "beta.mp4")
 	tag, _ := s.UpsertTag(ctx, "favorites")
 
 	s.TagVideo(ctx, v1.ID, tag.ID)
@@ -307,7 +314,7 @@ func TestTagVideo_Idempotent(t *testing.T) {
 	ctx := context.Background()
 
 	d, _ := s.AddDirectory(ctx, "/videos")
-	v, _ := s.UpsertVideo(ctx, d.ID, "film.mp4")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
 	tag, _ := s.UpsertTag(ctx, "drama")
 
 	s.TagVideo(ctx, v.ID, tag.ID)

@@ -104,8 +104,8 @@ func TestHandleVideoList_WithVideos(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	srv.store.UpsertVideo(ctx, d.ID, "alpha.mp4")
-	srv.store.UpsertVideo(ctx, d.ID, "beta.mkv")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "alpha.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "beta.mkv")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
@@ -124,8 +124,8 @@ func TestHandleVideoList_FilterByTag(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	v1, _ := srv.store.UpsertVideo(ctx, d.ID, "tagged.mp4")
-	srv.store.UpsertVideo(ctx, d.ID, "untagged.mp4")
+	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "tagged.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "untagged.mp4")
 	tag, _ := srv.store.UpsertTag(ctx, "favorites")
 	srv.store.TagVideo(ctx, v1.ID, tag.ID)
 
@@ -146,7 +146,7 @@ func TestHandlePlayer(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, "myvideo.mp4")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "myvideo.mp4")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/play/"+itoa(v.ID), nil)
@@ -180,7 +180,7 @@ func TestHandleVideoFile(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, dir)
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, "test.mp4")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "test.mp4")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/video/"+itoa(v.ID), nil)
@@ -204,7 +204,7 @@ func TestHandleVideoFile_RangeRequest(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, dir)
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, "clip.mp4")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/video/"+itoa(v.ID), nil)
@@ -223,7 +223,7 @@ func TestHandleUpdateVideoName(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, "raw.mp4")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "raw.mp4")
 
 	form := url.Values{"name": {"Summer Trip"}}
 	rec := httptest.NewRecorder()
@@ -243,7 +243,7 @@ func TestHandleAddAndRemoveVideoTag(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, "film.mp4")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
 
 	// Add tag
 	form := url.Values{"tag": {"action"}}
@@ -342,8 +342,8 @@ func TestHandleDeleteDirectoryAndFiles(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, dir)
-	srv.store.UpsertVideo(ctx, d.ID, "ep1.mp4")
-	srv.store.UpsertVideo(ctx, d.ID, "ep2.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "ep1.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "ep2.mp4")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodDelete, "/directories/"+itoa(d.ID)+"/files", nil)
@@ -385,11 +385,47 @@ func TestHandleDeleteDirectory(t *testing.T) {
 	}
 }
 
+func TestHandleDeleteDirectory_KeepsVideos(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/movies")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	// Library-only remove: DELETE /directories/{id}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/directories/"+itoa(d.ID), nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	// Directory is gone.
+	dirs, _ := srv.store.ListDirectories(ctx)
+	if len(dirs) != 0 {
+		t.Errorf("expected 0 directories, got %d", len(dirs))
+	}
+
+	// Video is still listed with its path intact.
+	videos, _ := srv.store.ListVideos(ctx)
+	if len(videos) != 1 {
+		t.Fatalf("expected video to survive directory removal, got %d videos", len(videos))
+	}
+	if videos[0].ID != v.ID {
+		t.Errorf("expected video ID %d, got %d", v.ID, videos[0].ID)
+	}
+	if videos[0].DirectoryPath != "/movies" {
+		t.Errorf("expected DirectoryPath=/movies, got %q", videos[0].DirectoryPath)
+	}
+	if videos[0].FilePath() != "/movies/film.mp4" {
+		t.Errorf("expected FilePath=/movies/film.mp4, got %q", videos[0].FilePath())
+	}
+}
+
 func TestHandleGetMetadata(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, "show.mp4")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "show.mp4")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/metadata", nil)
@@ -403,7 +439,7 @@ func TestHandleEditMetadata(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, "show.mp4")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "show.mp4")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/metadata/edit", nil)
@@ -420,7 +456,7 @@ func TestHandleUpdateMetadata(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, "show.mp4")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "show.mp4")
 
 	form := url.Values{
 		"title":          {"My Show"},
@@ -447,9 +483,9 @@ func TestHandleVideoSearch(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	srv.store.UpsertVideo(ctx, d.ID, "nature_doc.mp4")
-	srv.store.UpsertVideo(ctx, d.ID, "nature_short.mp4")
-	srv.store.UpsertVideo(ctx, d.ID, "comedy_special.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "nature_doc.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "nature_short.mp4")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "comedy_special.mp4")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/videos?q=nature", nil)
@@ -471,7 +507,7 @@ func TestHandleDeleteVideo(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, "gone.mp4")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "gone.mp4")
 
 	// Confirm page
 	rec := httptest.NewRecorder()
@@ -508,7 +544,7 @@ func TestHandleDeleteVideoAndFile(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, dir)
-	v, _ := srv.store.UpsertVideo(ctx, d.ID, filename)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, filename)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodDelete, "/videos/"+itoa(v.ID)+"/file", nil)

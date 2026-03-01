@@ -7,31 +7,8 @@ SELECT * FROM directories ORDER BY path;
 -- name: DeleteDirectory :exec
 DELETE FROM directories WHERE id = ?;
 
--- name: UpsertVideo :one
-INSERT INTO videos (filename, directory_id)
-VALUES (?, ?)
-ON CONFLICT (filename, directory_id) DO UPDATE SET filename = excluded.filename
-RETURNING *;
-
--- name: ListVideos :many
-SELECT v.id, v.filename, v.directory_id, v.display_name, d.path AS directory_path
-FROM videos v
-JOIN directories d ON d.id = v.directory_id
-ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename);
-
--- name: ListVideosByTag :many
-SELECT v.id, v.filename, v.directory_id, v.display_name, d.path AS directory_path
-FROM videos v
-JOIN directories d ON d.id = v.directory_id
-JOIN video_tags vt ON v.id = vt.video_id
-WHERE vt.tag_id = ?
-ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename);
-
--- name: GetVideoByID :one
-SELECT v.id, v.filename, v.directory_id, v.display_name, d.path AS directory_path
-FROM videos v
-JOIN directories d ON d.id = v.directory_id
-WHERE v.id = ?;
+-- Video queries are implemented as raw SQL in store/sqlite.go
+-- because directory_id is nullable (orphaned videos must remain visible).
 
 -- name: UpdateVideoName :exec
 UPDATE videos SET display_name = ? WHERE id = ?;

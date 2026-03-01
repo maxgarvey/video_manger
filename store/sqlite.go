@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/maxgarvey/video_manger/db"
 	_ "modernc.org/sqlite"
@@ -27,17 +28,11 @@ func NewSQLite(path string) (*SQLiteStore, error) {
 }
 
 func applySchema(conn *sql.DB) error {
-	_, err := conn.Exec(`
+	// Create all non-video tables (idempotent).
+	if _, err := conn.Exec(`
 		CREATE TABLE IF NOT EXISTS directories (
 			id   INTEGER PRIMARY KEY AUTOINCREMENT,
 			path TEXT    NOT NULL UNIQUE
-		);
-		CREATE TABLE IF NOT EXISTS videos (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
-			filename     TEXT    NOT NULL,
-			directory_id INTEGER NOT NULL REFERENCES directories(id) ON DELETE CASCADE,
-			display_name TEXT    NOT NULL DEFAULT '',
-			UNIQUE(filename, directory_id)
 		);
 		CREATE TABLE IF NOT EXISTS tags (
 			id   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,8 +44,76 @@ func applySchema(conn *sql.DB) error {
 			PRIMARY KEY(video_id, tag_id)
 		);
 		PRAGMA foreign_keys = ON;
-	`)
-	return err
+	`); err != nil {
+		return err
+	}
+	return migrateVideos(conn)
+}
+
+// migrateVideos ensures the videos table exists with the current schema:
+//   - directory_id nullable (ON DELETE SET NULL so videos survive directory removal)
+//   - directory_path stored directly (accessible even when directory_id is NULL)
+//   - UNIQUE(filename, directory_path) instead of (filename, directory_id)
+func migrateVideos(conn *sql.DB) error {
+	// Check whether the table exists at all.
+	var exists int
+	if err := conn.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='videos'`,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		_, err := conn.Exec(`
+			CREATE TABLE videos (
+				id             INTEGER PRIMARY KEY AUTOINCREMENT,
+				filename       TEXT    NOT NULL,
+				directory_id   INTEGER REFERENCES directories(id) ON DELETE SET NULL,
+				directory_path TEXT    NOT NULL DEFAULT '',
+				display_name   TEXT    NOT NULL DEFAULT '',
+				UNIQUE(filename, directory_path)
+			)`)
+		return err
+	}
+
+	// Table exists — check whether it already has the directory_path column.
+	var hasPath int
+	if err := conn.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('videos') WHERE name='directory_path'`,
+	).Scan(&hasPath); err != nil {
+		return err
+	}
+	if hasPath > 0 {
+		return nil // Already up to date.
+	}
+
+	// Recreate the table with the new schema, carrying over all existing data.
+	// PRAGMA foreign_keys must be OFF while we drop and rename tables.
+	steps := []string{
+		`PRAGMA foreign_keys = OFF`,
+		`CREATE TABLE videos_new (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			filename       TEXT    NOT NULL,
+			directory_id   INTEGER REFERENCES directories(id) ON DELETE SET NULL,
+			directory_path TEXT    NOT NULL DEFAULT '',
+			display_name   TEXT    NOT NULL DEFAULT '',
+			UNIQUE(filename, directory_path)
+		)`,
+		// Copy rows; populate directory_path from the directories join.
+		`INSERT INTO videos_new (id, filename, directory_id, directory_path, display_name)
+			SELECT v.id, v.filename, v.directory_id,
+			       COALESCE(d.path, ''), v.display_name
+			FROM videos v
+			LEFT JOIN directories d ON d.id = v.directory_id`,
+		`DROP TABLE videos`,
+		`ALTER TABLE videos_new RENAME TO videos`,
+		`PRAGMA foreign_keys = ON`,
+	}
+	for _, s := range steps {
+		if _, err := conn.Exec(s); err != nil {
+			return fmt.Errorf("migrate videos: %w (step: %.60s)", err, s)
+		}
+	}
+	return nil
 }
 
 // --- Directories ---
@@ -79,72 +142,64 @@ func (s *SQLiteStore) DeleteDirectory(ctx context.Context, id int64) error {
 	return s.q.DeleteDirectory(ctx, id)
 }
 
-// --- Videos ---
+// --- Videos (raw SQL — directory_id is nullable, so no sqlc JOIN queries) ---
 
-func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, filename string) (Video, error) {
-	row, err := s.q.UpsertVideo(ctx, db.UpsertVideoParams{
-		Filename:    filename,
-		DirectoryID: dirID,
-	})
-	if err != nil {
-		return Video{}, err
-	}
-	return Video{
-		ID:          row.ID,
-		Filename:    row.Filename,
-		DirectoryID: row.DirectoryID,
-		DisplayName: row.DisplayName,
-	}, nil
+func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, dirPath string, filename string) (Video, error) {
+	row := s.conn.QueryRowContext(ctx, `
+		INSERT INTO videos (filename, directory_id, directory_path)
+		VALUES (?, ?, ?)
+		ON CONFLICT (filename, directory_path)
+			DO UPDATE SET directory_id = excluded.directory_id
+		RETURNING id, filename, directory_id, directory_path, display_name
+	`, filename, dirID, dirPath)
+	return scanVideoRow(row)
 }
 
 func (s *SQLiteStore) ListVideos(ctx context.Context) ([]Video, error) {
-	rows, err := s.q.ListVideos(ctx)
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT id, filename, directory_id, directory_path, display_name
+		FROM videos
+		ORDER BY COALESCE(NULLIF(display_name, ''), filename)
+	`)
 	if err != nil {
 		return nil, err
 	}
-	videos := make([]Video, len(rows))
-	for i, r := range rows {
-		videos[i] = Video{
-			ID:            r.ID,
-			Filename:      r.Filename,
-			DirectoryID:   r.DirectoryID,
-			DirectoryPath: r.DirectoryPath,
-			DisplayName:   r.DisplayName,
-		}
-	}
-	return videos, nil
+	return scanVideos(rows)
 }
 
 func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video, error) {
-	rows, err := s.q.ListVideosByTag(ctx, tagID)
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name
+		FROM videos v
+		JOIN video_tags vt ON v.id = vt.video_id
+		WHERE vt.tag_id = ?
+		ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename)
+	`, tagID)
 	if err != nil {
 		return nil, err
 	}
-	videos := make([]Video, len(rows))
-	for i, r := range rows {
-		videos[i] = Video{
-			ID:            r.ID,
-			Filename:      r.Filename,
-			DirectoryID:   r.DirectoryID,
-			DirectoryPath: r.DirectoryPath,
-			DisplayName:   r.DisplayName,
-		}
+	return scanVideos(rows)
+}
+
+func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([]Video, error) {
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT id, filename, directory_id, directory_path, display_name
+		FROM videos
+		WHERE directory_id = ?
+		ORDER BY filename
+	`, dirID)
+	if err != nil {
+		return nil, err
 	}
-	return videos, nil
+	return scanVideos(rows)
 }
 
 func (s *SQLiteStore) GetVideo(ctx context.Context, id int64) (Video, error) {
-	r, err := s.q.GetVideoByID(ctx, id)
-	if err != nil {
-		return Video{}, err
-	}
-	return Video{
-		ID:            r.ID,
-		Filename:      r.Filename,
-		DirectoryID:   r.DirectoryID,
-		DirectoryPath: r.DirectoryPath,
-		DisplayName:   r.DisplayName,
-	}, nil
+	row := s.conn.QueryRowContext(ctx, `
+		SELECT id, filename, directory_id, directory_path, display_name
+		FROM videos WHERE id = ?
+	`, id)
+	return scanVideoRow(row)
 }
 
 func (s *SQLiteStore) UpdateVideoName(ctx context.Context, id int64, name string) error {
@@ -159,51 +214,17 @@ func (s *SQLiteStore) DeleteVideo(ctx context.Context, id int64) error {
 	return err
 }
 
-func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([]Video, error) {
-	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.display_name, d.path AS directory_path
-		FROM videos v
-		JOIN directories d ON d.id = v.directory_id
-		WHERE v.directory_id = ?
-		ORDER BY v.filename
-	`, dirID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var videos []Video
-	for rows.Next() {
-		var v Video
-		if err := rows.Scan(&v.ID, &v.Filename, &v.DirectoryID, &v.DisplayName, &v.DirectoryPath); err != nil {
-			return nil, err
-		}
-		videos = append(videos, v)
-	}
-	return videos, rows.Err()
-}
-
 func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, error) {
-	pattern := "%" + query + "%"
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.display_name, d.path AS directory_path
-		FROM videos v
-		JOIN directories d ON d.id = v.directory_id
-		WHERE LOWER(COALESCE(NULLIF(v.display_name, ''), v.filename)) LIKE LOWER(?)
-		ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename)
-	`, pattern)
+		SELECT id, filename, directory_id, directory_path, display_name
+		FROM videos
+		WHERE LOWER(COALESCE(NULLIF(display_name, ''), filename)) LIKE LOWER(?)
+		ORDER BY COALESCE(NULLIF(display_name, ''), filename)
+	`, "%"+query+"%")
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var videos []Video
-	for rows.Next() {
-		var v Video
-		if err := rows.Scan(&v.ID, &v.Filename, &v.DirectoryID, &v.DisplayName, &v.DirectoryPath); err != nil {
-			return nil, err
-		}
-		videos = append(videos, v)
-	}
-	return videos, rows.Err()
+	return scanVideos(rows)
 }
 
 // --- Tags ---
@@ -246,4 +267,35 @@ func (s *SQLiteStore) ListTagsByVideo(ctx context.Context, videoID int64) ([]Tag
 		tags[i] = Tag{ID: r.ID, Name: r.Name}
 	}
 	return tags, nil
+}
+
+// --- scan helpers ---
+
+func scanVideoRow(row *sql.Row) (Video, error) {
+	var v Video
+	var dirID sql.NullInt64
+	if err := row.Scan(&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName); err != nil {
+		return Video{}, err
+	}
+	if dirID.Valid {
+		v.DirectoryID = dirID.Int64
+	}
+	return v, nil
+}
+
+func scanVideos(rows *sql.Rows) ([]Video, error) {
+	defer rows.Close()
+	var videos []Video
+	for rows.Next() {
+		var v Video
+		var dirID sql.NullInt64
+		if err := rows.Scan(&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName); err != nil {
+			return nil, err
+		}
+		if dirID.Valid {
+			v.DirectoryID = dirID.Int64
+		}
+		videos = append(videos, v)
+	}
+	return videos, rows.Err()
 }
