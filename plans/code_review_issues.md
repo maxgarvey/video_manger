@@ -13,8 +13,8 @@ Legend: ⬜ Pending | 🔄 In Progress | ✅ Fixed | 📝 Documented (won't fix)
 | B1 | `handleLookupApply`: metadata write failure is logged but user sees success UI | ✅ |
 | B2 | `handleConvert`: `UpsertVideo` error after conversion is silently ignored | ✅ |
 | B3 | `handleLookupApply` TV: series name fetch error is silently ignored; show name written as empty string | ✅ |
-| B4 | `handleLookupApply`: does not update `display_name` in DB after writing TMDB title to file | ⬜ |
-| B5 | `handleConvert`: context cancel (user disconnect) kills ffmpeg and leaves a partial output file with no cleanup | ⬜ |
+| B4 | `handleLookupApply`: does not update `display_name` in DB after writing TMDB title to file | ✅ |
+| B5 | `handleConvert`: context cancel (user disconnect) kills ffmpeg and leaves a partial output file with no cleanup | ✅ |
 | B6 | `handleConvert`: converting to the same extension as the source (e.g. mkv→mkv) overwrites the input file | ✅ |
 | B7 | `SetVideoRating` / `handleSetRating`: non-existent video returns 500 instead of 404 | ✅ |
 | B8 | `handleDeleteDirectoryAndFiles`: not transactional; mid-loop failure leaves DB and disk inconsistent | ⬜ |
@@ -28,7 +28,7 @@ Legend: ⬜ Pending | 🔄 In Progress | ✅ Fixed | 📝 Documented (won't fix)
 | # | Issue | Status |
 |---|-------|--------|
 | S1 | `handleExportUSB`: `_usb.mp4` file is left in source directory permanently; gets picked up by next sync | ⬜ |
-| S2 | `tmdbGet`: uses `http.DefaultClient` with no timeout; hangs if TMDB is unresponsive | ⬜ |
+| S2 | `tmdbGet`: uses `http.DefaultClient` with no timeout; hangs if TMDB is unresponsive | ✅ |
 | S3 | `syncDir`: outer `filepath.WalkDir` return value is silently ignored; directory-not-found produces no log | ✅ |
 | S4 | Share panel "Copy" button uses `navigator.clipboard` which requires HTTPS; silently fails over HTTP on LAN | ⬜ |
 | S5 | No CSRF protection on POST/DELETE/PUT routes | 📝 |

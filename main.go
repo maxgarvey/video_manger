@@ -657,6 +657,8 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		// Remove any partial output file left behind by ffmpeg.
+		os.Remove(outPath) //nolint:errcheck
 		log.Printf("ffmpeg convert %s→%s: %v\n%s", video.FilePath(), outPath, err, stderr.String())
 		http.Error(w, "conversion failed: "+stderr.String(), http.StatusInternalServerError)
 		return
@@ -949,6 +951,10 @@ type tmdbEpisodeDetail struct {
 	ShowName     string // populated from series call
 }
 
+// tmdbClient is a dedicated HTTP client for TMDB API calls with a
+// conservative timeout so a slow or unresponsive TMDB doesn't hang handlers.
+var tmdbClient = &http.Client{Timeout: 15 * time.Second}
+
 func tmdbGet(apiKey, path string, out any) error {
 	req, err := http.NewRequest(http.MethodGet, "https://api.themoviedb.org"+path, nil)
 	if err != nil {
@@ -956,7 +962,7 @@ func tmdbGet(apiKey, path string, out any) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := tmdbClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -1100,6 +1106,14 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 		log.Printf("lookup apply metadata write %s: %v", video.FilePath(), err)
 		http.Error(w, "metadata write failed: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Sync the TMDB title into the DB display_name so the library sidebar
+	// reflects the new title without requiring a manual re-sync.
+	if u.Title != nil && *u.Title != "" {
+		if err := s.store.UpdateVideoName(r.Context(), id, *u.Title); err != nil {
+			log.Printf("update display_name after TMDB apply %d: %v", id, err)
+		}
 	}
 
 	// Refresh the metadata view.
