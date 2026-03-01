@@ -6,14 +6,14 @@
     <button
       hx-get="/play/{{.ID}}"
       hx-target="#player"
-      style="flex:1;text-align:left;background:#2a2a2a;border:1px solid #333;color:#eee;padding:0.45rem 0.7rem;border-radius:4px;cursor:pointer;font-size:0.85rem;overflow:hidden;display:flex;flex-direction:column;gap:0.15rem;align-items:flex-start"
+      style="flex:1;text-align:left;overflow:hidden;display:flex;flex-direction:column;gap:0.15rem;align-items:flex-start"
       title="{{.Title}} ({{.Filename}})"
     ><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%">{{if index $.Watched .ID}}<span title="Watched" style="color:#4a9;margin-right:0.3rem;font-size:0.75rem">✓</span>{{end}}{{if eq .Rating 2}}<span title="Favourite" style="margin-right:0.2rem;font-size:0.75rem">⭐</span>{{else if eq .Rating 1}}<span title="Liked" style="margin-right:0.2rem;font-size:0.75rem">👍</span>{{end}}{{.Title}}</span>{{if $w.WatchedAt}}<span style="font-size:0.7rem;color:#555">{{reltime $w.WatchedAt}}</span>{{end}}</button>
-    <button
+    <button class="btn-icon"
       hx-get="/videos/{{.ID}}/delete-confirm"
       hx-target="closest li"
       hx-swap="outerHTML"
-      style="background:none;border:none;color:#555;cursor:pointer;font-size:0.9rem;padding:0.2rem 0.35rem;flex-shrink:0;line-height:1"
+      style="flex-shrink:0"
       title="Delete"
     >✕</button>
   </li>

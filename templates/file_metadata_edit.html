@@ -1,10 +1,9 @@
 <div style="border-top:1px solid #2a2a2a;padding-top:0.6rem">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
     <span style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555">Edit File Metadata</span>
-    <button
+    <button class="btn-ghost btn-sm"
       hx-get="/videos/{{.VideoID}}/metadata"
-      hx-target="#file-meta-{{.VideoID}}"
-      style="background:none;border:1px solid #444;color:#666;padding:0.15rem 0.5rem;border-radius:3px;cursor:pointer;font-size:0.75rem">Cancel</button>
+      hx-target="#file-meta-{{.VideoID}}">Cancel</button>
   </div>
   <form
     hx-put="/videos/{{.VideoID}}/metadata"
@@ -52,7 +51,6 @@
       style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
 
     <div></div>
-    <button type="submit"
-      style="background:#2a2a2a;border:1px solid #555;color:#eee;padding:0.35rem 0.75rem;border-radius:4px;cursor:pointer;font-size:0.8rem;justify-self:start">Save to File</button>
+    <button type="submit" class="btn-sm" style="justify-self:start">Save to File</button>
   </form>
 </div>

@@ -141,14 +141,24 @@
     }
     button, .btn {
       background: #2a2a2a;
-      border: 1px solid #444;
-      color: #eee;
+      border: 1px solid #3a3a3a;
+      color: #ccc;
       padding: 0.35rem 0.7rem;
       border-radius: 4px;
       cursor: pointer;
       font-size: 0.85rem;
+      font-family: inherit;
     }
-    button:hover { background: #333; }
+    button:hover, .btn:hover { background: #333; }
+    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.78rem; }
+    .btn-danger { background: #2a1515; border-color: #5a2a2a; color: #f08080; }
+    .btn-danger:hover { background: #331515; }
+    .btn-success { background: #1a3a1a; border-color: #3a6a3a; color: #8f8; }
+    .btn-success:hover { background: #1e4a1e; }
+    .btn-ghost { background: none; border-color: #3a3a3a; color: #666; }
+    .btn-ghost:hover { background: #1e1e1e; }
+    .btn-icon { background: none; border: none; color: #555; padding: 0.2rem 0.35rem; line-height: 1; }
+    .btn-icon:hover { background: none; color: #888; }
     .tag-filter-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
   </style>
 </head>
@@ -180,8 +190,8 @@
   <!-- Library sidebar overlay -->
   <aside id="library">
     <div style="display:flex;justify-content:flex-end;margin-bottom:-0.5rem">
-      <button onclick="document.body.classList.remove('lib-open')"
-        style="background:none;border:none;color:#666;cursor:pointer;font-size:1.2rem;line-height:1;padding:0.1rem 0.3rem"
+      <button class="btn-icon" onclick="document.body.classList.remove('lib-open')"
+        style="font-size:1.2rem"
         title="Close library">✕</button>
     </div>
     <details>
@@ -190,8 +200,8 @@
       </summary>
       <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.5rem">
         <div id="directories" hx-get="/directories" hx-trigger="load"></div>
-        <button hx-get="/fs" hx-target="#dir-browser-wrap" hx-swap="innerHTML"
-          style="text-align:left;font-size:0.82rem">
+        <button class="btn-sm" hx-get="/fs" hx-target="#dir-browser-wrap" hx-swap="innerHTML"
+          style="text-align:left">
           📁 Browse to add folder…
         </button>
         <div id="dir-browser-wrap"></div>
@@ -246,8 +256,8 @@
   <!-- Config panel overlay -->
   <div id="config-panel">
     <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem">
-      <button onclick="document.body.classList.remove('cfg-open')"
-        style="background:none;border:none;color:#666;cursor:pointer;font-size:1.2rem;line-height:1;padding:0.1rem 0.3rem"
+      <button class="btn-icon" onclick="document.body.classList.remove('cfg-open')"
+        style="font-size:1.2rem"
         title="Close settings">✕</button>
     </div>
     <div id="settings-panel" hx-get="/settings" hx-trigger="load"></div>

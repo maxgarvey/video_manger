@@ -18,10 +18,7 @@
         style="margin-top:0.4rem">
     <input type="hidden" name="media_type" value="movie">
     <input type="hidden" name="tmdb_id" value="{{.ID}}">
-    <button type="submit"
-      style="background:#1a3a1a;border:1px solid #3a6a3a;color:#8f8;padding:0.25rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.78rem">
-      Apply
-    </button>
+    <button type="submit" class="btn-success btn-sm">Apply</button>
   </form>
   {{else if eq .MediaType "tv"}}
   <form hx-post="/videos/{{$.VideoID}}/lookup/apply"
@@ -34,10 +31,7 @@
       style="width:70px;background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.3rem;border-radius:4px;font-size:0.78rem">
     <input type="number" name="episode" placeholder="Episode" min="1" value="1"
       style="width:70px;background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.3rem;border-radius:4px;font-size:0.78rem">
-    <button type="submit"
-      style="background:#1a3a1a;border:1px solid #3a6a3a;color:#8f8;padding:0.25rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.78rem">
-      Apply
-    </button>
+    <button type="submit" class="btn-success btn-sm">Apply</button>
   </form>
   {{end}}
 </li>

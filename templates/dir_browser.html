@@ -3,8 +3,8 @@
   <!-- Header: current path + up button -->
   <div style="background:#161616;padding:0.35rem 0.5rem;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:0.4rem">
     {{if .Parent}}
-    <button hx-get="/fs?path={{.Parent | urlquery}}" hx-target="#dir-browser" hx-swap="outerHTML"
-      style="background:none;border:none;color:#888;cursor:pointer;font-size:0.9rem;padding:0.1rem 0.3rem;flex-shrink:0;line-height:1"
+    <button class="btn-icon" hx-get="/fs?path={{.Parent | urlquery}}" hx-target="#dir-browser" hx-swap="outerHTML"
+      style="flex-shrink:0"
       title="Go up">↑</button>
     {{end}}
     <span style="font-size:0.7rem;color:#777;word-break:break-all;flex:1;font-family:monospace">{{.Path}}</span>
@@ -14,9 +14,8 @@
   <ul style="list-style:none;padding:0.3rem;margin:0;max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:1px">
     {{range .Entries}}
     <li>
-      <button hx-get="/fs?path={{. | urlquery}}" hx-target="#dir-browser" hx-swap="outerHTML"
-        style="background:none;border:none;color:#ccc;cursor:pointer;font-size:0.82rem;padding:0.3rem 0.5rem;width:100%;text-align:left;border-radius:3px;display:flex;align-items:center;gap:0.4rem"
-        onmouseover="this.style.background='#222'" onmouseout="this.style.background='none'">
+      <button class="btn-sm" hx-get="/fs?path={{. | urlquery}}" hx-target="#dir-browser" hx-swap="outerHTML"
+        style="background:none;border:none;width:100%;text-align:left;display:flex;align-items:center;gap:0.4rem">
         <span style="flex-shrink:0">📁</span> {{base .}}
       </button>
     </li>
@@ -32,14 +31,14 @@
       hx-on::after-request="if(event.detail.successful)document.getElementById('dir-browser').remove()"
       style="flex:1;margin:0">
       <input type="hidden" name="path" value="{{.Path}}">
-      <button type="submit"
-        style="width:100%;background:#1e3a1e;border:1px solid #2d5a2d;color:#7c7;padding:0.35rem 0.5rem;border-radius:4px;cursor:pointer;font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+      <button type="submit" class="btn-success btn-sm"
+        style="width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
         title="Add {{.Path}}">
         + Add "{{base .Path}}"
       </button>
     </form>
-    <button onclick="document.getElementById('dir-browser').remove()"
-      style="background:none;border:1px solid #333;color:#666;padding:0.35rem 0.5rem;border-radius:4px;cursor:pointer;font-size:0.8rem;flex-shrink:0">
+    <button class="btn-ghost btn-sm" onclick="document.getElementById('dir-browser').remove()"
+      style="flex-shrink:0">
       Cancel
     </button>
   </div>

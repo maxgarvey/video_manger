@@ -2,10 +2,9 @@
 <div style="border-top:1px solid #2a2a2a;padding-top:0.6rem">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem">
     <span style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555">File Metadata</span>
-    <button
+    <button class="btn-ghost btn-sm"
       hx-get="/videos/{{.VideoID}}/metadata/edit"
-      hx-target="#file-meta-{{.VideoID}}"
-      style="background:none;border:1px solid #444;color:#666;padding:0.15rem 0.5rem;border-radius:3px;cursor:pointer;font-size:0.75rem">Edit</button>
+      hx-target="#file-meta-{{.VideoID}}">Edit</button>
   </div>
   <dl style="display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.75rem;font-size:0.8rem">
     {{if .Native.Title}}
@@ -39,9 +38,8 @@
 {{else}}
 <div style="border-top:1px solid #2a2a2a;padding-top:0.6rem;display:flex;align-items:center;justify-content:space-between">
   <span style="color:#555;font-size:0.8rem">No file metadata</span>
-  <button
+  <button class="btn-ghost btn-sm"
     hx-get="/videos/{{.VideoID}}/metadata/edit"
-    hx-target="#file-meta-{{.VideoID}}"
-    style="background:none;border:1px solid #444;color:#666;padding:0.15rem 0.5rem;border-radius:3px;cursor:pointer;font-size:0.75rem">Add</button>
+    hx-target="#file-meta-{{.VideoID}}">Add</button>
 </div>
 {{end}}
