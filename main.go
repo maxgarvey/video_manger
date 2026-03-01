@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"slices"
 	"log"
 	"net"
 	"net/http"
@@ -189,6 +190,7 @@ func (s *server) routes() http.Handler {
 	r.Post("/directories", s.handleAddDirectory)
 	r.Post("/directories/create", s.handleCreateDirectory)
 	r.Get("/directories/{id}/delete-confirm", s.handleDirectoryDeleteConfirm)
+	r.Post("/directories/{id}/sync", s.handleSyncDirectory)
 	r.Delete("/directories/{id}", s.handleDeleteDirectory)
 	r.Delete("/directories/{id}/files", s.handleDeleteDirectoryAndFiles)
 
@@ -576,6 +578,21 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	// Apply rating sort uniformly regardless of which filter was used.
+	if sortOrder == "rating" {
+		slices.SortFunc(videos, func(a, b store.Video) int {
+			if a.Rating != b.Rating {
+				return b.Rating - a.Rating // higher rating first
+			}
+			if a.Title() < b.Title() {
+				return -1
+			}
+			if a.Title() > b.Title() {
+				return 1
+			}
+			return 0
+		})
 	}
 	history, _ := s.store.ListWatchHistory(r.Context())
 	data := struct {
@@ -1236,6 +1253,21 @@ func (s *server) serveDirList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleListDirectories(w http.ResponseWriter, r *http.Request) {
+	s.serveDirList(w, r)
+}
+
+func (s *server) handleSyncDirectory(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	dir, err := s.store.GetDirectory(r.Context(), id)
+	if err != nil {
+		http.Error(w, "directory not found", http.StatusNotFound)
+		return
+	}
+	s.syncDir(dir)
 	s.serveDirList(w, r)
 }
 

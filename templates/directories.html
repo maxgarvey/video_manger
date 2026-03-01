@@ -4,6 +4,12 @@
   <li style="display:flex;align-items:center;gap:0.4rem">
     <span style="flex:1;font-size:0.8rem;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Path}}">{{.Path}}</span>
     <button class="btn-icon"
+      hx-post="/directories/{{.ID}}/sync"
+      hx-target="#directories"
+      hx-swap="innerHTML"
+      style="flex-shrink:0"
+      title="Rescan">↺</button>
+    <button class="btn-icon"
       hx-get="/directories/{{.ID}}/delete-confirm"
       hx-target="closest li"
       hx-swap="outerHTML"

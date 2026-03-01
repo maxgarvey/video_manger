@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Video Manger</title>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script src="https://unpkg.com/htmx-ext-morph@2.0.1"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -336,8 +337,10 @@
         style="margin-bottom:0.5rem">
       <input type="hidden" id="active-tag" name="tag_id" value="">
       <div id="video-list" style="flex:1;overflow-y:auto;min-height:0"
+           hx-ext="morph"
            hx-get="/videos"
            hx-trigger="load, every 60s"
+           hx-swap="morph:innerHTML"
            hx-include="#video-search,#active-tag"
            hx-indicator="#vl-spin"></div>
     </section>

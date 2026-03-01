@@ -52,10 +52,10 @@ Ordered by complexity (easiest / least invasive first).
 | 32 | security 2c | Settings: never echo TMDB API key back as input value | ✅ Done |
 | 33 | nit | Fix silently-discarded `io.ReadAll` error in `tmdbGet` | ✅ Done |
 | 34 | nit | Clean up residual inline button styles in `tags.html` | ✅ Done |
-| 35 | arch 5f | Startup check: warn if `ffmpeg`, `ffprobe`, or `yt-dlp` missing from PATH | ⬜ Todo |
-| 36 | perf 4a | `serveVideoList`: replace two `watch_history` full scans with one | ⬜ Todo |
-| 37 | quality 5d | Deduplicate `handleAddDirectory` / `handleCreateDirectory` into shared helper | ⬜ Todo |
-| 38 | UX 6b | Trim: append counter suffix instead of silently overwriting existing `_trim` file | ⬜ Todo |
+| 35 | arch 5f | Startup check: warn if `ffmpeg`, `ffprobe`, or `yt-dlp` missing from PATH | ✅ Done |
+| 36 | perf 4a | `serveVideoList`: replace two `watch_history` full scans with one | ✅ Done |
+| 37 | quality 5d | Deduplicate `handleAddDirectory` / `handleCreateDirectory` into shared helper | ✅ Done |
+| 38 | UX 6b | Trim: append counter suffix instead of silently overwriting existing `_trim` file | ✅ Done |
 | 39 | nit | `video_sort` setting: actually route to `ListVideosByRating` when sort=rating | ⬜ Todo |
 | 40 | UX 6a | Add "Rescan" button per directory (`POST /directories/{id}/sync`) | ⬜ Todo |
 | 41 | UX 6f | Use idiomorph `hx-ext="morph"` for video list swap to preserve scroll position | ⬜ Todo |
