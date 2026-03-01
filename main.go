@@ -108,6 +108,8 @@ func main() {
 		log.Printf("  mDNS: http://video-manger.local:%s", *port)
 	}
 
+	go srv.startLibraryPoller(context.Background())
+
 	log.Printf("Starting server on http://localhost:%s", *port)
 	for _, addr := range localAddresses(*port) {
 		log.Printf("  LAN: %s", addr)
@@ -223,6 +225,28 @@ func (s *server) syncDir(d store.Directory) {
 		return nil
 	}); err != nil {
 		log.Printf("syncDir walk %s: %v", d.Path, err)
+	}
+}
+
+// startLibraryPoller runs in the background, re-scanning all registered
+// directories every 60 s so newly added files are picked up automatically.
+func (s *server) startLibraryPoller(ctx context.Context) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			dirs, err := s.store.ListDirectories(ctx)
+			if err != nil {
+				log.Printf("library poll: list dirs: %v", err)
+				continue
+			}
+			for _, d := range dirs {
+				s.syncDir(d)
+			}
+		}
 	}
 }
 

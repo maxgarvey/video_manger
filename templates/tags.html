@@ -2,8 +2,11 @@
 <div class="tag-filter-list">
   {{range .}}
   <button
-    hx-get="/videos?tag_id={{.ID}}"
+    hx-get="/videos"
     hx-target="#video-list"
+    hx-include="#video-search"
+    hx-vals='{"tag_id":"{{.ID}}"}'
+    onclick="document.getElementById('active-tag').value='{{.ID}}'"
     style="background:#333;border:1px solid #555;color:#eee;padding:0.2rem 0.6rem;border-radius:12px;cursor:pointer;font-size:0.8rem"
   >{{.Name}}</button>
   {{end}}
