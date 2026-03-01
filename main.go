@@ -86,6 +86,7 @@ func (s *server) routes() http.Handler {
 	// Directories
 	r.Get("/directories", s.handleListDirectories)
 	r.Post("/directories", s.handleAddDirectory)
+	r.Post("/directories/create", s.handleCreateDirectory)
 	r.Get("/directories/{id}/delete-confirm", s.handleDirectoryDeleteConfirm)
 	r.Delete("/directories/{id}", s.handleDeleteDirectory)
 	r.Delete("/directories/{id}/files", s.handleDeleteDirectoryAndFiles)
@@ -587,6 +588,28 @@ func (s *server) serveDirList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleListDirectories(w http.ResponseWriter, r *http.Request) {
+	s.serveDirList(w, r)
+}
+
+// handleCreateDirectory creates the directory on disk (MkdirAll) then
+// registers and syncs it, identical to handleAddDirectory but with the
+// extra filesystem creation step.
+func (s *server) handleCreateDirectory(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSpace(r.FormValue("path"))
+	if path == "" {
+		http.Error(w, "path required", http.StatusBadRequest)
+		return
+	}
+	if err := os.MkdirAll(path, 0755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	d, err := s.store.AddDirectory(r.Context(), path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.syncDir(d)
 	s.serveDirList(w, r)
 }
 

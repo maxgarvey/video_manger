@@ -160,6 +160,10 @@
         <input type="text" name="path" placeholder="/path/to/videos">
         <button type="submit">Add</button>
       </form>
+      <form hx-post="/directories/create" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.3rem">
+        <input type="text" name="path" placeholder="/path/to/new/folder">
+        <button type="submit" title="Create folder on disk and add to library">New</button>
+      </form>
     </section>
     <section>
       <h2>Filter by Tag</h2>

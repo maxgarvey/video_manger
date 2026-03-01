@@ -338,6 +338,57 @@ func TestHandleDirectories(t *testing.T) {
 	}
 }
 
+func TestHandleCreateDirectory_Success(t *testing.T) {
+	parent := t.TempDir()
+	newDir := filepath.Join(parent, "new_folder")
+
+	srv := newTestServer(t)
+	form := url.Values{"path": {newDir}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/directories/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	// Dir created on disk.
+	if _, err := os.Stat(newDir); os.IsNotExist(err) {
+		t.Error("expected directory to be created on disk")
+	}
+	// Dir registered in DB.
+	ctx := context.Background()
+	dirs, _ := srv.store.ListDirectories(ctx)
+	if len(dirs) != 1 || dirs[0].Path != newDir {
+		t.Errorf("expected directory %s in DB, got %+v", newDir, dirs)
+	}
+}
+
+func TestHandleCreateDirectory_AlreadyExists(t *testing.T) {
+	existing := t.TempDir() // already exists
+	srv := newTestServer(t)
+	form := url.Values{"path": {existing}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/directories/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("existing dir: expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHandleCreateDirectory_EmptyPath(t *testing.T) {
+	srv := newTestServer(t)
+	form := url.Values{"path": {""}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/directories/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty path: expected 400, got %d", rec.Code)
+	}
+}
+
 func TestHandleDirectoryDeleteConfirm(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
