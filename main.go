@@ -99,8 +99,9 @@ func (s *server) routes() http.Handler {
 	// Rating
 	r.Post("/videos/{id}/rating", s.handleSetRating)
 
-	// Export
+	// Export / convert
 	r.Post("/videos/{id}/export/usb", s.handleExportUSB)
+	r.Post("/videos/{id}/convert", s.handleConvert)
 
 	// yt-dlp download
 	r.Post("/ytdlp/download", s.handleYTDLPDownload)
@@ -590,6 +591,65 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 
 	// Sync the directory to register the new file.
 	s.syncDir(dir)
+	s.serveVideoList(w, r)
+}
+
+type convertFormat struct {
+	ext       string
+	videoArgs []string
+	audioArgs []string
+}
+
+var convertFormats = map[string]convertFormat{
+	"mp4":  {".mp4", []string{"-c:v", "libx264"}, []string{"-c:a", "aac"}},
+	"webm": {".webm", []string{"-c:v", "libvpx-vp9"}, []string{"-c:a", "libopus"}},
+	"mkv":  {".mkv", []string{"-c:v", "copy"}, []string{"-c:a", "copy"}},
+}
+
+func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(r.FormValue("format")))
+	cf, ok := convertFormats[format]
+	if !ok {
+		http.Error(w, "format must be mp4, webm, or mkv", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
+
+	ext := filepath.Ext(video.Filename)
+	base := strings.TrimSuffix(video.Filename, ext)
+	outName := base + cf.ext
+	outPath := filepath.Join(video.DirectoryPath, outName)
+
+	args := []string{"-y", "-i", video.FilePath()}
+	args = append(args, cf.videoArgs...)
+	args = append(args, cf.audioArgs...)
+	args = append(args, outPath)
+
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		log.Printf("ffmpeg convert %s→%s: %v\n%s", video.FilePath(), outPath, err, stderr.String())
+		http.Error(w, "conversion failed: "+stderr.String(), http.StatusInternalServerError)
+		return
+	}
+
+	// Register the converted file in the library.
+	if video.DirectoryID != 0 {
+		if dir, err := s.store.GetDirectory(r.Context(), video.DirectoryID); err == nil {
+			s.store.UpsertVideo(r.Context(), dir.ID, dir.Path, outName) //nolint:errcheck
+		}
+	}
+
 	s.serveVideoList(w, r)
 }
 

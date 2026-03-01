@@ -101,17 +101,32 @@
        hx-get="/videos/{{.Video.ID}}/metadata"
        hx-trigger="load"></div>
 
-  <!-- Export -->
-  <div style="padding-top:0.25rem">
+  <!-- Export & Convert -->
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;padding-top:0.25rem">
     <form hx-post="/videos/{{.Video.ID}}/export/usb"
-          hx-target="#export-status-{{.Video.ID}}"
-          hx-indicator="#export-status-{{.Video.ID}}">
+          hx-target="#convert-status-{{.Video.ID}}"
+          hx-indicator="#convert-status-{{.Video.ID}}">
       <button type="submit"
         style="background:#2a2a2a;border:1px solid #444;color:#aaa;padding:0.3rem 0.7rem;border-radius:4px;cursor:pointer;font-size:0.8rem"
         title="Transcode to H.264/AAC MP4 (BluRay/USB compatible) and download"
-      >📀 Export for USB/TV</button>
+      >📀 Export USB</button>
     </form>
-    <div id="export-status-{{.Video.ID}}" style="font-size:0.78rem;color:#666;margin-top:0.3rem"></div>
+    <form hx-post="/videos/{{.Video.ID}}/convert"
+          hx-target="#video-list"
+          hx-indicator="#convert-status-{{.Video.ID}}"
+          style="display:flex;gap:0.3rem;align-items:center">
+      <select name="format"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.4rem;border-radius:4px;font-size:0.8rem">
+        <option value="mp4">→ MP4</option>
+        <option value="webm">→ WebM</option>
+        <option value="mkv">→ MKV</option>
+      </select>
+      <button type="submit"
+        style="background:#2a2a2a;border:1px solid #444;color:#aaa;padding:0.3rem 0.7rem;border-radius:4px;cursor:pointer;font-size:0.8rem"
+        title="Convert to selected format"
+      >🔄 Convert</button>
+    </form>
   </div>
+  <div id="convert-status-{{.Video.ID}}" class="htmx-indicator" style="font-size:0.78rem;color:#888">Processing…</div>
 
 </div>

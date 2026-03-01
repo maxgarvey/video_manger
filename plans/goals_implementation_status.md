@@ -15,7 +15,7 @@ Ordered by implementation priority (easiest/most foundational first).
 | 9 | 14 | Export to USB/BluRay format | ✅ Done |
 | 10 | 12 | yt-dlp import | ✅ Done |
 | 11 | 9 | LAN sharing (show local IP) | ✅ Done |
-| 12 | 11 | mDNS `.local` hostname | 🔄 In Progress |
-| 13 | 15 | Video format conversion | ⬜ Pending |
+| 12 | 11 | mDNS `.local` hostname | ✅ Done |
+| 13 | 15 | Video format conversion | 🔄 In Progress |
 | 14 | 1 | External metadata lookup (TMDB/TVDB) | ⬜ Pending |
 | 15 | 10 | P2P sharing | ⬜ Pending |
