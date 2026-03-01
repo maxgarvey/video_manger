@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Manger — Login</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #111; color: #ddd; font-family: system-ui, sans-serif;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px;
+            padding: 2rem; width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 1rem; }
+    h1 { font-size: 1.1rem; color: #aaa; }
+    input[type=password] { width: 100%; background: #222; border: 1px solid #444; color: #eee;
+                           padding: 0.5rem 0.75rem; border-radius: 4px; font-size: 0.9rem; }
+    button { background: #1a3a1a; border: 1px solid #3a6a3a; color: #8f8; padding: 0.5rem 1rem;
+             border-radius: 4px; cursor: pointer; font-size: 0.9rem; width: 100%; }
+    button:hover { background: #2a4a2a; }
+    .error { color: #f88; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎬 Video Manger</h1>
+    <form method="POST" action="/login" style="display:flex;flex-direction:column;gap:0.75rem">
+      <input type="password" name="password" placeholder="Password" autofocus>
+      {{if .}}<p class="error">{{.}}</p>{{end}}
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>

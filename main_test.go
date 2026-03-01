@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/maxgarvey/video_manger/store"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func newTestServer(t *testing.T) *server {
@@ -22,7 +23,7 @@ func newTestServer(t *testing.T) *server {
 	if err != nil {
 		t.Fatalf("NewSQLite: %v", err)
 	}
-	return &server{store: s}
+	return &server{store: s, sessions: make(map[string]bool)}
 }
 
 // --- Unit tests ---
@@ -1394,4 +1395,102 @@ func TestHandleVideoList_ShowsLastWatched(t *testing.T) {
 
 func itoa(i int64) string {
 	return strconv.FormatInt(i, 10)
+}
+
+// --- Auth tests ---
+
+func newProtectedServer(t *testing.T, password string) *server {
+	t.Helper()
+	s := newTestServer(t)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	s.passwordHash = hash
+	return s
+}
+
+func TestAuth_NoPassword_PassesThrough(t *testing.T) {
+	srv := newTestServer(t) // no password
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 without password, got %d", rec.Code)
+	}
+}
+
+func TestAuth_WithPassword_UnauthRedirects(t *testing.T) {
+	srv := newProtectedServer(t, "secret")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302 redirect, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/login" {
+		t.Errorf("expected redirect to /login, got %q", loc)
+	}
+}
+
+func TestAuth_LoginPage_Accessible(t *testing.T) {
+	srv := newProtectedServer(t, "secret")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for /login, got %d", rec.Code)
+	}
+}
+
+func TestAuth_WrongPassword_RerendersForm(t *testing.T) {
+	srv := newProtectedServer(t, "secret")
+	rec := httptest.NewRecorder()
+	body := strings.NewReader("password=wrongpassword")
+	req := httptest.NewRequest(http.MethodPost, "/login", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (re-render) on wrong password, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Wrong password") {
+		t.Error("expected 'Wrong password' in response body")
+	}
+}
+
+func TestAuth_CorrectPassword_SetsSessionCookie(t *testing.T) {
+	srv := newProtectedServer(t, "secret")
+	rec := httptest.NewRecorder()
+	body := strings.NewReader("password=secret")
+	req := httptest.NewRequest(http.MethodPost, "/login", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected redirect after correct password, got %d", rec.Code)
+	}
+	setCookie := rec.Header().Get("Set-Cookie")
+	if !strings.Contains(setCookie, "session=") {
+		t.Errorf("expected session cookie in Set-Cookie, got %q", setCookie)
+	}
+}
+
+func TestAuth_WithSessionCookie_PassesThrough(t *testing.T) {
+	srv := newProtectedServer(t, "secret")
+
+	// First login to get a session token.
+	rec := httptest.NewRecorder()
+	body := strings.NewReader("password=secret")
+	req := httptest.NewRequest(http.MethodPost, "/login", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	cookie := rec.Result().Cookies()[0]
+
+	// Now request a protected page with the session cookie.
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.AddCookie(cookie)
+	srv.routes().ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 with valid session, got %d", rec2.Code)
+	}
 }

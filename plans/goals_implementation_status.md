@@ -62,8 +62,8 @@ Ordered by complexity (easiest / least invasive first).
 | 42 | arch 5a | Graceful shutdown: SIGTERM handler + cancel root context + `Server.Shutdown` | ✅ Done |
 | 43 | bug 1a | `syncDir`: prune DB records for files deleted from disk | ✅ Done |
 | 44 | bug 1c | `handleConvert`: use background context so conversion survives browser disconnect | ✅ Done |
-| 45 | bug 1b | Multi-tab info panel: update panel when switching tabs | ⬜ Todo |
-| 46 | security 2b | `handleBrowseFS`: restrict path to home-dir subtree | ⬜ Todo |
-| 47 | testing 7c | Store tests for `GetRandomVideo` and `SearchVideos` | ⬜ Todo |
-| 48 | UX 6i | "Next unwatched" button per tag/directory | ⬜ Todo |
+| 45 | bug 1b | Multi-tab info panel: update panel when switching tabs | ✅ Done |
+| 46 | security 2b | `handleBrowseFS`: restrict path to home-dir subtree | ✅ Done |
+| 47 | testing 7c | Store tests for `GetRandomVideo` and `SearchVideos` | ✅ Done |
+| 48 | UX 6i | "Next unwatched" button per tag/directory | ✅ Done |
 | 49 | security 2a | Optional password protection (bcrypt + cookie session) | ⬜ Todo |

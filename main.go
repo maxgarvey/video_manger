@@ -12,12 +12,15 @@ import (
 	"io/fs"
 	"slices"
 	"log"
+	"crypto/rand"
+	"encoding/hex"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 	"path/filepath"
 	"strconv"
@@ -29,6 +32,7 @@ import (
 	"github.com/grandcat/zeroconf"
 	"github.com/maxgarvey/video_manger/metadata"
 	"github.com/maxgarvey/video_manger/store"
+	"golang.org/x/crypto/bcrypt"
 )
 
 //go:embed templates/*
@@ -82,15 +86,19 @@ func reltime(s string) string {
 }
 
 type server struct {
-	store    store.Store
-	port     string
-	mdnsName string // e.g. "video-manger.local"
+	store        store.Store
+	port         string
+	mdnsName     string // e.g. "video-manger.local"
+	passwordHash []byte // nil means no authentication required
+	sessions     map[string]bool
+	sessionsMu   sync.RWMutex
 }
 
 func main() {
 	dbPath := flag.String("db", "video_manger.db", "path to SQLite database file")
 	dir := flag.String("dir", "", "video directory to register on startup (optional)")
 	port := flag.String("port", "8080", "port to listen on")
+	password := flag.String("password", "", "optional password to protect the UI (leave empty for no auth)")
 	flag.Parse()
 
 	s, err := store.NewSQLite(*dbPath)
@@ -98,7 +106,15 @@ func main() {
 		log.Fatalf("open db: %v", err)
 	}
 
-	srv := &server{store: s, port: *port, mdnsName: "video-manger.local"}
+	srv := &server{store: s, port: *port, mdnsName: "video-manger.local", sessions: make(map[string]bool)}
+	if *password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)
+		if err != nil {
+			log.Fatalf("hash password: %v", err)
+		}
+		srv.passwordHash = hash
+		log.Println("Password protection enabled")
+	}
 
 	if *dir != "" {
 		d, err := srv.store.AddDirectory(context.Background(), *dir)
@@ -149,10 +165,85 @@ func main() {
 	s.Close() //nolint:errcheck
 }
 
+// authMiddleware redirects unauthenticated requests to /login when a password
+// is configured. The /login and /logout routes are always accessible.
+func (s *server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.passwordHash == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == "/login" || r.URL.Path == "/logout" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		cookie, err := r.Cookie("session")
+		if err == nil {
+			s.sessionsMu.RLock()
+			valid := s.sessions[cookie.Value]
+			s.sessionsMu.RUnlock()
+			if valid {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		http.Redirect(w, r, "/login", http.StatusFound)
+	})
+}
+
+func (s *server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if err := templates.ExecuteTemplate(w, "login.html", nil); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	pw := r.FormValue("password")
+	if bcrypt.CompareHashAndPassword(s.passwordHash, []byte(pw)) != nil {
+		if err := templates.ExecuteTemplate(w, "login.html", "Wrong password."); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	// Generate a session token.
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		http.Error(w, "could not generate session", http.StatusInternalServerError)
+		return
+	}
+	token := hex.EncodeToString(raw)
+	s.sessionsMu.Lock()
+	s.sessions[token] = true
+	s.sessionsMu.Unlock()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie("session"); err == nil {
+		s.sessionsMu.Lock()
+		delete(s.sessions, cookie.Value)
+		s.sessionsMu.Unlock()
+	}
+	http.SetCookie(w, &http.Cookie{Name: "session", Value: "", Path: "/", MaxAge: -1})
+	http.Redirect(w, r, "/login", http.StatusFound)
+}
+
 func (s *server) routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(s.authMiddleware)
+
+	r.Get("/login", s.handleLoginPage)
+	r.Post("/login", s.handleLoginSubmit)
+	r.Get("/logout", s.handleLogout)
 
 	r.Get("/", s.handleIndex)
 	r.Get("/info", s.handleInfo)
