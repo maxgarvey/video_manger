@@ -101,4 +101,17 @@
        hx-get="/videos/{{.Video.ID}}/metadata"
        hx-trigger="load"></div>
 
+  <!-- Export -->
+  <div style="padding-top:0.25rem">
+    <form hx-post="/videos/{{.Video.ID}}/export/usb"
+          hx-target="#export-status-{{.Video.ID}}"
+          hx-indicator="#export-status-{{.Video.ID}}">
+      <button type="submit"
+        style="background:#2a2a2a;border:1px solid #444;color:#aaa;padding:0.3rem 0.7rem;border-radius:4px;cursor:pointer;font-size:0.8rem"
+        title="Transcode to H.264/AAC MP4 (BluRay/USB compatible) and download"
+      >📀 Export for USB/TV</button>
+    </form>
+    <div id="export-status-{{.Video.ID}}" style="font-size:0.78rem;color:#666;margin-top:0.3rem"></div>
+  </div>
+
 </div>
