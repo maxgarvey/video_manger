@@ -78,4 +78,4 @@ Ordered by complexity (easiest first).
 | 51 | 5 | Video not found: offer delete or relocate | ✅ Done |
 | 52 | 2 | Library as semi-transparent full-pane overlay | ✅ Done |
 | 53 | 3 | Season/folder grouping in library UI | ✅ Done |
-| 54 | 1 | Info panel always visible below video (scroll to reach) | ⬜ Todo |
+| 54 | 1 | Info panel always visible below video (scroll to reach) | ✅ Done |

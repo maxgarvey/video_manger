@@ -14,17 +14,16 @@
       background: #000;
       color: #eee;
       width: 100vw;
-      height: 100vh;
-      overflow: hidden;
+      overflow-x: hidden;
     }
 
-    /* Full-screen player */
+    /* Sticky full-viewport player — sticks at top while info scrolls below */
     #player {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      width: 100%;
+      z-index: 10;
     }
 
     /* ── Overlay chrome ─────────────────────────────────────────────────
@@ -39,7 +38,6 @@
     }
     body:hover .chrome,
     body.lib-open .chrome,
-    body.info-open .chrome,
     body.cfg-open .chrome {
       opacity: 1;
       pointer-events: auto;
@@ -60,9 +58,8 @@
     /* Library button — top left */
     #lib-btn { top: 1rem; left: 1rem; }
 
-    /* Info button — bottom right; slides up when info panel is open */
-    #info-btn { bottom: 1rem; right: 1rem; transition: opacity 0.2s, bottom 0.22s ease; }
-    body.info-open #info-btn { bottom: calc(min(260px, 40vh) + 1rem); }
+    /* Info button — bottom right; scrolls to info panel */
+    #info-btn { bottom: 1rem; right: 1rem; }
 
     /* Config button — top right; slides left when config panel is open */
     #cfg-btn { top: 1rem; right: 1rem; transition: opacity 0.2s, right 0.22s ease; }
@@ -124,24 +121,16 @@
     }
     #lib-right #video-list { flex: 1; overflow-y: auto; min-height: 0; }
 
-    /* ── Info panel ─────────────────────────────────────────────────── */
+    /* ── Info panel — always-visible block below the sticky player ──── */
     #info-panel {
-      position: fixed;
-      z-index: 150;
-      left: 0; right: 0; bottom: 0;
-      max-height: min(260px, 40vh);
       background: rgba(20, 20, 20, 0.96);
-      backdrop-filter: blur(10px);
       border-top: 1px solid #2a2a2a;
-      overflow-y: auto;
-      padding: 0.75rem 1rem;
+      padding: 1rem 1.25rem;
       display: flex;
       flex-direction: column;
       gap: 0.75rem;
-      transform: translateY(100%);
-      transition: transform 0.22s ease;
+      min-height: min(300px, 44vh);
     }
-    body.info-open #info-panel { transform: translateY(0); }
 
     /* ── Library widget styles ──────────────────────────────────────── */
     section h2 {
@@ -200,7 +189,6 @@
     }
 
     /* ── Multi-tab player ───────────────────────────────────────────── */
-    #player { position: fixed; inset: 0; }
     #tab-panes { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
     .tab-pane { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; }
     .tab-pane.active { display: flex; }
@@ -285,9 +273,9 @@
     <button class="chrome-btn" onclick="document.body.classList.toggle('lib-open')">☰ Library</button>
   </div>
 
-  <!-- Info toggle button — bottom right -->
+  <!-- Info button — bottom right; scrolls to info panel below video -->
   <div class="chrome" id="info-btn">
-    <button class="chrome-btn" onclick="document.body.classList.toggle('info-open')">ⓘ Info</button>
+    <button class="chrome-btn" onclick="document.getElementById('info-panel').scrollIntoView({behavior:'smooth'})">↓ Info</button>
   </div>
 
   <!-- Config toggle button — top right -->
@@ -388,7 +376,7 @@
 
   </aside>
 
-  <!-- Info panel overlay — content injected via hx-swap-oob by player.html -->
+  <!-- Info panel — always visible below the sticky player; updated via hx-swap-oob by player.html -->
   <div id="info-panel">
     <p style="color:#555;font-size:0.82rem">Select a video to see details.</p>
   </div>
@@ -524,18 +512,18 @@
       if (d) openTab(d.id, d.title);
     });
 
-    // Keyboard shortcuts: L=library  I=info  S=settings  Esc=close all
+    // Keyboard shortcuts: L=library  I=scroll-to-info  S=settings  Esc=close all
     document.addEventListener('keydown', function(e) {
       if (e.target.matches('input, textarea, select') || e.target.isContentEditable) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.key === 'l' || e.key === 'L') {
         document.body.classList.toggle('lib-open');
       } else if (e.key === 'i' || e.key === 'I') {
-        document.body.classList.toggle('info-open');
+        document.getElementById('info-panel').scrollIntoView({behavior: 'smooth'});
       } else if (e.key === 's' || e.key === 'S') {
         document.body.classList.toggle('cfg-open');
       } else if (e.key === 'Escape') {
-        document.body.classList.remove('lib-open', 'info-open', 'cfg-open');
+        document.body.classList.remove('lib-open', 'cfg-open');
       }
     });
   </script>
