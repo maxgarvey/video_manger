@@ -29,34 +29,6 @@ func (q *Queries) DeleteDirectory(ctx context.Context, id int64) error {
 	return err
 }
 
-const getVideoByID = `-- name: GetVideoByID :one
-SELECT v.id, v.filename, v.directory_id, v.display_name, d.path AS directory_path
-FROM videos v
-JOIN directories d ON d.id = v.directory_id
-WHERE v.id = ?
-`
-
-type GetVideoByIDRow struct {
-	ID            int64
-	Filename      string
-	DirectoryID   int64
-	DisplayName   string
-	DirectoryPath string
-}
-
-func (q *Queries) GetVideoByID(ctx context.Context, id int64) (GetVideoByIDRow, error) {
-	row := q.db.QueryRowContext(ctx, getVideoByID, id)
-	var i GetVideoByIDRow
-	err := row.Scan(
-		&i.ID,
-		&i.Filename,
-		&i.DirectoryID,
-		&i.DisplayName,
-		&i.DirectoryPath,
-	)
-	return i, err
-}
-
 const listDirectories = `-- name: ListDirectories :many
 SELECT id, path FROM directories ORDER BY path
 `
@@ -141,96 +113,6 @@ func (q *Queries) ListTagsByVideo(ctx context.Context, videoID int64) ([]Tag, er
 	return items, nil
 }
 
-const listVideos = `-- name: ListVideos :many
-SELECT v.id, v.filename, v.directory_id, v.display_name, d.path AS directory_path
-FROM videos v
-JOIN directories d ON d.id = v.directory_id
-ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename)
-`
-
-type ListVideosRow struct {
-	ID            int64
-	Filename      string
-	DirectoryID   int64
-	DisplayName   string
-	DirectoryPath string
-}
-
-func (q *Queries) ListVideos(ctx context.Context) ([]ListVideosRow, error) {
-	rows, err := q.db.QueryContext(ctx, listVideos)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListVideosRow
-	for rows.Next() {
-		var i ListVideosRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Filename,
-			&i.DirectoryID,
-			&i.DisplayName,
-			&i.DirectoryPath,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVideosByTag = `-- name: ListVideosByTag :many
-SELECT v.id, v.filename, v.directory_id, v.display_name, d.path AS directory_path
-FROM videos v
-JOIN directories d ON d.id = v.directory_id
-JOIN video_tags vt ON v.id = vt.video_id
-WHERE vt.tag_id = ?
-ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename)
-`
-
-type ListVideosByTagRow struct {
-	ID            int64
-	Filename      string
-	DirectoryID   int64
-	DisplayName   string
-	DirectoryPath string
-}
-
-func (q *Queries) ListVideosByTag(ctx context.Context, tagID int64) ([]ListVideosByTagRow, error) {
-	rows, err := q.db.QueryContext(ctx, listVideosByTag, tagID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListVideosByTagRow
-	for rows.Next() {
-		var i ListVideosByTagRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Filename,
-			&i.DirectoryID,
-			&i.DisplayName,
-			&i.DirectoryPath,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const tagVideo = `-- name: TagVideo :exec
 INSERT OR IGNORE INTO video_tags (video_id, tag_id) VALUES (?, ?)
 `
@@ -283,29 +165,5 @@ func (q *Queries) UpsertTag(ctx context.Context, name string) (Tag, error) {
 	row := q.db.QueryRowContext(ctx, upsertTag, name)
 	var i Tag
 	err := row.Scan(&i.ID, &i.Name)
-	return i, err
-}
-
-const upsertVideo = `-- name: UpsertVideo :one
-INSERT INTO videos (filename, directory_id)
-VALUES (?, ?)
-ON CONFLICT (filename, directory_id) DO UPDATE SET filename = excluded.filename
-RETURNING id, filename, directory_id, display_name
-`
-
-type UpsertVideoParams struct {
-	Filename    string
-	DirectoryID int64
-}
-
-func (q *Queries) UpsertVideo(ctx context.Context, arg UpsertVideoParams) (Video, error) {
-	row := q.db.QueryRowContext(ctx, upsertVideo, arg.Filename, arg.DirectoryID)
-	var i Video
-	err := row.Scan(
-		&i.ID,
-		&i.Filename,
-		&i.DirectoryID,
-		&i.DisplayName,
-	)
 	return i, err
 }

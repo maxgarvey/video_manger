@@ -103,7 +103,7 @@ func (s *server) syncDir(d store.Directory) {
 		if e.IsDir() || !isVideoFile(e.Name()) {
 			continue
 		}
-		v, err := s.store.UpsertVideo(context.Background(), d.ID, e.Name())
+		v, err := s.store.UpsertVideo(context.Background(), d.ID, d.Path, e.Name())
 		if err != nil {
 			log.Printf("upsert %s: %v", e.Name(), err)
 			continue
@@ -516,20 +516,25 @@ func (s *server) handleDeleteDirectoryAndFiles(w http.ResponseWriter, r *http.Re
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-	// Collect file paths before the cascade delete wipes the rows.
 	videos, err := s.store.ListVideosByDirectory(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := s.store.DeleteDirectory(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// Explicitly delete each video row and its file on disk.
+	// (directory_id is SET NULL on directory delete, not CASCADE, so videos
+	// must be removed individually when the caller wants files gone too.)
 	for _, v := range videos {
+		if err := s.store.DeleteVideo(r.Context(), v.ID); err != nil {
+			log.Printf("delete video record %d: %v", v.ID, err)
+		}
 		if err := os.Remove(v.FilePath()); err != nil {
 			log.Printf("delete file %s: %v", v.FilePath(), err)
 		}
+	}
+	if err := s.store.DeleteDirectory(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	s.serveDirList(w, r)
 }

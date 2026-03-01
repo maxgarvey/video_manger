@@ -48,7 +48,7 @@ type Store interface {
 	DeleteDirectory(ctx context.Context, id int64) error
 
 	// Video management
-	UpsertVideo(ctx context.Context, dirID int64, filename string) (Video, error)
+	UpsertVideo(ctx context.Context, dirID int64, dirPath string, filename string) (Video, error)
 	ListVideos(ctx context.Context) ([]Video, error)
 	ListVideosByTag(ctx context.Context, tagID int64) ([]Video, error)
 	ListVideosByDirectory(ctx context.Context, dirID int64) ([]Video, error)
