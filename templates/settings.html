@@ -31,9 +31,13 @@
   htmx.on('#lan-info', 'htmx:afterSwap', function(e) {
     try {
       var data = JSON.parse(e.detail.xhr.responseText);
-      var html = data.addresses.length
-        ? data.addresses.map(function(a){
-            return '<a href="'+a+'" target="_blank" style="color:#4af;word-break:break-all;display:block">'+a+'</a>';
+      var items = [];
+      if (data.mdns) items.push(data.mdns + ' <span style="color:#666;font-size:0.75rem">(mDNS)</span>');
+      (data.addresses || []).forEach(function(a){ items.push(a); });
+      var html = items.length
+        ? items.map(function(a){
+            var href = a.split(' ')[0];
+            return '<a href="'+href+'" target="_blank" style="color:#4af;word-break:break-all;display:block">'+a+'</a>';
           }).join('')
         : '<span style="color:#555">No LAN addresses found</span>';
       document.getElementById('lan-info').innerHTML = html;
