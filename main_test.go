@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1164,6 +1165,35 @@ func TestHandleLookupApply_BadVideo(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	srv.routes().ServeHTTP(rec, req)
 
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown video, got %d", rec.Code)
+	}
+}
+
+func TestHandleSharePanel_OK(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/share", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	// Body should reference the video's streaming endpoint.
+	if !strings.Contains(rec.Body.String(), fmt.Sprintf("/video/%d", v.ID)) {
+		t.Error("expected streaming URL with video ID in share panel")
+	}
+}
+
+func TestHandleSharePanel_BadVideo(t *testing.T) {
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/999/share", nil)
+	srv.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for unknown video, got %d", rec.Code)
 	}

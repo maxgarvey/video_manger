@@ -6,12 +6,15 @@ import (
 	"embed"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,6 +108,14 @@ func (s *server) routes() http.Handler {
 
 	// yt-dlp download
 	r.Post("/ytdlp/download", s.handleYTDLPDownload)
+
+	// Metadata lookup (TMDB)
+	r.Get("/videos/{id}/lookup", s.handleLookupModal)
+	r.Post("/videos/{id}/lookup/search", s.handleLookupSearch)
+	r.Post("/videos/{id}/lookup/apply", s.handleLookupApply)
+
+	// P2P share
+	r.Get("/videos/{id}/share", s.handleSharePanel)
 
 	// File metadata (ffprobe/ffmpeg)
 	r.Get("/videos/{id}/metadata", s.handleGetMetadata)
@@ -875,15 +886,223 @@ func (s *server) handleDeleteDirectoryAndFiles(w http.ResponseWriter, r *http.Re
 	s.serveDirList(w, r)
 }
 
+// --- Metadata lookup (TMDB) ---
+
+type tmdbSearchResult struct {
+	ID          int     `json:"id"`
+	MediaType   string  `json:"media_type"`
+	Title       string  `json:"title"`       // movies
+	Name        string  `json:"name"`        // TV
+	Overview    string  `json:"overview"`
+	ReleaseDate string  `json:"release_date"`
+	FirstAir    string  `json:"first_air_date"`
+	Popularity  float64 `json:"popularity"`
+}
+
+func (r tmdbSearchResult) DisplayTitle() string {
+	if r.Title != "" {
+		return r.Title
+	}
+	return r.Name
+}
+
+func (r tmdbSearchResult) Year() string {
+	d := r.ReleaseDate
+	if d == "" {
+		d = r.FirstAir
+	}
+	if len(d) >= 4 {
+		return d[:4]
+	}
+	return ""
+}
+
+type tmdbMovieDetail struct {
+	Title    string `json:"title"`
+	Overview string `json:"overview"`
+	Genres   []struct{ Name string } `json:"genres"`
+	Release  string `json:"release_date"`
+}
+
+type tmdbEpisodeDetail struct {
+	Name         string `json:"name"`
+	Overview     string `json:"overview"`
+	AirDate      string `json:"air_date"`
+	EpisodeNum   int    `json:"episode_number"`
+	SeasonNum    int    `json:"season_number"`
+	ShowName     string // populated from series call
+}
+
+func tmdbGet(apiKey, path string, out any) error {
+	req, err := http.NewRequest(http.MethodGet, "https://api.themoviedb.org"+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("TMDB %s: %d %s", path, resp.StatusCode, string(body))
+	}
+	return json.Unmarshal(body, out)
+}
+
+func (s *server) handleLookupModal(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	apiKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
+	data := struct {
+		VideoID int64
+		HasKey  bool
+	}{id, apiKey != ""}
+	if err := templates.ExecuteTemplate(w, "lookup_modal.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleLookupSearch(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	apiKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
+	if apiKey == "" {
+		http.Error(w, "TMDB API key not configured", http.StatusBadRequest)
+		return
+	}
+	q := strings.TrimSpace(r.FormValue("q"))
+	if q == "" {
+		http.Error(w, "query required", http.StatusBadRequest)
+		return
+	}
+
+	path := "/3/search/multi?query=" + url.QueryEscape(q) + "&include_adult=false"
+	var result struct {
+		Results []tmdbSearchResult `json:"results"`
+	}
+	if err := tmdbGet(apiKey, path, &result); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	// Limit to top 10.
+	if len(result.Results) > 10 {
+		result.Results = result.Results[:10]
+	}
+
+	data := struct {
+		VideoID int64
+		Results []tmdbSearchResult
+	}{id, result.Results}
+	if err := templates.ExecuteTemplate(w, "lookup_results.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
+
+	apiKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
+	if apiKey == "" {
+		http.Error(w, "TMDB API key not configured", http.StatusBadRequest)
+		return
+	}
+
+	mediaType := r.FormValue("media_type")
+	tmdbID := r.FormValue("tmdb_id")
+
+	var u metadata.Updates
+	switch mediaType {
+	case "movie":
+		var detail tmdbMovieDetail
+		if err := tmdbGet(apiKey, "/3/movie/"+tmdbID, &detail); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		genre := ""
+		if len(detail.Genres) > 0 {
+			genre = detail.Genres[0].Name
+		}
+		u = metadata.Updates{
+			Title:       &detail.Title,
+			Description: &detail.Overview,
+			Genre:       &genre,
+			Date:        &detail.Release,
+		}
+	case "tv":
+		seasonStr := r.FormValue("season")
+		episodeStr := r.FormValue("episode")
+		// Fetch series name.
+		var series struct{ Name string `json:"name"` }
+		tmdbGet(apiKey, "/3/tv/"+tmdbID, &series) //nolint:errcheck
+		var ep tmdbEpisodeDetail
+		epPath := fmt.Sprintf("/3/tv/%s/season/%s/episode/%s", tmdbID, seasonStr, episodeStr)
+		if err := tmdbGet(apiKey, epPath, &ep); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		epID := fmt.Sprintf("S%02dE%02d", ep.SeasonNum, ep.EpisodeNum)
+		seasonNumStr := fmt.Sprintf("%d", ep.SeasonNum)
+		episodeNumStr := fmt.Sprintf("%d", ep.EpisodeNum)
+		u = metadata.Updates{
+			Title:       &ep.Name,
+			Description: &ep.Overview,
+			Show:        &series.Name,
+			EpisodeID:   &epID,
+			SeasonNum:   &seasonNumStr,
+			EpisodeNum:  &episodeNumStr,
+			Date:        &ep.AirDate,
+		}
+	default:
+		http.Error(w, "media_type must be movie or tv", http.StatusBadRequest)
+		return
+	}
+
+	if err := metadata.Write(video.FilePath(), u); err != nil {
+		log.Printf("lookup apply metadata write %s: %v", video.FilePath(), err)
+	}
+
+	// Refresh the metadata view.
+	native, _ := metadata.Read(video.FilePath())
+	data := struct {
+		VideoID int64
+		Native  metadata.Meta
+	}{id, native}
+	if err := templates.ExecuteTemplate(w, "file_metadata.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	autoplay, _ := s.store.GetSetting(r.Context(), "autoplay_random")
 	sortOrder, _ := s.store.GetSetting(r.Context(), "video_sort")
+	tmdbKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
 	data := struct {
 		AutoplayRandom bool
 		VideoSort      string
+		TMDBKey        string
 	}{
 		AutoplayRandom: autoplay != "false",
 		VideoSort:      sortOrder,
+		TMDBKey:        tmdbKey,
 	}
 	if err := templates.ExecuteTemplate(w, "settings.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -899,8 +1118,10 @@ func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if sortOrder != "name" && sortOrder != "rating" {
 		sortOrder = "name"
 	}
+	tmdbKey := strings.TrimSpace(r.FormValue("tmdb_api_key"))
 	s.store.SetSetting(r.Context(), "autoplay_random", autoplay)   //nolint:errcheck
 	s.store.SetSetting(r.Context(), "video_sort", sortOrder)        //nolint:errcheck
+	s.store.SetSetting(r.Context(), "tmdb_api_key", tmdbKey)        //nolint:errcheck
 	s.handleGetSettings(w, r)
 }
 
@@ -978,6 +1199,36 @@ func (s *server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.serveDirList(w, r)
+}
+
+// --- P2P sharing ---
+
+func (s *server) handleSharePanel(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if _, err := s.store.GetVideo(r.Context(), id); err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
+	suffix := fmt.Sprintf("/video/%d", id)
+	addrs := localAddresses(s.port)
+	links := make([]string, 0, len(addrs)+1)
+	if s.mdnsName != "" {
+		links = append(links, "http://"+s.mdnsName+":"+s.port+suffix)
+	}
+	for _, a := range addrs {
+		links = append(links, a+suffix)
+	}
+	data := struct {
+		VideoID int64
+		Links   []string
+	}{id, links}
+	if err := templates.ExecuteTemplate(w, "share_panel.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func isVideoFile(name string) bool {
