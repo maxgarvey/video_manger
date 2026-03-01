@@ -66,4 +66,4 @@ Ordered by complexity (easiest / least invasive first).
 | 46 | security 2b | `handleBrowseFS`: restrict path to home-dir subtree | ✅ Done |
 | 47 | testing 7c | Store tests for `GetRandomVideo` and `SearchVideos` | ✅ Done |
 | 48 | UX 6i | "Next unwatched" button per tag/directory | ✅ Done |
-| 49 | security 2a | Optional password protection (bcrypt + cookie session) | ⬜ Todo |
+| 49 | security 2a | Optional password protection (bcrypt + cookie session) | ✅ Done |
