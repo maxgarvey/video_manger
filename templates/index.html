@@ -57,9 +57,8 @@
     }
     .chrome-btn:hover { background: rgba(50, 50, 50, 0.85); }
 
-    /* Library button — top left; slides right when sidebar is open */
-    #lib-btn { top: 1rem; left: 1rem; transition: opacity 0.2s, left 0.22s ease; }
-    body.lib-open #lib-btn { left: 312px; }
+    /* Library button — top left */
+    #lib-btn { top: 1rem; left: 1rem; }
 
     /* Info button — bottom right; slides up when info panel is open */
     #info-btn { bottom: 1rem; right: 1rem; transition: opacity 0.2s, bottom 0.22s ease; }
@@ -85,25 +84,45 @@
     }
     body.cfg-open #config-panel { transform: translateX(0); }
 
-    /* ── Library sidebar ────────────────────────────────────────────── */
+    /* ── Library full-pane overlay ──────────────────────────────────── */
     #library {
       position: fixed;
       z-index: 200;
-      top: 0; left: 0; bottom: 0;
-      width: 300px;
-      background: rgba(18, 18, 18, 0.96);
-      backdrop-filter: blur(10px);
+      inset: 0;
+      background: rgba(8, 8, 8, 0.80);
+      backdrop-filter: blur(14px);
+      display: flex;
+      flex-direction: row;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.22s ease;
+    }
+    body.lib-open #library { opacity: 1; pointer-events: auto; }
+
+    /* Left controls column */
+    #lib-left {
+      width: 280px;
+      flex-shrink: 0;
+      background: rgba(18, 18, 18, 0.72);
       border-right: 1px solid #2a2a2a;
-      overflow: hidden;
+      overflow-y: auto;
+      padding: 0.75rem;
       display: flex;
       flex-direction: column;
       gap: 0.75rem;
-      padding: 0.75rem;
-      transform: translateX(-100%);
-      transition: transform 0.22s ease;
     }
-    body.lib-open #library { transform: translateX(0); }
-    #library .video-section { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+
+    /* Right video-list column */
+    #lib-right {
+      flex: 1;
+      overflow: hidden;
+      padding: 0.75rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      min-width: 0;
+    }
+    #lib-right #video-list { flex: 1; overflow-y: auto; min-height: 0; }
 
     /* ── Info panel ─────────────────────────────────────────────────── */
     #info-panel {
@@ -276,60 +295,76 @@
     <button class="chrome-btn" onclick="document.body.classList.toggle('cfg-open')">⚙ Settings</button>
   </div>
 
-  <!-- Library sidebar overlay -->
+  <!-- Library full-pane overlay -->
   <aside id="library">
-    <div style="display:flex;justify-content:flex-end;margin-bottom:-0.5rem">
-      <button class="btn-icon" onclick="document.body.classList.remove('lib-open')"
-        style="font-size:1.2rem"
-        title="Close library">✕</button>
-    </div>
-    <details>
-      <summary style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">
-        Directories
-      </summary>
-      <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.5rem">
-        <div id="directories" hx-get="/directories" hx-trigger="load"></div>
-        <button class="btn-sm" hx-get="/fs" hx-target="#dir-browser-wrap" hx-swap="innerHTML"
-          style="text-align:left">
-          📁 Browse to add folder…
-        </button>
-        <div id="dir-browser-wrap"></div>
-        <details style="margin-top:0.1rem">
-          <summary style="font-size:0.78rem">Create new folder on disk</summary>
-          <form hx-post="/directories/create" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.4rem">
-            <input type="text" name="path" placeholder="/path/to/new/folder">
-            <button type="submit" title="Create folder on disk and add to library">New</button>
+
+    <!-- Left column: management controls -->
+    <div id="lib-left">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.12em;color:#555;font-weight:600">Library</span>
+        <button class="btn-icon" onclick="document.body.classList.remove('lib-open')"
+          style="font-size:1.2rem"
+          title="Close library">✕</button>
+      </div>
+      <details>
+        <summary style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">
+          Directories
+        </summary>
+        <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.5rem">
+          <div id="directories" hx-get="/directories" hx-trigger="load"></div>
+          <button class="btn-sm" hx-get="/fs" hx-target="#dir-browser-wrap" hx-swap="innerHTML"
+            style="text-align:left">
+            📁 Browse to add folder…
+          </button>
+          <div id="dir-browser-wrap"></div>
+          <details style="margin-top:0.1rem">
+            <summary style="font-size:0.78rem">Create new folder on disk</summary>
+            <form hx-post="/directories/create" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.4rem">
+              <input type="text" name="path" placeholder="/path/to/new/folder">
+              <button type="submit" title="Create folder on disk and add to library">New</button>
+            </form>
+          </details>
+        </div>
+      </details>
+      <details>
+        <summary style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">
+          Download from URL
+        </summary>
+        <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
+          <form hx-post="/ytdlp/download" hx-target="#video-list" hx-indicator="#ytdlp-status"
+                style="display:flex;flex-direction:column;gap:0.4rem">
+            <input type="text" name="url" placeholder="YouTube / video URL">
+            <select name="dir_id" id="ytdlp-dir-select"
+              style="background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.5rem;border-radius:4px;font-size:0.85rem"
+              hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
+            <button type="submit">⬇ Download</button>
           </form>
-        </details>
-      </div>
-    </details>
-    <details>
-      <summary style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">
-        Download from URL
-      </summary>
-      <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
-        <form hx-post="/ytdlp/download" hx-target="#video-list" hx-indicator="#ytdlp-status"
-              style="display:flex;flex-direction:column;gap:0.4rem">
-          <input type="text" name="url" placeholder="YouTube / video URL">
-          <select name="dir_id" id="ytdlp-dir-select"
-            style="background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.5rem;border-radius:4px;font-size:0.85rem"
-            hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
-          <button type="submit">⬇ Download</button>
-        </form>
-        <p id="ytdlp-status" class="htmx-indicator" style="font-size:0.8rem;color:#888"><span class="spinner"></span> Downloading…</p>
-      </div>
-    </details>
-    <section>
-      <h2>Filter by Tag</h2>
-      <div id="tag-filters" hx-get="/tags" hx-trigger="load"></div>
-      <button hx-get="/videos" hx-target="#video-list"
-        onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value=''"
-        style="margin-top:0.4rem;width:100%">Show all</button>
-    </section>
-    <section class="video-section">
-      <h2 style="display:flex;align-items:center;gap:0.4rem">
-        Videos <span id="vl-spin" class="spinner htmx-indicator"></span>
-        <button class="btn-sm" style="margin-left:auto;font-size:0.7rem"
+          <p id="ytdlp-status" class="htmx-indicator" style="font-size:0.8rem;color:#888"><span class="spinner"></span> Downloading…</p>
+        </div>
+      </details>
+      <section>
+        <h2>Filter by Tag</h2>
+        <div id="tag-filters" hx-get="/tags" hx-trigger="load"></div>
+        <button hx-get="/videos" hx-target="#video-list"
+          onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value=''"
+          style="margin-top:0.4rem;width:100%">Show all</button>
+      </section>
+    </div>
+
+    <!-- Right column: video list -->
+    <div id="lib-right">
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <h2 style="display:flex;align-items:center;gap:0.4rem;flex-shrink:0">
+          Videos <span id="vl-spin" class="spinner htmx-indicator"></span>
+        </h2>
+        <input id="video-search" type="text" name="q" placeholder="Search…"
+          hx-get="/videos"
+          hx-target="#video-list"
+          hx-trigger="input changed delay:150ms"
+          hx-indicator="#vl-spin"
+          hx-on:htmx:before-request="document.getElementById('active-tag').value=''"
+          style="flex:1;margin:0">
+        <button class="btn-sm" style="flex-shrink:0;font-size:0.7rem"
           title="Open next unwatched video"
           onclick="(function(){
             var tid = document.getElementById('active-tag').value;
@@ -337,26 +372,20 @@
               .then(function(r){ if(!r.ok) throw r; return r.json(); })
               .then(function(d){ openTab(d.id, d.title); })
               .catch(function(){ var n=document.createElement('span');
-                n.textContent='All watched!';n.style.cssText='color:#4a9;font-size:0.75rem;margin-left:0.4rem';
+                n.textContent='All watched!';n.style.cssText='color:#4a9;font-size:0.75rem';
                 document.getElementById('vl-spin').after(n);setTimeout(function(){n.remove()},2500); });
           })()">▶ Next</button>
-      </h2>
-      <input id="video-search" type="text" name="q" placeholder="Search..."
-        hx-get="/videos"
-        hx-target="#video-list"
-        hx-trigger="input changed delay:150ms"
-        hx-indicator="#vl-spin"
-        hx-on:htmx:before-request="document.getElementById('active-tag').value=''"
-        style="margin-bottom:0.5rem">
+      </div>
       <input type="hidden" id="active-tag" name="tag_id" value="">
-      <div id="video-list" style="flex:1;overflow-y:auto;min-height:0"
+      <div id="video-list"
            hx-ext="morph"
            hx-get="/videos"
            hx-trigger="load, every 60s"
            hx-swap="morph:innerHTML"
            hx-include="#video-search,#active-tag"
            hx-indicator="#vl-spin"></div>
-    </section>
+    </div>
+
   </aside>
 
   <!-- Info panel overlay — content injected via hx-swap-oob by player.html -->
