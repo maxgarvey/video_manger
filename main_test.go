@@ -783,6 +783,23 @@ func TestHandleYTDLP_NotInstalled(t *testing.T) {
 	}
 }
 
+func TestHandleConvert_SameExtension(t *testing.T) {
+	// mkv→mkv (copy preset) would overwrite the source; expect 400.
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mkv")
+
+	form := url.Values{"format": {"mkv"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/convert", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when output == source, got %d", rec.Code)
+	}
+}
+
 func TestHandleConvert_InvalidFormat(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
@@ -1199,6 +1216,45 @@ func TestHandleLookupSearch_BadRequest(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty query, got %d", rec.Code)
+	}
+}
+
+func TestHandleGetLookupModal_WithKey(t *testing.T) {
+	// T2: modal with API key set should render the search form.
+	srv := newTestServer(t)
+	ctx := context.Background()
+	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-key") //nolint:errcheck
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/lookup", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Search TMDB") {
+		t.Error("expected search form in response when API key is configured")
+	}
+}
+
+func TestHandleLookupApply_BadMediaType(t *testing.T) {
+	// T3: invalid media_type should return 400.
+	srv := newTestServer(t)
+	ctx := context.Background()
+	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-key") //nolint:errcheck
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	form := url.Values{"media_type": {"book"}, "tmdb_id": {"123"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/lookup/apply", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid media_type, got %d", rec.Code)
 	}
 }
 

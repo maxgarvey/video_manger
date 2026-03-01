@@ -642,6 +642,12 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	outName := base + cf.ext
 	outPath := filepath.Join(video.DirectoryPath, outName)
 
+	// Guard against overwriting the source file (e.g. mkv→mkv with copy codec).
+	if outPath == video.FilePath() {
+		http.Error(w, "source and output are the same file; choose a different format", http.StatusBadRequest)
+		return
+	}
+
 	args := []string{"-y", "-i", video.FilePath()}
 	args = append(args, cf.videoArgs...)
 	args = append(args, cf.audioArgs...)
@@ -659,7 +665,9 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	// Register the converted file in the library.
 	if video.DirectoryID != 0 {
 		if dir, err := s.store.GetDirectory(r.Context(), video.DirectoryID); err == nil {
-			s.store.UpsertVideo(r.Context(), dir.ID, dir.Path, outName) //nolint:errcheck
+			if _, err := s.store.UpsertVideo(r.Context(), dir.ID, dir.Path, outName); err != nil {
+				log.Printf("register converted file %s: %v", outName, err)
+			}
 		}
 	}
 
@@ -998,7 +1006,8 @@ func (s *server) handleLookupSearch(w http.ResponseWriter, r *http.Request) {
 		Results []tmdbSearchResult `json:"results"`
 	}
 	if err := tmdbGet(apiKey, path, &result); err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		log.Printf("TMDB search %q: %v", q, err)
+		http.Error(w, "TMDB search failed", http.StatusBadGateway)
 		return
 	}
 
@@ -1042,7 +1051,8 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 	case "movie":
 		var detail tmdbMovieDetail
 		if err := tmdbGet(apiKey, "/3/movie/"+tmdbID, &detail); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			log.Printf("TMDB movie fetch %s: %v", tmdbID, err)
+			http.Error(w, "TMDB movie lookup failed", http.StatusBadGateway)
 			return
 		}
 		genre := ""
@@ -1058,13 +1068,15 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 	case "tv":
 		seasonStr := r.FormValue("season")
 		episodeStr := r.FormValue("episode")
-		// Fetch series name.
+		// Fetch series name — best-effort; log but do not abort.
 		var series struct{ Name string `json:"name"` }
-		tmdbGet(apiKey, "/3/tv/"+tmdbID, &series) //nolint:errcheck
+		if err := tmdbGet(apiKey, "/3/tv/"+tmdbID, &series); err != nil {
+			log.Printf("TMDB series fetch %s: %v", tmdbID, err)
+		}
 		var ep tmdbEpisodeDetail
 		epPath := fmt.Sprintf("/3/tv/%s/season/%s/episode/%s", tmdbID, seasonStr, episodeStr)
 		if err := tmdbGet(apiKey, epPath, &ep); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			http.Error(w, "TMDB episode lookup failed", http.StatusBadGateway)
 			return
 		}
 		epID := fmt.Sprintf("S%02dE%02d", ep.SeasonNum, ep.EpisodeNum)
@@ -1086,6 +1098,8 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 
 	if err := metadata.Write(video.FilePath(), u); err != nil {
 		log.Printf("lookup apply metadata write %s: %v", video.FilePath(), err)
+		http.Error(w, "metadata write failed: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// Refresh the metadata view.
