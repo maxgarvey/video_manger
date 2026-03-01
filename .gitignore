@@ -1,2 +1,7 @@
 video_manger
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.db.bad
+*.db.orig
