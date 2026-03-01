@@ -55,6 +55,10 @@ type Store interface {
 	GetDirectory(ctx context.Context, id int64) (Directory, error)
 	ListDirectories(ctx context.Context) ([]Directory, error)
 	DeleteDirectory(ctx context.Context, id int64) error
+	// DeleteDirectoryAndVideos atomically removes a directory and all its
+	// video records in a single transaction. It returns the file paths of
+	// the deleted videos so the caller can remove them from disk.
+	DeleteDirectoryAndVideos(ctx context.Context, id int64) ([]string, error)
 
 	// Video management
 	UpsertVideo(ctx context.Context, dirID int64, dirPath string, filename string) (Video, error)
@@ -74,7 +78,6 @@ type Store interface {
 
 	// Settings
 	GetSetting(ctx context.Context, key string) (string, error)
-	SetSetting(ctx context.Context, key, value string) error
 	// SaveSettings atomically writes multiple key-value pairs in a single transaction.
 	SaveSettings(ctx context.Context, pairs map[string]string) error
 

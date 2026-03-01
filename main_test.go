@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maxgarvey/video_manger/store"
 	"golang.org/x/crypto/bcrypt"
@@ -23,7 +24,7 @@ func newTestServer(t *testing.T) *server {
 	if err != nil {
 		t.Fatalf("NewSQLite: %v", err)
 	}
-	return &server{store: s, sessions: make(map[string]bool), syncingDirs: make(map[int64]struct{})}
+	return &server{store: s, sessions: make(map[string]time.Time), syncingDirs: make(map[int64]struct{}), convertSem: make(chan struct{}, 2)}
 }
 
 // --- Unit tests ---
@@ -1185,7 +1186,7 @@ func TestHandleLookupSearch_NoKey(t *testing.T) {
 func TestHandleLookupSearch_BadRequest(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
-	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-key") //nolint:errcheck
+	srv.store.SaveSettings(ctx, map[string]string{"tmdb_api_key": "fake-key"}) //nolint:errcheck
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
 
@@ -1204,7 +1205,7 @@ func TestHandleGetLookupModal_WithKey(t *testing.T) {
 	// T2: modal with API key set should render the search form.
 	srv := newTestServer(t)
 	ctx := context.Background()
-	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-key") //nolint:errcheck
+	srv.store.SaveSettings(ctx, map[string]string{"tmdb_api_key": "fake-key"}) //nolint:errcheck
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
 
@@ -1224,7 +1225,7 @@ func TestHandleLookupApply_BadMediaType(t *testing.T) {
 	// T3: invalid media_type should return 400.
 	srv := newTestServer(t)
 	ctx := context.Background()
-	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-key") //nolint:errcheck
+	srv.store.SaveSettings(ctx, map[string]string{"tmdb_api_key": "fake-key"}) //nolint:errcheck
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
 
@@ -1242,7 +1243,7 @@ func TestHandleLookupApply_BadMediaType(t *testing.T) {
 func TestHandleLookupApply_BadVideo(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
-	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-key") //nolint:errcheck
+	srv.store.SaveSettings(ctx, map[string]string{"tmdb_api_key": "fake-key"}) //nolint:errcheck
 
 	form := url.Values{"media_type": {"movie"}, "tmdb_id": {"12345"}}
 	rec := httptest.NewRecorder()
@@ -1316,7 +1317,7 @@ func TestHandleVideoList_RatingSorted(t *testing.T) {
 	ctx := context.Background()
 
 	// Set video_sort to "rating"
-	srv.store.SetSetting(ctx, "video_sort", "rating") //nolint:errcheck
+	srv.store.SaveSettings(ctx, map[string]string{"video_sort": "rating"}) //nolint:errcheck
 
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
 	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "neutral.mp4")
@@ -1377,7 +1378,7 @@ func TestHandleLookupSearch_Success(t *testing.T) {
 
 	srv := newTestServer(t)
 	ctx := context.Background()
-	srv.store.SetSetting(ctx, "tmdb_api_key", "fake-test-key") //nolint:errcheck
+	srv.store.SaveSettings(ctx, map[string]string{"tmdb_api_key": "fake-test-key"}) //nolint:errcheck
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
 

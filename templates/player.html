@@ -69,11 +69,6 @@
 
 <!-- Title overlay — fades in when hovering the player -->
 <div id="player-overlay">
-  {{if .ShowName}}
-  <div style="font-size:0.8rem;color:rgba(255,255,255,0.6);text-shadow:0 1px 4px rgba(0,0,0,0.9);margin-bottom:0.2rem">
-    {{.ShowName}}
-  </div>
-  {{end}}
   <div style="font-size:1.05rem;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.9)">
     {{if eq .Video.Rating 2}}⭐ {{else if eq .Video.Rating 1}}👍 {{end}}{{.Video.Title}}
   </div>

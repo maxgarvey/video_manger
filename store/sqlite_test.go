@@ -479,7 +479,7 @@ func TestGetDirectory(t *testing.T) {
 	}
 }
 
-// --- T10: GetSetting / SetSetting ---
+// --- T10: GetSetting / SaveSettings ---
 
 func TestGetAndSetSetting(t *testing.T) {
 	s := newTestStore(t)
@@ -494,9 +494,9 @@ func TestGetAndSetSetting(t *testing.T) {
 		t.Errorf("expected empty string for missing key, got %q", val)
 	}
 
-	// SetSetting creates the row.
-	if err := s.SetSetting(ctx, "color", "blue"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
+	// SaveSettings creates the row.
+	if err := s.SaveSettings(ctx, map[string]string{"color": "blue"}); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
 	}
 	val, err = s.GetSetting(ctx, "color")
 	if err != nil {
@@ -506,9 +506,9 @@ func TestGetAndSetSetting(t *testing.T) {
 		t.Errorf("expected 'blue', got %q", val)
 	}
 
-	// SetSetting overwrites the existing value.
-	if err := s.SetSetting(ctx, "color", "red"); err != nil {
-		t.Fatalf("SetSetting overwrite: %v", err)
+	// SaveSettings overwrites the existing value.
+	if err := s.SaveSettings(ctx, map[string]string{"color": "red"}); err != nil {
+		t.Fatalf("SaveSettings overwrite: %v", err)
 	}
 	val, _ = s.GetSetting(ctx, "color")
 	if val != "red" {

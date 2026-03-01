@@ -3,36 +3,37 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
-	"slices"
 	"log"
-	"crypto/rand"
-	"encoding/hex"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
-	"sync"
-	"syscall"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/grandcat/zeroconf"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/maxgarvey/video_manger/metadata"
 	"github.com/maxgarvey/video_manger/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 //go:embed templates/*
@@ -90,10 +91,11 @@ type server struct {
 	port         string
 	mdnsName     string // e.g. "video-manger.local"
 	passwordHash []byte // nil means no authentication required
-	sessions     map[string]bool
+	sessions     map[string]time.Time // token → expiry (7-day TTL)
 	sessionsMu   sync.RWMutex
 	syncingDirs  map[int64]struct{}
 	syncingMu    sync.Mutex
+	convertSem   chan struct{} // limits concurrent ffmpeg/yt-dlp processes
 }
 
 // videoGroup is a view-layer grouping of videos sharing the same directory.
@@ -134,7 +136,14 @@ func main() {
 		log.Fatalf("open db: %v", err)
 	}
 
-	srv := &server{store: s, port: *port, mdnsName: "video-manger.local", sessions: make(map[string]bool), syncingDirs: make(map[int64]struct{})}
+	srv := &server{
+		store:       s,
+		port:        *port,
+		mdnsName:    "video-manger.local",
+		sessions:    make(map[string]time.Time),
+		syncingDirs: make(map[int64]struct{}),
+		convertSem:  make(chan struct{}, 2),
+	}
 	if *password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)
 		if err != nil {
@@ -168,6 +177,7 @@ func main() {
 	defer stop()
 
 	go srv.startLibraryPoller(ctx)
+	go srv.startSessionPruner(ctx)
 
 	httpSrv := &http.Server{Addr: ":" + *port, Handler: srv.routes()}
 	go func() {
@@ -208,9 +218,9 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 		cookie, err := r.Cookie("session")
 		if err == nil {
 			s.sessionsMu.RLock()
-			valid := s.sessions[cookie.Value]
+			expiry, ok := s.sessions[cookie.Value]
 			s.sessionsMu.RUnlock()
-			if valid {
+			if ok && time.Now().Before(expiry) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -241,7 +251,7 @@ func (s *server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	token := hex.EncodeToString(raw)
 	s.sessionsMu.Lock()
-	s.sessions[token] = true
+	s.sessions[token] = time.Now().Add(7 * 24 * time.Hour)
 	s.sessionsMu.Unlock()
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
@@ -277,7 +287,7 @@ func (s *server) routes() http.Handler {
 	r.Get("/info", s.handleInfo)
 
 	// Videos
-	r.Get("/videos", s.handleVideoList)
+	r.Get("/videos", s.serveVideoList)
 	r.Get("/play/{id}", s.handlePlayer)
 	r.Get("/video/{id}", s.handleVideoFile)
 	r.Put("/videos/{id}/name", s.handleUpdateVideoName)
@@ -414,6 +424,7 @@ func (s *server) syncDir(d store.Directory) {
 
 // startLibraryPoller runs in the background, re-scanning all registered
 // directories every 60 s so newly added files are picked up automatically.
+// Directories that are already being synced are skipped to avoid races.
 func (s *server) startLibraryPoller(ctx context.Context) {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
@@ -428,8 +439,34 @@ func (s *server) startLibraryPoller(ctx context.Context) {
 				continue
 			}
 			for _, d := range dirs {
-				s.syncDir(d)
+				s.syncingMu.Lock()
+				_, already := s.syncingDirs[d.ID]
+				s.syncingMu.Unlock()
+				if !already {
+					s.startSyncDir(d)
+				}
 			}
+		}
+	}
+}
+
+// startSessionPruner removes expired sessions once per hour.
+func (s *server) startSessionPruner(ctx context.Context) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now()
+			s.sessionsMu.Lock()
+			for tok, exp := range s.sessions {
+				if now.After(exp) {
+					delete(s.sessions, tok)
+				}
+			}
+			s.sessionsMu.Unlock()
 		}
 	}
 }
@@ -505,10 +542,6 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) handleVideoList(w http.ResponseWriter, r *http.Request) {
-	s.serveVideoList(w, r)
-}
-
 func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
@@ -533,21 +566,14 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	_, statErr := os.Stat(video.FilePath())
 	fileNotFound := statErr != nil
 
-	showName := ""
-	if !fileNotFound {
-		if meta, err := metadata.Read(video.FilePath()); err == nil {
-			showName = meta.Show
-		}
-	}
 	libPath, _ := s.store.GetSetting(r.Context(), "library_path")
 	data := struct {
 		Video        store.Video
 		Tags         []store.Tag
 		AllTags      []store.Tag
-		ShowName     string
 		FileNotFound bool
 		LibraryPath  string
-	}{video, tags, allTags, showName, fileNotFound, strings.TrimSpace(libPath)}
+	}{video, tags, allTags, fileNotFound, strings.TrimSpace(libPath)}
 	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -942,21 +968,17 @@ func (s *server) handleCopyToLibrary(w http.ResponseWriter, r *http.Request) {
 	base := filepath.Base(src)
 	ext := filepath.Ext(base)
 	stem := strings.TrimSuffix(base, ext)
-	dst := filepath.Join(libPath, base)
-	for i := 2; ; i++ {
-		if _, err := os.Stat(dst); os.IsNotExist(err) {
-			break
-		}
-		dst = filepath.Join(libPath, fmt.Sprintf("%s_%d%s", stem, i, ext))
-	}
+	dstName := freeOutputName(libPath, stem, "", ext)
+	dst := filepath.Join(libPath, dstName)
 	if err := copyFile(src, dst); err != nil {
 		http.Error(w, "copy failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	fmt.Fprintf(w, `<span style="color:#4a9a4a;font-size:0.8rem">✓ Copied to %s</span>`, filepath.Base(dst))
+	fmt.Fprintf(w, `<span style="color:#4a9a4a;font-size:0.8rem">✓ Copied to %s</span>`, dstName)
 }
 
 // copyFile copies src to dst using a streaming io.Copy.
+// If the write fails, the partial destination file is removed.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -967,8 +989,9 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst) //nolint:errcheck
 		return err
 	}
 	return out.Close()
@@ -985,7 +1008,10 @@ func (s *server) handleImportUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "directory not found", http.StatusNotFound)
 		return
 	}
-	if err := r.ParseMultipartForm(512 << 20); err != nil {
+
+	// S4: cap the body so a malicious client cannot exhaust memory/disk.
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<30) // 8 GB
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
 		http.Error(w, "cannot parse upload: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -995,35 +1021,39 @@ func (s *server) handleImportUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer fh.Close()
-	origName := strings.TrimSpace(r.FormValue("filename"))
-	if origName == "" || !isVideoFile(origName) {
+
+	// S1: strip directory components from the client-supplied filename to
+	// prevent path traversal (e.g. "../../etc/cron.d/x").
+	origName := filepath.Base(strings.TrimSpace(r.FormValue("filename")))
+	if origName == "" || origName == "." || !isVideoFile(origName) {
 		http.Error(w, "not a supported video file", http.StatusBadRequest)
 		return
 	}
 	ext := filepath.Ext(origName)
 	stem := strings.TrimSuffix(origName, ext)
-	dst := filepath.Join(dir.Path, origName)
-	for i := 2; ; i++ {
-		if _, err := os.Stat(dst); os.IsNotExist(err) {
-			break
-		}
-		dst = filepath.Join(dir.Path, fmt.Sprintf("%s_%d%s", stem, i, ext))
-	}
-	out, err := os.Create(dst)
+
+	// R8: atomically create the destination file with O_EXCL so no two
+	// concurrent uploads can race to the same filename.
+	out, savedName, err := openFreeFile(dir.Path, stem, ext)
 	if err != nil {
 		http.Error(w, "cannot create file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer out.Close()
+	// R1: single explicit close path; clean up on write failure.
 	if _, err := io.Copy(out, fh); err != nil {
+		out.Close()
+		os.Remove(filepath.Join(dir.Path, savedName)) //nolint:errcheck
 		http.Error(w, "write failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	out.Close()
-	savedName := filepath.Base(dst)
+	if err := out.Close(); err != nil {
+		os.Remove(filepath.Join(dir.Path, savedName)) //nolint:errcheck
+		http.Error(w, "flush failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	v, err := s.store.UpsertVideo(r.Context(), dir.ID, dir.Path, savedName)
 	if err != nil {
-		log.Printf("import upsert %s: %v", dst, err)
+		log.Printf("import upsert %s/%s: %v", dir.Path, savedName, err)
 	} else {
 		dirTag, err := s.store.UpsertTag(r.Context(), filepath.Base(dir.Path))
 		if err == nil {
@@ -1031,6 +1061,33 @@ func (s *server) handleImportUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// openFreeFile atomically creates a new file in dir using O_CREATE|O_EXCL,
+// appending a counter suffix (_2, _3, …) if the base name is already taken.
+// Returns the open file handle and the final filename chosen.
+func openFreeFile(dir, stem, ext string) (*os.File, string, error) {
+	try := func(name string) (*os.File, error) {
+		return os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	}
+	name := stem + ext
+	f, err := try(name)
+	if err == nil {
+		return f, name, nil
+	}
+	if !os.IsExist(err) {
+		return nil, "", err
+	}
+	for i := 2; ; i++ {
+		name = fmt.Sprintf("%s_%d%s", stem, i, ext)
+		f, err := try(name)
+		if err == nil {
+			return f, name, nil
+		}
+		if !os.IsExist(err) {
+			return nil, "", err
+		}
+	}
 }
 
 func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
@@ -1115,6 +1172,14 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "source and output are the same file; choose a different format", http.StatusBadRequest)
 		return
 	}
+	select {
+	case s.convertSem <- struct{}{}:
+		defer func() { <-s.convertSem }()
+	case <-r.Context().Done():
+		http.Error(w, "request cancelled", http.StatusServiceUnavailable)
+		return
+	}
+
 	outName := freeOutputName(video.DirectoryPath, base, "", cf.ext)
 	outPath := filepath.Join(video.DirectoryPath, outName)
 
@@ -1167,8 +1232,17 @@ func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
 	outName := base + "_usb.mp4"
 	outPath := filepath.Join(video.DirectoryPath, outName)
 
+	select {
+	case s.convertSem <- struct{}{}:
+		defer func() { <-s.convertSem }()
+	case <-r.Context().Done():
+		http.Error(w, "request cancelled", http.StatusServiceUnavailable)
+		return
+	}
+
+	bgCtx := context.WithoutCancel(r.Context())
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(r.Context(), "ffmpeg", "-y",
+	cmd := exec.CommandContext(bgCtx, "ffmpeg", "-y",
 		"-i", video.FilePath(),
 		"-c:v", "libx264", "-profile:v", "high", "-level", "4.1",
 		"-c:a", "aac", "-b:a", "192k",
@@ -1351,25 +1425,17 @@ func (s *server) handleDeleteDirectoryAndFiles(w http.ResponseWriter, r *http.Re
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-	videos, err := s.store.ListVideosByDirectory(r.Context(), id)
+	// Atomically delete all video records and the directory in a single
+	// transaction, then remove the files from disk on a best-effort basis.
+	paths, err := s.store.DeleteDirectoryAndVideos(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Explicitly delete each video row and its file on disk.
-	// (directory_id is SET NULL on directory delete, not CASCADE, so videos
-	// must be removed individually when the caller wants files gone too.)
-	for _, v := range videos {
-		if err := s.store.DeleteVideo(r.Context(), v.ID); err != nil {
-			log.Printf("delete video record %d: %v", v.ID, err)
+	for _, p := range paths {
+		if err := os.Remove(p); err != nil {
+			log.Printf("delete file %s: %v", p, err)
 		}
-		if err := os.Remove(v.FilePath()); err != nil {
-			log.Printf("delete file %s: %v", v.FilePath(), err)
-		}
-	}
-	if err := s.store.DeleteDirectory(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
 	}
 	s.serveDirList(w, r)
 }
@@ -1942,6 +2008,14 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 
 	ext := filepath.Ext(video.Filename)
 	base := strings.TrimSuffix(video.Filename, ext)
+	select {
+	case s.convertSem <- struct{}{}:
+		defer func() { <-s.convertSem }()
+	case <-r.Context().Done():
+		http.Error(w, "request cancelled", http.StatusServiceUnavailable)
+		return
+	}
+
 	outName := freeOutputName(video.DirectoryPath, base, "_trim", ext)
 	outPath := filepath.Join(video.DirectoryPath, outName)
 
@@ -2000,7 +2074,9 @@ func checkBinaries() {
 
 func isVideoFile(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".mp4", ".webm", ".ogg", ".mov", ".mkv", ".avi":
+	case ".mp4", ".webm", ".ogg", ".mov", ".mkv", ".avi",
+		".flv", ".wmv", ".m4v", ".ts", ".m2ts", ".vob",
+		".ogv", ".3gp", ".mpeg", ".mpg", ".divx", ".xvid":
 		return true
 	}
 	return false

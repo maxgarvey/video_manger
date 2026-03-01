@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"strings"
 
 	"github.com/maxgarvey/video_manger/db"
@@ -78,6 +79,45 @@ func (s *SQLiteStore) ListDirectories(ctx context.Context) ([]Directory, error) 
 
 func (s *SQLiteStore) DeleteDirectory(ctx context.Context, id int64) error {
 	return s.q.DeleteDirectory(ctx, id)
+}
+
+func (s *SQLiteStore) DeleteDirectoryAndVideos(ctx context.Context, id int64) ([]string, error) {
+	// Collect file paths before deletion so the caller can remove them from disk.
+	rows, err := s.conn.QueryContext(ctx,
+		`SELECT directory_path, filename FROM videos WHERE directory_id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for rows.Next() {
+		var dir, file string
+		if err := rows.Scan(&dir, &file); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		paths = append(paths, filepath.Join(dir, file))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	tx, err := s.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM videos WHERE directory_id = ?`, id); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM directories WHERE id = ?`, id); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return paths, nil
 }
 
 // --- Videos (raw SQL — directory_id is nullable, so no sqlc JOIN queries) ---
@@ -328,14 +368,6 @@ func (s *SQLiteStore) GetSetting(ctx context.Context, key string) (string, error
 		return "", nil
 	}
 	return value, err
-}
-
-func (s *SQLiteStore) SetSetting(ctx context.Context, key, value string) error {
-	_, err := s.conn.ExecContext(ctx,
-		`INSERT INTO settings (key, value) VALUES (?, ?)
-		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
-		key, value)
-	return err
 }
 
 func (s *SQLiteStore) SaveSettings(ctx context.Context, pairs map[string]string) error {
