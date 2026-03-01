@@ -17,6 +17,8 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -118,13 +120,33 @@ func main() {
 
 	checkBinaries()
 
-	go srv.startLibraryPoller(context.Background())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go srv.startLibraryPoller(ctx)
+
+	httpSrv := &http.Server{Addr: ":" + *port, Handler: srv.routes()}
+	go func() {
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("listen: %v", err)
+		}
+	}()
 
 	log.Printf("Starting server on http://localhost:%s", *port)
 	for _, addr := range localAddresses(*port) {
 		log.Printf("  LAN: %s", addr)
 	}
-	log.Fatal(http.ListenAndServe(":"+*port, srv.routes()))
+
+	<-ctx.Done()
+	log.Println("Shutting down…")
+	stop()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown: %v", err)
+	}
+	s.Close() //nolint:errcheck
 }
 
 func (s *server) routes() http.Handler {
@@ -245,6 +267,21 @@ func (s *server) syncDir(d store.Directory) {
 		return nil
 	}); err != nil {
 		log.Printf("syncDir walk %s: %v", d.Path, err)
+	}
+
+	// Prune DB records for files that no longer exist on disk.
+	existing, err := s.store.ListVideosByDirectory(context.Background(), d.ID)
+	if err != nil {
+		log.Printf("syncDir list videos %s: %v", d.Path, err)
+		return
+	}
+	for _, v := range existing {
+		if _, err := os.Stat(v.FilePath()); os.IsNotExist(err) {
+			log.Printf("syncDir: removing stale entry %s", v.FilePath())
+			if err := s.store.DeleteVideo(context.Background(), v.ID); err != nil {
+				log.Printf("syncDir: delete video %d: %v", v.ID, err)
+			}
+		}
 	}
 }
 
@@ -727,8 +764,11 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	args = append(args, cf.audioArgs...)
 	args = append(args, outPath)
 
+	// Use a background context so the conversion is not killed if the browser
+	// disconnects mid-way. The file will be picked up by the next library poll.
+	bgCtx := context.WithoutCancel(r.Context())
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
+	cmd := exec.CommandContext(bgCtx, "ffmpeg", args...)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		// Remove any partial output file left behind by ffmpeg.
@@ -740,8 +780,8 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 
 	// Register the converted file in the library.
 	if video.DirectoryID != 0 {
-		if dir, err := s.store.GetDirectory(r.Context(), video.DirectoryID); err == nil {
-			if _, err := s.store.UpsertVideo(r.Context(), dir.ID, dir.Path, outName); err != nil {
+		if dir, err := s.store.GetDirectory(bgCtx, video.DirectoryID); err == nil {
+			if _, err := s.store.UpsertVideo(bgCtx, dir.ID, dir.Path, outName); err != nil {
 				log.Printf("register converted file %s: %v", outName, err)
 			}
 		}
@@ -1500,8 +1540,9 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, "-i", video.FilePath(), "-c", "copy", outPath)
 
+	bgCtx := context.WithoutCancel(r.Context())
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
+	cmd := exec.CommandContext(bgCtx, "ffmpeg", args...)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		os.Remove(outPath) //nolint:errcheck
@@ -1511,8 +1552,8 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if video.DirectoryID != 0 {
-		if dir, err := s.store.GetDirectory(r.Context(), video.DirectoryID); err == nil {
-			if _, err := s.store.UpsertVideo(r.Context(), dir.ID, dir.Path, outName); err != nil {
+		if dir, err := s.store.GetDirectory(bgCtx, video.DirectoryID); err == nil {
+			if _, err := s.store.UpsertVideo(bgCtx, dir.ID, dir.Path, outName); err != nil {
 				log.Printf("register trimmed file %s: %v", outName, err)
 			}
 		}
