@@ -287,6 +287,8 @@ func (s *server) routes() http.Handler {
 	// Watch history
 	r.Post("/videos/{id}/progress", s.handlePostProgress)
 	r.Get("/videos/{id}/progress", s.handleGetProgress)
+	r.Post("/videos/{id}/watched", s.handleMarkWatched)
+	r.Delete("/videos/{id}/progress", s.handleClearProgress)
 
 	// Rating
 	r.Post("/videos/{id}/rating", s.handleSetRating)
@@ -875,6 +877,34 @@ func (s *server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
 		"position":   rec.Position,
 		"watched_at": rec.WatchedAt,
 	})
+}
+
+// handleMarkWatched manually marks a video as watched and refreshes the
+// video list so the ✓ indicator updates immediately.
+func (s *server) handleMarkWatched(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.RecordWatch(r.Context(), id, 1); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.serveVideoList(w, r)
+}
+
+func (s *server) handleClearProgress(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.ClearWatch(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.serveVideoList(w, r)
 }
 
 func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {

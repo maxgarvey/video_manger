@@ -368,6 +368,11 @@ func (s *SQLiteStore) RecordWatch(ctx context.Context, videoID int64, position f
 	return err
 }
 
+func (s *SQLiteStore) ClearWatch(ctx context.Context, videoID int64) error {
+	_, err := s.conn.ExecContext(ctx, `DELETE FROM watch_history WHERE video_id = ?`, videoID)
+	return err
+}
+
 func (s *SQLiteStore) GetWatch(ctx context.Context, videoID int64) (WatchRecord, error) {
 	row := s.conn.QueryRowContext(ctx, `
 		SELECT video_id, position, watched_at

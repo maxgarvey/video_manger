@@ -90,6 +90,20 @@
 <!-- Out-of-band: populate the info panel overlay -->
 <div id="info-panel" hx-swap-oob="true">
 
+  <!-- Watch controls -->
+  <div style="display:flex;gap:0.4rem;align-items:center">
+    <button class="btn-sm"
+      hx-post="/videos/{{.Video.ID}}/watched"
+      hx-target="#video-list"
+      title="Record this video as watched"
+    >✓ Mark watched</button>
+    <button class="btn-sm btn-ghost"
+      hx-delete="/videos/{{.Video.ID}}/progress"
+      hx-target="#video-list"
+      title="Remove watch record for this video"
+    >✕ Clear watched</button>
+  </div>
+
   <!-- Rating buttons -->
   <div id="rating-{{.Video.ID}}" style="display:flex;gap:0.4rem;align-items:center">
     <button class="btn-sm"

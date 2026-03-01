@@ -88,7 +88,7 @@ Ordered by complexity (easiest first).
 |---|---------|---------|--------|
 | 55 | 5 | Filter library by liked / superliked | ✅ Done |
 | 56 | 3 | Show codec info (video/audio streams) via ffprobe | ✅ Done |
-| 57 | 6 | Manual "mark as watched" from info panel | ⬜ Todo |
+| 57 | 6 | Manual "mark as watched" from info panel | ✅ Done |
 | 58 | 4 | Recursive directory scan with progress feedback | ⬜ Todo |
 | 59 | 2 | Configurable library location + copy files to library | ⬜ Todo |
 | 60 | 1 | Drag and drop folders/files to import | ⬜ Todo |
