@@ -1,0 +1,58 @@
+<div style="border-top:1px solid #2a2a2a;padding-top:0.6rem">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+    <span style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555">Edit File Metadata</span>
+    <button
+      hx-get="/videos/{{.VideoID}}/metadata"
+      hx-target="#file-meta-{{.VideoID}}"
+      style="background:none;border:1px solid #444;color:#666;padding:0.15rem 0.5rem;border-radius:3px;cursor:pointer;font-size:0.75rem">Cancel</button>
+  </div>
+  <form
+    hx-put="/videos/{{.VideoID}}/metadata"
+    hx-target="#file-meta-{{.VideoID}}"
+    style="display:grid;grid-template-columns:auto 1fr;gap:0.4rem 0.6rem;align-items:center;font-size:0.8rem">
+
+    <label style="color:#666;white-space:nowrap">Title</label>
+    <input type="text" name="title" value="{{.Native.Title}}"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
+
+    <label style="color:#666;white-space:nowrap">Description</label>
+    <textarea name="description" rows="3"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem;resize:vertical;font-family:inherit">{{.Native.Description}}</textarea>
+
+    <label style="color:#666;white-space:nowrap">Genre</label>
+    <input type="text" name="genre" value="{{.Native.Genre}}"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
+
+    <label style="color:#666;white-space:nowrap">Date</label>
+    <input type="text" name="date" value="{{.Native.Date}}" placeholder="YYYY-MM-DD"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
+
+    <label style="color:#666;white-space:nowrap">Show</label>
+    <input type="text" name="show" value="{{.Native.Show}}"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
+
+    <label style="color:#666;white-space:nowrap">Network</label>
+    <input type="text" name="network" value="{{.Native.Network}}"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
+
+    <label style="color:#666;white-space:nowrap">Episode ID</label>
+    <input type="text" name="episode_id" value="{{.Native.EpisodeID}}" placeholder="S01E01"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
+
+    <label style="color:#666;white-space:nowrap">Season</label>
+    <input type="text" name="season_number" value="{{.Native.SeasonNum}}"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
+
+    <label style="color:#666;white-space:nowrap">Episode</label>
+    <input type="text" name="episode_sort" value="{{.Native.EpisodeNum}}"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
+
+    <label style="color:#666;white-space:nowrap">Comment</label>
+    <input type="text" name="comment" value="{{.Native.Comment}}"
+      style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem">
+
+    <div></div>
+    <button type="submit"
+      style="background:#2a2a2a;border:1px solid #555;color:#eee;padding:0.35rem 0.75rem;border-radius:4px;cursor:pointer;font-size:0.8rem;justify-self:start">Save to File</button>
+  </form>
+</div>

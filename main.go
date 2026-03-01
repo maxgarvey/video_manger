@@ -66,6 +66,11 @@ func (s *server) routes() http.Handler {
 	r.Get("/video/{id}", s.handleVideoFile)
 	r.Put("/videos/{id}/name", s.handleUpdateVideoName)
 
+	// File metadata (ffprobe/ffmpeg)
+	r.Get("/videos/{id}/metadata", s.handleGetMetadata)
+	r.Get("/videos/{id}/metadata/edit", s.handleEditMetadata)
+	r.Put("/videos/{id}/metadata", s.handleUpdateMetadata)
+
 	// Tags
 	r.Get("/videos/{id}/tags", s.handleVideoTags)
 	r.Post("/videos/{id}/tags", s.handleAddVideoTag)
@@ -174,16 +179,11 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	native, err := metadata.Read(video.FilePath())
-	if err != nil {
-		log.Printf("ffprobe %s: %v", video.FilePath(), err)
-	}
 	data := struct {
 		Video   store.Video
 		Tags    []store.Tag
 		AllTags []store.Tag
-		Native  metadata.Meta
-	}{video, tags, allTags, native}
+	}{video, tags, allTags}
 	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -311,6 +311,100 @@ func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
 		VideoID int64
 		Tags    []store.Tag
 	}{id, tags}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleGetMetadata(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	native, err := metadata.Read(video.FilePath())
+	if err != nil {
+		log.Printf("ffprobe %s: %v", video.FilePath(), err)
+	}
+	data := struct {
+		VideoID int64
+		Native  metadata.Meta
+	}{id, native}
+	if err := templates.ExecuteTemplate(w, "file_metadata.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleEditMetadata(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	native, err := metadata.Read(video.FilePath())
+	if err != nil {
+		log.Printf("ffprobe %s: %v", video.FilePath(), err)
+	}
+	data := struct {
+		VideoID int64
+		Native  metadata.Meta
+	}{id, native}
+	if err := templates.ExecuteTemplate(w, "file_metadata_edit.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleUpdateMetadata(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	strPtr := func(key string) *string {
+		v := r.FormValue(key)
+		return &v
+	}
+	u := metadata.Updates{
+		Title:       strPtr("title"),
+		Description: strPtr("description"),
+		Genre:       strPtr("genre"),
+		Date:        strPtr("date"),
+		Comment:     strPtr("comment"),
+		Show:        strPtr("show"),
+		Network:     strPtr("network"),
+		EpisodeID:   strPtr("episode_id"),
+		SeasonNum:   strPtr("season_number"),
+		EpisodeNum:  strPtr("episode_sort"),
+	}
+	if err := metadata.Write(video.FilePath(), u); err != nil {
+		log.Printf("metadata write %s: %v", video.FilePath(), err)
+		http.Error(w, "failed to write metadata", http.StatusInternalServerError)
+		return
+	}
+	// Return the updated read-only view
+	native, err := metadata.Read(video.FilePath())
+	if err != nil {
+		log.Printf("ffprobe %s: %v", video.FilePath(), err)
+	}
+	data := struct {
+		VideoID int64
+		Native  metadata.Meta
+	}{id, native}
+	if err := templates.ExecuteTemplate(w, "file_metadata.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

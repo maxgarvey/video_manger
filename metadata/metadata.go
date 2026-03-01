@@ -18,12 +18,18 @@ type Meta struct {
 	Artist      string
 	Date        string
 	Comment     string
+	Show        string
+	Network     string
+	EpisodeID   string
+	SeasonNum   string
+	EpisodeNum  string
 }
 
 // HasData reports whether any metadata field is populated.
 func (m Meta) HasData() bool {
 	return m.Title != "" || m.Description != "" || m.Genre != "" ||
-		len(m.Keywords) > 0 || m.Artist != "" || m.Date != ""
+		len(m.Keywords) > 0 || m.Artist != "" || m.Date != "" ||
+		m.Show != "" || m.Network != "" || m.EpisodeID != ""
 }
 
 // Updates holds metadata fields to write back to a file.
@@ -145,6 +151,11 @@ func parseFFProbeOutput(data []byte) (Meta, error) {
 		Date:        firstOf(tags, "date", "year"),
 		Comment:     tags["comment"],
 		Description: firstOf(tags, "description", "desc"),
+		Show:        tags["show"],
+		Network:     tags["network"],
+		EpisodeID:   tags["episode_id"],
+		SeasonNum:   tags["season_number"],
+		EpisodeNum:  tags["episode_sort"],
 	}
 	if kw := firstOf(tags, "keywords", "keyword"); kw != "" {
 		for _, k := range strings.FieldsFunc(kw, func(r rune) bool {
