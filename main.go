@@ -5,6 +5,7 @@ import (
 	"embed"
 	"flag"
 	"html/template"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -90,33 +91,36 @@ func (s *server) routes() http.Handler {
 	return r
 }
 
-// syncDir scans a directory on disk and upserts all video files into the store.
+// syncDir walks a directory tree recursively and upserts all video files into
+// the store. Subdirectories are not registered as separate directory entries;
+// all videos under the tree share the same directory_id but store their actual
+// containing subdirectory path so FilePath() resolves correctly.
 // If ffprobe is available, native title is read and used to pre-populate
 // display_name for videos that don't yet have one set.
 func (s *server) syncDir(d store.Directory) {
-	entries, err := os.ReadDir(d.Path)
-	if err != nil {
-		log.Printf("sync %s: %v", d.Path, err)
-		return
-	}
-	for _, e := range entries {
-		if e.IsDir() || !isVideoFile(e.Name()) {
-			continue
-		}
-		v, err := s.store.UpsertVideo(context.Background(), d.ID, d.Path, e.Name())
+	filepath.WalkDir(d.Path, func(path string, de fs.DirEntry, err error) error { //nolint:errcheck
 		if err != nil {
-			log.Printf("upsert %s: %v", e.Name(), err)
-			continue
+			log.Printf("sync walk %s: %v", path, err)
+			return nil // keep walking
+		}
+		if de.IsDir() || !isVideoFile(de.Name()) {
+			return nil
+		}
+		dir := filepath.Dir(path)
+		v, err := s.store.UpsertVideo(context.Background(), d.ID, dir, de.Name())
+		if err != nil {
+			log.Printf("upsert %s: %v", path, err)
+			return nil
 		}
 		if v.DisplayName == "" {
-			filePath := filepath.Join(d.Path, e.Name())
-			if meta, err := metadata.Read(filePath); err == nil && meta.Title != "" {
+			if meta, err := metadata.Read(path); err == nil && meta.Title != "" {
 				if err := s.store.UpdateVideoName(context.Background(), v.ID, meta.Title); err != nil {
-					log.Printf("set native title %s: %v", e.Name(), err)
+					log.Printf("set native title %s: %v", path, err)
 				}
 			}
 		}
-	}
+		return nil
+	})
 }
 
 // syncTagsToFile writes the current DB tags for a video back to the file as keywords.
