@@ -1,0 +1,47 @@
+{{if .Native.HasData}}
+<div style="border-top:1px solid #2a2a2a;padding-top:0.6rem">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem">
+    <span style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555">File Metadata</span>
+    <button
+      hx-get="/videos/{{.VideoID}}/metadata/edit"
+      hx-target="#file-meta-{{.VideoID}}"
+      style="background:none;border:1px solid #444;color:#666;padding:0.15rem 0.5rem;border-radius:3px;cursor:pointer;font-size:0.75rem">Edit</button>
+  </div>
+  <dl style="display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.75rem;font-size:0.8rem">
+    {{if .Native.Title}}
+    <dt style="color:#666;white-space:nowrap">Title</dt><dd style="color:#bbb">{{.Native.Title}}</dd>
+    {{end}}
+    {{if .Native.Description}}
+    <dt style="color:#666;white-space:nowrap">Description</dt><dd style="color:#bbb">{{.Native.Description}}</dd>
+    {{end}}
+    {{if .Native.Genre}}
+    <dt style="color:#666;white-space:nowrap">Genre</dt><dd style="color:#bbb">{{.Native.Genre}}</dd>
+    {{end}}
+    {{if .Native.Date}}
+    <dt style="color:#666;white-space:nowrap">Date</dt><dd style="color:#bbb">{{.Native.Date}}</dd>
+    {{end}}
+    {{if .Native.Artist}}
+    <dt style="color:#666;white-space:nowrap">Artist</dt><dd style="color:#bbb">{{.Native.Artist}}</dd>
+    {{end}}
+    {{if .Native.Comment}}
+    <dt style="color:#666;white-space:nowrap">Comment</dt><dd style="color:#bbb">{{.Native.Comment}}</dd>
+    {{end}}
+    {{if .Native.Keywords}}
+    <dt style="color:#666;white-space:nowrap">Keywords</dt>
+    <dd style="display:flex;flex-wrap:wrap;gap:0.25rem">
+      {{range .Native.Keywords}}
+      <span style="background:#2a2a2a;border:1px solid #444;border-radius:10px;padding:0.1rem 0.4rem;font-size:0.75rem;color:#aaa">{{.}}</span>
+      {{end}}
+    </dd>
+    {{end}}
+  </dl>
+</div>
+{{else}}
+<div style="border-top:1px solid #2a2a2a;padding-top:0.6rem;display:flex;align-items:center;justify-content:space-between">
+  <span style="color:#555;font-size:0.8rem">No file metadata</span>
+  <button
+    hx-get="/videos/{{.VideoID}}/metadata/edit"
+    hx-target="#file-meta-{{.VideoID}}"
+    style="background:none;border:1px solid #444;color:#666;padding:0.15rem 0.5rem;border-radius:3px;cursor:pointer;font-size:0.75rem">Add</button>
+</div>
+{{end}}

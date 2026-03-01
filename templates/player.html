@@ -39,40 +39,10 @@
       <button type="submit" style="background:#2a2a2a;border:1px solid #444;color:#eee;padding:0.3rem 0.6rem;border-radius:4px;cursor:pointer;font-size:0.8rem">Add</button>
     </form>
 
-    <!-- Native file metadata (shown when ffprobe is available and file has metadata) -->
-    {{if .Native.HasData}}
-    <div style="border-top:1px solid #2a2a2a;padding-top:0.6rem">
-      <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555;margin-bottom:0.4rem">File Metadata</div>
-      <dl style="display:grid;grid-template-columns:auto 1fr;gap:0.15rem 0.75rem;font-size:0.8rem">
-        {{if .Native.Title}}
-        <dt style="color:#666">Title</dt><dd style="color:#bbb">{{.Native.Title}}</dd>
-        {{end}}
-        {{if .Native.Description}}
-        <dt style="color:#666">Description</dt><dd style="color:#bbb">{{.Native.Description}}</dd>
-        {{end}}
-        {{if .Native.Genre}}
-        <dt style="color:#666">Genre</dt><dd style="color:#bbb">{{.Native.Genre}}</dd>
-        {{end}}
-        {{if .Native.Artist}}
-        <dt style="color:#666">Artist</dt><dd style="color:#bbb">{{.Native.Artist}}</dd>
-        {{end}}
-        {{if .Native.Date}}
-        <dt style="color:#666">Date</dt><dd style="color:#bbb">{{.Native.Date}}</dd>
-        {{end}}
-        {{if .Native.Comment}}
-        <dt style="color:#666">Comment</dt><dd style="color:#bbb">{{.Native.Comment}}</dd>
-        {{end}}
-        {{if .Native.Keywords}}
-        <dt style="color:#666">Keywords</dt>
-        <dd style="display:flex;flex-wrap:wrap;gap:0.25rem">
-          {{range .Native.Keywords}}
-          <span style="background:#2a2a2a;border:1px solid #444;border-radius:10px;padding:0.1rem 0.4rem;font-size:0.75rem;color:#aaa">{{.}}</span>
-          {{end}}
-        </dd>
-        {{end}}
-      </dl>
-    </div>
-    {{end}}
+    <!-- File metadata — loads async so the player opens immediately -->
+    <div id="file-meta-{{.Video.ID}}"
+         hx-get="/videos/{{.Video.ID}}/metadata"
+         hx-trigger="load"></div>
 
   </div>
 </div>

@@ -6,12 +6,17 @@ func TestParseFFProbeOutput(t *testing.T) {
 	data := []byte(`{
 		"format": {
 			"tags": {
-				"title":       "My Movie",
-				"genre":       "Action",
-				"keywords":    "summer,vacation,family",
-				"description": "A great trip",
-				"artist":      "John Doe",
-				"date":        "2023"
+				"title":          "My Movie",
+				"genre":          "Action",
+				"keywords":       "summer,vacation,family",
+				"description":    "A great trip",
+				"artist":         "John Doe",
+				"date":           "2023",
+				"show":           "The Show",
+				"network":        "HBO",
+				"episode_id":     "S01E02",
+				"season_number":  "1",
+				"episode_sort":   "2"
 			}
 		}
 	}`)
@@ -41,6 +46,21 @@ func TestParseFFProbeOutput(t *testing.T) {
 		if m.Keywords[i] != want {
 			t.Errorf("Keywords[%d] = %q, want %q", i, m.Keywords[i], want)
 		}
+	}
+	if m.Show != "The Show" {
+		t.Errorf("Show = %q, want 'The Show'", m.Show)
+	}
+	if m.Network != "HBO" {
+		t.Errorf("Network = %q, want HBO", m.Network)
+	}
+	if m.EpisodeID != "S01E02" {
+		t.Errorf("EpisodeID = %q, want S01E02", m.EpisodeID)
+	}
+	if m.SeasonNum != "1" {
+		t.Errorf("SeasonNum = %q, want 1", m.SeasonNum)
+	}
+	if m.EpisodeNum != "2" {
+		t.Errorf("EpisodeNum = %q, want 2", m.EpisodeNum)
 	}
 }
 
@@ -90,5 +110,11 @@ func TestHasData(t *testing.T) {
 	}
 	if !(Meta{Keywords: []string{"a"}}).HasData() {
 		t.Error("Meta{Keywords}.HasData() should be true")
+	}
+	if !(Meta{Show: "My Show"}).HasData() {
+		t.Error("Meta{Show}.HasData() should be true")
+	}
+	if !(Meta{EpisodeID: "S01E01"}).HasData() {
+		t.Error("Meta{EpisodeID}.HasData() should be true")
 	}
 }
