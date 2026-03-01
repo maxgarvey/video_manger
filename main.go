@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -30,6 +31,7 @@ var templates = template.Must(template.ParseFS(templateFS, "templates/*.html"))
 
 type server struct {
 	store store.Store
+	port  string
 }
 
 func main() {
@@ -43,7 +45,7 @@ func main() {
 		log.Fatalf("open db: %v", err)
 	}
 
-	srv := &server{store: s}
+	srv := &server{store: s, port: *port}
 
 	if *dir != "" {
 		d, err := srv.store.AddDirectory(context.Background(), *dir)
@@ -55,6 +57,9 @@ func main() {
 	}
 
 	log.Printf("Starting server on http://localhost:%s", *port)
+	for _, addr := range localAddresses(*port) {
+		log.Printf("  LAN: %s", addr)
+	}
 	log.Fatal(http.ListenAndServe(":"+*port, srv.routes()))
 }
 
@@ -64,6 +69,7 @@ func (s *server) routes() http.Handler {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/", s.handleIndex)
+	r.Get("/info", s.handleInfo)
 
 	// Videos
 	r.Get("/videos", s.handleVideoList)
@@ -171,6 +177,48 @@ func (s *server) syncTagsToFile(ctx context.Context, video store.Video) {
 }
 
 // --- Handlers ---
+
+func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
+	addrs := localAddresses(s.port)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		"port":      s.port,
+		"addresses": addrs,
+	})
+}
+
+// localAddresses returns http:// URLs for each non-loopback IPv4 address
+// on the machine, using the given port.
+func localAddresses(port string) []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var result []string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.To4() == nil {
+				continue
+			}
+			result = append(result, "http://"+ip.String()+":"+port)
+		}
+	}
+	return result
+}
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if err := templates.ExecuteTemplate(w, "index.html", nil); err != nil {
