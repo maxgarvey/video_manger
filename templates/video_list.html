@@ -1,19 +1,26 @@
 {{if .Videos}}
-<ul style="list-style:none;display:flex;flex-direction:column;gap:0.3rem">
+<ul style="list-style:none;display:flex;flex-direction:column;gap:0.1rem">
   {{range .Videos}}
-  <li style="display:flex;align-items:center;gap:0.25rem">
+  <li style="display:flex;align-items:center;gap:0.15rem">
     {{$w := index $.History .ID}}
     <button
       hx-get="/play/{{.ID}}"
       hx-target="#player"
-      style="flex:1;text-align:left;overflow:hidden;display:flex;flex-direction:column;gap:0.15rem;align-items:flex-start"
+      class="btn-sm"
+      style="flex:1;text-align:left;display:flex;align-items:center;gap:0.25rem;min-width:0;padding:0.2rem 0.4rem"
       title="{{.Title}} ({{.Filename}})"
-    ><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%">{{if index $.Watched .ID}}<span title="Watched" style="color:#4a9;margin-right:0.3rem;font-size:0.75rem">✓</span>{{end}}{{if eq .Rating 2}}<span title="Favourite" style="margin-right:0.2rem;font-size:0.75rem">⭐</span>{{else if eq .Rating 1}}<span title="Liked" style="margin-right:0.2rem;font-size:0.75rem">👍</span>{{end}}{{.Title}}</span>{{if $w.WatchedAt}}<span style="font-size:0.7rem;color:#555">{{reltime $w.WatchedAt}}</span>{{end}}</button>
+    >
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.8rem">
+        {{if index $.Watched .ID}}<span title="Watched" style="color:#4a9;font-size:0.65rem">✓</span> {{end}}{{if eq .Rating 2}}<span title="Favourite" style="font-size:0.65rem">⭐</span> {{else if eq .Rating 1}}<span title="Liked" style="font-size:0.65rem">👍</span> {{end}}{{.Title}}
+      </span>
+      <span style="flex-shrink:0;color:#3a3a3a;font-size:0.65rem;font-family:monospace">{{ext .Filename}}</span>
+      {{if $w.WatchedAt}}<span style="flex-shrink:0;color:#3a5a3a;font-size:0.65rem">{{reltime $w.WatchedAt}}</span>{{end}}
+    </button>
     <button class="btn-icon"
       hx-get="/videos/{{.ID}}/delete-confirm"
       hx-target="closest li"
       hx-swap="outerHTML"
-      style="flex-shrink:0"
+      style="flex-shrink:0;font-size:0.75rem"
       title="Delete"
     >✕</button>
   </li>

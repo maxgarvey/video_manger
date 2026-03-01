@@ -34,6 +34,13 @@ var templateFS embed.FS
 var templates = template.Must(template.New("").Funcs(template.FuncMap{
 	"base":    filepath.Base,
 	"reltime": reltime,
+	"ext": func(filename string) string {
+		e := filepath.Ext(filename)
+		if len(e) > 1 {
+			return e[1:] // strip leading dot
+		}
+		return e
+	},
 }).ParseFS(templateFS, "templates/*.html"))
 
 // reltime formats a SQLite datetime string (UTC, "2006-01-02 15:04:05") as a

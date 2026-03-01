@@ -58,7 +58,7 @@
 
     /* Library button — top left; slides right when sidebar is open */
     #lib-btn { top: 1rem; left: 1rem; transition: opacity 0.2s, left 0.22s ease; }
-    body.lib-open #lib-btn { left: 292px; }
+    body.lib-open #lib-btn { left: 312px; }
 
     /* Info button — bottom right; slides up when info panel is open */
     #info-btn { bottom: 1rem; right: 1rem; transition: opacity 0.2s, bottom 0.22s ease; }
@@ -89,19 +89,20 @@
       position: fixed;
       z-index: 200;
       top: 0; left: 0; bottom: 0;
-      width: 280px;
+      width: 300px;
       background: rgba(18, 18, 18, 0.96);
       backdrop-filter: blur(10px);
       border-right: 1px solid #2a2a2a;
-      overflow-y: auto;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
-      padding: 1rem;
+      gap: 0.75rem;
+      padding: 0.75rem;
       transform: translateX(-100%);
       transition: transform 0.22s ease;
     }
     body.lib-open #library { transform: translateX(0); }
+    #library .video-section { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 0.3rem; }
 
     /* ── Info panel ─────────────────────────────────────────────────── */
     #info-panel {
@@ -286,7 +287,7 @@
         onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value=''"
         style="margin-top:0.4rem;width:100%">Show all</button>
     </section>
-    <section>
+    <section class="video-section">
       <h2 style="display:flex;align-items:center;gap:0.4rem">Videos <span id="vl-spin" class="spinner htmx-indicator"></span></h2>
       <input id="video-search" type="text" name="q" placeholder="Search..."
         hx-get="/videos"
@@ -296,7 +297,7 @@
         hx-on:htmx:before-request="document.getElementById('active-tag').value=''"
         style="margin-bottom:0.5rem">
       <input type="hidden" id="active-tag" name="tag_id" value="">
-      <div id="video-list"
+      <div id="video-list" style="flex:1;overflow-y:auto;min-height:0"
            hx-get="/videos"
            hx-trigger="load, every 60s"
            hx-include="#video-search,#active-tag"

@@ -34,6 +34,6 @@ Ordered by complexity (easiest first).
 | 21 | 1 | Hover overlay on video player showing title / metadata | ✅ Done |
 | 22 | 11 | Detect duplicate files (by size+name hash) | ✅ Done |
 | 23 | 3 | In-between states / animations (htmx indicators, transitions) | ✅ Done |
-| 24 | 4 | Library nav: smaller rows, more info, takes more screen | ⬜ Pending |
+| 24 | 4 | Library nav: smaller rows, more info, takes more screen | ✅ Done |
 | 25 | 6 | Video cropping via UI using ffmpeg | ⬜ Pending |
 | 26 | 8 | Multiple video tabs (play several at once) | ⬜ Pending |
