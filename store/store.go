@@ -39,6 +39,13 @@ type Tag struct {
 	Name string
 }
 
+// WatchRecord holds the last playback position and timestamp for a video.
+type WatchRecord struct {
+	VideoID   int64
+	Position  float64 // seconds
+	WatchedAt string  // RFC3339 / SQLite datetime string
+}
+
 // Store is the backend-agnostic interface for all persistence operations.
 // Swap implementations (e.g. SQLite → Postgres) by providing a different Store.
 type Store interface {
@@ -56,6 +63,11 @@ type Store interface {
 	UpdateVideoName(ctx context.Context, id int64, name string) error
 	DeleteVideo(ctx context.Context, id int64) error
 	SearchVideos(ctx context.Context, query string) ([]Video, error)
+
+	// Watch history
+	RecordWatch(ctx context.Context, videoID int64, position float64) error
+	GetWatch(ctx context.Context, videoID int64) (WatchRecord, error)
+	ListWatchedIDs(ctx context.Context) (map[int64]bool, error)
 
 	// Tag management
 	UpsertTag(ctx context.Context, name string) (Tag, error)

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"flag"
 	"html/template"
 	"io/fs"
@@ -71,6 +72,10 @@ func (s *server) routes() http.Handler {
 	r.Get("/videos/{id}/delete-confirm", s.handleVideoDeleteConfirm)
 	r.Delete("/videos/{id}", s.handleDeleteVideo)
 	r.Delete("/videos/{id}/file", s.handleDeleteVideoAndFile)
+
+	// Watch history
+	r.Post("/videos/{id}/progress", s.handlePostProgress)
+	r.Get("/videos/{id}/progress", s.handleGetProgress)
 
 	// File metadata (ffprobe/ffmpeg)
 	r.Get("/videos/{id}/metadata", s.handleGetMetadata)
@@ -411,9 +416,48 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := templates.ExecuteTemplate(w, "video_list.html", videos); err != nil {
+	watched, _ := s.store.ListWatchedIDs(r.Context())
+	data := struct {
+		Videos  []store.Video
+		Watched map[int64]bool
+	}{videos, watched}
+	if err := templates.ExecuteTemplate(w, "video_list.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (s *server) handlePostProgress(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	pos, _ := strconv.ParseFloat(r.FormValue("position"), 64)
+	if err := s.store.RecordWatch(r.Context(), id, pos); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	rec, err := s.store.GetWatch(r.Context(), id)
+	if err != nil {
+		// Not yet watched — return zero position.
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"position":0,"watched_at":""}`)) //nolint:errcheck
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		"position":   rec.Position,
+		"watched_at": rec.WatchedAt,
+	})
 }
 
 func (s *server) handleGetMetadata(w http.ResponseWriter, r *http.Request) {

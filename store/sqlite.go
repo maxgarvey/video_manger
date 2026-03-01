@@ -213,3 +213,45 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 	}
 	return videos, rows.Err()
 }
+
+// --- Watch history ---
+
+func (s *SQLiteStore) RecordWatch(ctx context.Context, videoID int64, position float64) error {
+	_, err := s.conn.ExecContext(ctx, `
+		INSERT INTO watch_history (video_id, position, watched_at)
+		VALUES (?, ?, datetime('now'))
+		ON CONFLICT (video_id) DO UPDATE SET
+			position   = excluded.position,
+			watched_at = excluded.watched_at
+	`, videoID, position)
+	return err
+}
+
+func (s *SQLiteStore) GetWatch(ctx context.Context, videoID int64) (WatchRecord, error) {
+	row := s.conn.QueryRowContext(ctx, `
+		SELECT video_id, position, watched_at
+		FROM watch_history WHERE video_id = ?
+	`, videoID)
+	var w WatchRecord
+	if err := row.Scan(&w.VideoID, &w.Position, &w.WatchedAt); err != nil {
+		return WatchRecord{}, err
+	}
+	return w, nil
+}
+
+func (s *SQLiteStore) ListWatchedIDs(ctx context.Context) (map[int64]bool, error) {
+	rows, err := s.conn.QueryContext(ctx, `SELECT video_id FROM watch_history`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make(map[int64]bool)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
+}
