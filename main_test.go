@@ -23,7 +23,7 @@ func newTestServer(t *testing.T) *server {
 	if err != nil {
 		t.Fatalf("NewSQLite: %v", err)
 	}
-	return &server{store: s, sessions: make(map[string]bool)}
+	return &server{store: s, sessions: make(map[string]bool), syncingDirs: make(map[int64]struct{})}
 }
 
 // --- Unit tests ---

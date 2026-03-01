@@ -1,14 +1,22 @@
-{{if .}}
-<ul style="list-style:none;display:flex;flex-direction:column;gap:0.3rem">
-  {{range .}}
+{{$syncing := .Syncing}}
+{{$anySyncing := false}}
+{{range .Dirs}}{{if index $syncing .ID}}{{$anySyncing = true}}{{end}}{{end}}
+{{if .Dirs}}
+<ul style="list-style:none;display:flex;flex-direction:column;gap:0.3rem"
+  {{if $anySyncing}}hx-get="/directories" hx-trigger="every 2s" hx-target="this" hx-swap="outerHTML"{{end}}>
+  {{range .Dirs}}
   <li style="display:flex;align-items:center;gap:0.4rem">
     <span style="flex:1;font-size:0.8rem;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Path}}">{{.Path}}</span>
+    {{if index $syncing .ID}}
+    <span class="spinner" style="flex-shrink:0" title="Scanning…"></span>
+    {{else}}
     <button class="btn-icon"
       hx-post="/directories/{{.ID}}/sync"
       hx-target="#directories"
       hx-swap="innerHTML"
       style="flex-shrink:0"
       title="Rescan">↺</button>
+    {{end}}
     <button class="btn-icon"
       hx-get="/directories/{{.ID}}/delete-confirm"
       hx-target="closest li"

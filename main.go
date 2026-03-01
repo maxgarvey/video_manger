@@ -92,6 +92,8 @@ type server struct {
 	passwordHash []byte // nil means no authentication required
 	sessions     map[string]bool
 	sessionsMu   sync.RWMutex
+	syncingDirs  map[int64]struct{}
+	syncingMu    sync.Mutex
 }
 
 // videoGroup is a view-layer grouping of videos sharing the same directory.
@@ -132,7 +134,7 @@ func main() {
 		log.Fatalf("open db: %v", err)
 	}
 
-	srv := &server{store: s, port: *port, mdnsName: "video-manger.local", sessions: make(map[string]bool)}
+	srv := &server{store: s, port: *port, mdnsName: "video-manger.local", sessions: make(map[string]bool), syncingDirs: make(map[int64]struct{})}
 	if *password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)
 		if err != nil {
@@ -1525,7 +1527,17 @@ func (s *server) serveDirList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := templates.ExecuteTemplate(w, "directories.html", dirs); err != nil {
+	s.syncingMu.Lock()
+	syncing := make(map[int64]bool, len(s.syncingDirs))
+	for id := range s.syncingDirs {
+		syncing[id] = true
+	}
+	s.syncingMu.Unlock()
+	data := struct {
+		Dirs    []store.Directory
+		Syncing map[int64]bool
+	}{dirs, syncing}
+	if err := templates.ExecuteTemplate(w, "directories.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -1545,7 +1557,7 @@ func (s *server) handleSyncDirectory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "directory not found", http.StatusNotFound)
 		return
 	}
-	s.syncDir(dir)
+	s.startSyncDir(dir)
 	s.serveDirList(w, r)
 }
 
@@ -1560,17 +1572,30 @@ func (s *server) handleDirectoryOptions(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// addAndSyncDir registers path in the DB, syncs its contents, then renders
-// the updated directory list. It is the shared tail of handleAddDirectory and
-// handleCreateDirectory.
+// addAndSyncDir registers path in the DB, starts an async sync, then renders
+// the updated directory list (which shows a spinner for the in-progress dir).
+// It is the shared tail of handleAddDirectory and handleCreateDirectory.
 func (s *server) addAndSyncDir(w http.ResponseWriter, r *http.Request, path string) {
 	d, err := s.store.AddDirectory(r.Context(), path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.syncDir(d)
+	s.startSyncDir(d)
 	s.serveDirList(w, r)
+}
+
+// startSyncDir marks a directory as syncing and runs syncDir in the background.
+func (s *server) startSyncDir(d store.Directory) {
+	s.syncingMu.Lock()
+	s.syncingDirs[d.ID] = struct{}{}
+	s.syncingMu.Unlock()
+	go func() {
+		s.syncDir(d)
+		s.syncingMu.Lock()
+		delete(s.syncingDirs, d.ID)
+		s.syncingMu.Unlock()
+	}()
 }
 
 // handleCreateDirectory creates the directory on disk (MkdirAll) then registers
