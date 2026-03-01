@@ -71,8 +71,17 @@ func TestHandleIndex(t *testing.T) {
 	if !strings.Contains(body, `id="player"`) {
 		t.Error("expected player element in response body")
 	}
+	if !strings.Contains(body, `id="lib-btn"`) {
+		t.Error("expected library button in response body")
+	}
+	if !strings.Contains(body, `id="info-btn"`) {
+		t.Error("expected info button in response body")
+	}
 	if !strings.Contains(body, "htmx") {
 		t.Error("expected htmx script in response body")
+	}
+	if !strings.Contains(body, "keydown") {
+		t.Error("expected keyboard shortcut listener in response body")
 	}
 }
 
@@ -293,8 +302,88 @@ func TestHandleDirectories(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add dir: expected 200, got %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "/my/videos") {
+	body := rec.Body.String()
+	if !strings.Contains(body, "/my/videos") {
 		t.Error("expected new directory in response")
+	}
+	// Confirm modal shows the directory path
+	if !strings.Contains(body, "Remove '/my/videos'?") {
+		t.Errorf("expected path in hx-confirm attribute, got: %s", body)
+	}
+}
+
+func TestHandleDeleteDirectory(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/to/delete")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/directories/"+itoa(d.ID), nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	dirs, _ := srv.store.ListDirectories(ctx)
+	if len(dirs) != 0 {
+		t.Errorf("expected 0 directories after delete, got %d", len(dirs))
+	}
+}
+
+func TestHandleGetMetadata(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, "show.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/metadata", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHandleEditMetadata(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, "show.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/metadata/edit", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `name="title"`) {
+		t.Error("expected title input in edit form")
+	}
+}
+
+func TestHandleUpdateMetadata(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, "show.mp4")
+
+	form := url.Values{
+		"title":          {"My Show"},
+		"description":    {"A great show"},
+		"genre":          {"Drama"},
+		"date":           {"2024-01-01"},
+		"show":           {"My Show"},
+		"network":        {"HBO"},
+		"episode_id":     {"S01E01"},
+		"season_number":  {"1"},
+		"episode_sort":   {"1"},
+		"comment":        {""},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/videos/"+itoa(v.ID)+"/metadata", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 }
 

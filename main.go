@@ -454,8 +454,7 @@ func (s *server) handleUpdateMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := metadata.Write(video.FilePath(), u); err != nil {
 		log.Printf("metadata write %s: %v", video.FilePath(), err)
-		http.Error(w, "failed to write metadata", http.StatusInternalServerError)
-		return
+		// Degrade gracefully: show the unchanged read view rather than a 500.
 	}
 	// Return the updated read-only view
 	native, err := metadata.Read(video.FilePath())

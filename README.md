@@ -8,7 +8,7 @@ A localhost web application for serving and playing videos in the browser.
 
 `video_manger` is a Go web server that runs locally and streams your video files through a browser-based player. Point it at a directory, open your browser, and watch — no external media players needed.
 
-Directories and video metadata (custom names, tags) are persisted in a local SQLite database. If `ffprobe`/`ffmpeg` are installed, native file metadata is read on playback and written back to the file when you rename a video or manage its tags.
+Directories and video metadata (custom names, tags) are persisted in a local SQLite database. If `ffprobe`/`ffmpeg` are installed, native file metadata is read on playback and can be edited and written back to the file through the UI.
 
 ## Usage
 
@@ -28,12 +28,26 @@ Directories can also be added and removed from the UI at any time.
 
 ## Features
 
-- **Browse & play** — sidebar lists all videos across registered directories; click to play in-browser
-- **Custom names** — rename any video with a display name (stored in DB, written to file title tag)
+- **Full-window player** — video fills the entire viewport; all controls appear as translucent overlays on hover
+- **Library sidebar** — slides in from the left; lists directories, tag filters, and the video list with search
+- **Info panel** — slides up from the bottom; shows the name editor, tags, and file metadata for the current video
+- **Search** — type in the Videos section to filter the list in real time (matches display name or filename)
+- **Custom names** — rename any video with a display name (stored in DB, written to the file's title tag if ffmpeg is available)
 - **Tags** — add/remove tags per video; synced to the file's `keywords` metadata field
 - **Filter by tag** — click a tag in the sidebar to filter the video list
-- **Native metadata** — when `ffprobe` is available, the player panel shows the file's embedded title, description, genre, artist, date, and keywords
+- **Edit file metadata** — view and edit embedded metadata (title, description, genre, show, network, episode ID, season/episode number, date, comment) via ffmpeg — no re-encoding
+- **Delete videos** — remove from the library only, or delete the file from disk too
 - **Multiple directories** — register as many directories as you like; removing one cascades to its videos
+
+## Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `L` | Toggle library sidebar |
+| `I` | Toggle info panel |
+| `Esc` | Close all panels |
+
+Shortcuts are suppressed when an input or text area is focused.
 
 ## Supported Formats
 
@@ -70,6 +84,7 @@ store/            — Store interface + SQLite implementation
   sqlite.go       — SQLite implementation via sqlc-generated db/ package
 db/               — sqlc-generated code (schema.sql + query.sql → Go)
 metadata/         — ffprobe read and ffmpeg write helpers
+cmd/populate/     — one-time script to bulk-tag episodes via TVMaze API
 templates/        — htmx-powered HTML partials (embedded in binary)
 ```
 
