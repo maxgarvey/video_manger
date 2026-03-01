@@ -781,6 +781,56 @@ func TestHandleYTDLP_NotInstalled(t *testing.T) {
 	}
 }
 
+func TestHandleConvert_InvalidFormat(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
+
+	form := url.Values{"format": {"avi"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/convert", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid format, got %d", rec.Code)
+	}
+}
+
+func TestHandleConvert_BadVideo(t *testing.T) {
+	srv := newTestServer(t)
+	form := url.Values{"format": {"mp4"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/999/convert", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown video, got %d", rec.Code)
+	}
+}
+
+func TestHandleConvert_NoFFmpeg(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "clip.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
+
+	t.Setenv("PATH", t.TempDir())
+
+	form := url.Values{"format": {"mkv"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/convert", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when ffmpeg missing, got %d", rec.Code)
+	}
+}
+
 func TestHandleExportUSB_BadVideo(t *testing.T) {
 	srv := newTestServer(t)
 	rec := httptest.NewRecorder()
