@@ -65,6 +65,9 @@ func (s *server) routes() http.Handler {
 	r.Get("/play/{id}", s.handlePlayer)
 	r.Get("/video/{id}", s.handleVideoFile)
 	r.Put("/videos/{id}/name", s.handleUpdateVideoName)
+	r.Get("/videos/{id}/delete-confirm", s.handleVideoDeleteConfirm)
+	r.Delete("/videos/{id}", s.handleDeleteVideo)
+	r.Delete("/videos/{id}/file", s.handleDeleteVideoAndFile)
 
 	// File metadata (ffprobe/ffmpeg)
 	r.Get("/videos/{id}/metadata", s.handleGetMetadata)
@@ -139,23 +142,7 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleVideoList(w http.ResponseWriter, r *http.Request) {
-	var (
-		videos []store.Video
-		err    error
-	)
-	if tagStr := r.URL.Query().Get("tag_id"); tagStr != "" {
-		tagID, _ := strconv.ParseInt(tagStr, 10, 64)
-		videos, err = s.store.ListVideosByTag(r.Context(), tagID)
-	} else {
-		videos, err = s.store.ListVideos(r.Context())
-	}
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := templates.ExecuteTemplate(w, "video_list.html", videos); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	s.serveVideoList(w, r)
 }
 
 func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
@@ -311,6 +298,77 @@ func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
 		VideoID int64
 		Tags    []store.Tag
 	}{id, tags}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleVideoDeleteConfirm(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "video_delete_confirm.html", video); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) handleDeleteVideo(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.DeleteVideo(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.serveVideoList(w, r)
+}
+
+func (s *server) handleDeleteVideoAndFile(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if err := s.store.DeleteVideo(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.Remove(video.FilePath()); err != nil {
+		log.Printf("delete file %s: %v", video.FilePath(), err)
+	}
+	s.serveVideoList(w, r)
+}
+
+// serveVideoList renders the current video list (respecting tag filter if present).
+func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
+	var (
+		videos []store.Video
+		err    error
+	)
+	if tagStr := r.URL.Query().Get("tag_id"); tagStr != "" {
+		tagID, _ := strconv.ParseInt(tagStr, 10, 64)
+		videos, err = s.store.ListVideosByTag(r.Context(), tagID)
+	} else {
+		videos, err = s.store.ListVideos(r.Context())
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := templates.ExecuteTemplate(w, "video_list.html", videos); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

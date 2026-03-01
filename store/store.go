@@ -53,6 +53,7 @@ type Store interface {
 	ListVideosByTag(ctx context.Context, tagID int64) ([]Video, error)
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	UpdateVideoName(ctx context.Context, id int64, name string) error
+	DeleteVideo(ctx context.Context, id int64) error
 
 	// Tag management
 	UpsertTag(ctx context.Context, name string) (Tag, error)

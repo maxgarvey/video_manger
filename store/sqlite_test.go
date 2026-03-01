@@ -139,6 +139,25 @@ func TestUpdateVideoName(t *testing.T) {
 	}
 }
 
+func TestDeleteVideo(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, "to_delete.mp4")
+
+	if err := s.DeleteVideo(ctx, v.ID); err != nil {
+		t.Fatalf("DeleteVideo: %v", err)
+	}
+	videos, _ := s.ListVideos(ctx)
+	if len(videos) != 0 {
+		t.Errorf("expected 0 videos after delete, got %d", len(videos))
+	}
+	if _, err := s.GetVideo(ctx, v.ID); err == nil {
+		t.Error("expected error getting deleted video, got nil")
+	}
+}
+
 func TestVideoTitle_FallsBackToFilename(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
