@@ -335,6 +335,9 @@
               n.textContent='All watched!';n.style.cssText='color:#4a9;font-size:0.75rem';
               document.getElementById('vl-spin').after(n);setTimeout(function(){n.remove()},2500); });
         })()">▶ Next</button>
+      <button class="btn-sm" style="flex-shrink:0;font-size:0.7rem"
+        onclick="document.querySelectorAll('#video-list details').forEach(function(d){d.open=false})"
+        title="Collapse all seasons">⊟ Collapse</button>
       <button id="add-content-btn" class="btn-sm" style="flex-shrink:0;font-size:0.7rem"
         onclick="document.body.classList.toggle('add-content-open')"
         title="Add content">＋ Add content</button>
