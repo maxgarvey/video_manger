@@ -92,3 +92,14 @@ Ordered by complexity (easiest first).
 | 58 | 4 | Recursive directory scan with progress feedback | ✅ Done |
 | 59 | 2 | Configurable library location + copy files to library | ✅ Done |
 | 60 | 1 | Drag and drop folders/files to import | ✅ Done |
+
+## Round 6 — New TODOs
+
+Ordered by complexity (easiest first).
+
+| # | TODOS # | Feature | Status |
+|---|---------|---------|--------|
+| 61 | 4 | Fix CI / failing tests (format key rename + async convert handler) | ✅ Done |
+| 62 | 2 | Don't display "Loading…" on first load when no videos available | ✅ Done |
+| 63 | 1 | Delete video from the player info panel | ✅ Done |
+| 64 | 3 | Move video to a different directory (with optional new sub-folder) | ✅ Done |

@@ -178,6 +178,7 @@ func (s *server) routes() http.Handler {
 	r.Post("/videos/{id}/watched", s.handleMarkWatched)
 	r.Delete("/videos/{id}/progress", s.handleClearProgress)
 	r.Post("/videos/{id}/copy-to-library", s.handleCopyToLibrary)
+	r.Post("/videos/{id}/move", s.handleMoveVideo)
 	r.Post("/import/upload", s.handleImportUpload)
 
 	// Rating

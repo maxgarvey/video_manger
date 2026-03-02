@@ -291,7 +291,7 @@
   <!-- Full-screen player area — tab panes inserted here by JS -->
   <main id="player">
     <div id="tab-panes">
-      <p style="color:#444">Loading…</p>
+      <p id="tab-placeholder" style="color:#444"></p>
     </div>
   </main>
 
@@ -547,7 +547,7 @@
       if (remaining.length > 0) {
         activateTab(remaining[remaining.length - 1]);
       } else {
-        document.getElementById('tab-panes').innerHTML = '<p style="color:#444">Select a video from the library.</p>';
+        document.getElementById('tab-panes').innerHTML = '<p id="tab-placeholder" style="color:#444">Select a video from the library.</p>';
         document.getElementById('info-panel').innerHTML = '<p style="color:#555;font-size:0.82rem">Select a video to see details.</p>';
       }
       updateTabStrip();
@@ -558,11 +558,16 @@
         Object.keys(videoTabs).length > 1 ? 'flex' : 'none';
     }
 
-    // Auto-load a random video on start
+    // Auto-load a random video on start; show a hint if library is empty.
     fetch('/random-video').then(function(r) {
       return r.ok ? r.json() : null;
     }).then(function(d) {
-      if (d) openTab(d.id, d.title);
+      if (d) {
+        openTab(d.id, d.title);
+      } else {
+        var p = document.getElementById('tab-placeholder');
+        if (p) p.textContent = 'Select a video from the library.';
+      }
     });
 
     // ── Drag-and-drop import ────────────────────────────────────────

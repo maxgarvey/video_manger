@@ -501,6 +501,95 @@ func (s *server) handleCopyToLibrary(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<span style="color:#4a9a4a;font-size:0.8rem">✓ Copied to %s</span>`, dstName)
 }
 
+// handleMoveVideo moves a video file to a different registered directory.
+// Optional form field "subdir" creates a sub-folder inside the target dir.
+func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDParam(w, r)
+	if !ok {
+		return
+	}
+	dirIDStr := strings.TrimSpace(r.FormValue("dir_id"))
+	subdir := strings.TrimSpace(r.FormValue("subdir"))
+
+	dirID, err := strconv.ParseInt(dirIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid dir_id", http.StatusBadRequest)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
+	targetDir, err := s.store.GetDirectory(r.Context(), dirID)
+	if err != nil {
+		http.Error(w, "directory not found", http.StatusNotFound)
+		return
+	}
+
+	destDirPath := targetDir.Path
+	destDirID := targetDir.ID
+
+	// Create sub-folder if requested.
+	if subdir != "" {
+		destDirPath = filepath.Join(targetDir.Path, filepath.Clean(subdir))
+		if err := os.MkdirAll(destDirPath, 0755); err != nil {
+			http.Error(w, "could not create sub-folder: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Register the new sub-directory so it shows up in the library.
+		newDir, err := s.store.AddDirectory(r.Context(), destDirPath)
+		if err != nil {
+			// Already registered — get the existing one.
+			dirs, listErr := s.store.ListDirectories(r.Context())
+			if listErr != nil {
+				http.Error(w, "failed to register sub-folder: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			for _, d := range dirs {
+				if d.Path == destDirPath {
+					newDir = d
+					break
+				}
+			}
+		}
+		destDirID = newDir.ID
+	}
+
+	src := video.FilePath()
+	dst := filepath.Join(destDirPath, video.Filename)
+	if src == dst {
+		http.Error(w, "source and destination are the same", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(dst); err == nil {
+		http.Error(w, "a file with that name already exists in the destination", http.StatusConflict)
+		return
+	}
+
+	// Try a fast rename first; fall back to copy+remove for cross-device moves.
+	if err := os.Rename(src, dst); err != nil {
+		if err2 := copyFile(src, dst); err2 != nil {
+			http.Error(w, "move failed: "+err2.Error(), http.StatusInternalServerError)
+			return
+		}
+		os.Remove(src) //nolint:errcheck
+	}
+
+	if err := s.store.UpdateVideoPath(r.Context(), id, destDirID, destDirPath, video.Filename); err != nil {
+		slog.Error("update video path failed", "err", err)
+	}
+
+	// Sync both directories so the library reflects the change.
+	s.startSyncDir(targetDir)
+	if video.DirectoryID != 0 && video.DirectoryID != targetDir.ID {
+		if oldDir, err := s.store.GetDirectory(r.Context(), video.DirectoryID); err == nil {
+			s.startSyncDir(oldDir)
+		}
+	}
+	s.serveVideoList(w, r)
+}
+
 // copyFile copies src to dst using a streaming io.Copy.
 // If the write fails, the partial destination file is removed.
 func copyFile(src, dst string) error {

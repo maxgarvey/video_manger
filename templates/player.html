@@ -86,7 +86,7 @@
 <div id="info-panel" hx-swap-oob="true">
 
   <!-- Watch controls -->
-  <div style="display:flex;gap:0.4rem;align-items:center">
+  <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap">
     <button class="btn-sm"
       hx-post="/videos/{{.Video.ID}}/watched"
       hx-target="#video-list"
@@ -97,6 +97,31 @@
       hx-target="#video-list"
       title="Remove watch record for this video"
     >✕ Clear watched</button>
+    <button class="btn-sm btn-danger" style="margin-left:auto;font-size:0.75rem"
+      onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='flex'"
+      title="Delete this video"
+    >🗑 Delete…</button>
+  </div>
+
+  <!-- Delete confirmation (hidden until Delete… is clicked) -->
+  <div id="del-confirm-{{.Video.ID}}"
+    style="display:none;gap:0.4rem;align-items:center;flex-wrap:wrap;padding:0.35rem 0.5rem;background:#1e1515;border:1px solid #5a2a2a;border-radius:4px;font-size:0.78rem">
+    <span style="color:#ccc;flex:1">Delete <strong>{{.Video.Title}}</strong>?</span>
+    <button class="btn-sm" style="font-size:0.74rem"
+      hx-delete="/videos/{{.Video.ID}}"
+      hx-target="#video-list"
+      hx-on::after-request="closeTab({{.Video.ID}})"
+      title="Remove from library but keep the file on disk"
+    >Remove from library</button>
+    <button class="btn-sm btn-danger" style="font-size:0.74rem"
+      hx-delete="/videos/{{.Video.ID}}/file"
+      hx-target="#video-list"
+      hx-on::after-request="closeTab({{.Video.ID}})"
+      title="Remove from library AND delete the file from disk"
+    >Delete file</button>
+    <button class="btn-sm btn-ghost" style="font-size:0.74rem"
+      onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='none'"
+    >Cancel</button>
   </div>
 
   <!-- Rating buttons -->
@@ -168,6 +193,35 @@
     <span id="copy-lib-status-{{.Video.ID}}" style="font-size:0.78rem;color:#888"></span>
   </div>
   {{end}}
+
+  <!-- Move to directory -->
+  <div style="padding-top:0.1rem">
+    <button class="btn-sm" style="font-size:0.78rem"
+      onclick="document.getElementById('move-panel-{{.Video.ID}}').style.display='flex'"
+      title="Move this file to a different directory"
+    >📂 Move to…</button>
+    <div id="move-panel-{{.Video.ID}}"
+      style="display:none;flex-direction:column;gap:0.4rem;margin-top:0.4rem;padding:0.5rem;background:#161e16;border:1px solid #2a4a2a;border-radius:4px">
+      <form hx-post="/videos/{{.Video.ID}}/move"
+            hx-target="#video-list"
+            hx-on::after-request="document.getElementById('move-panel-{{.Video.ID}}').style.display='none'"
+            style="display:flex;flex-direction:column;gap:0.4rem">
+        <label style="font-size:0.72rem;color:#888">Destination directory</label>
+        <select name="dir_id"
+          style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem"
+          hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
+        <label style="font-size:0.72rem;color:#888">New sub-folder inside destination (optional)</label>
+        <input type="text" name="subdir" placeholder="e.g. Season 2"
+          style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem">
+        <div style="display:flex;gap:0.4rem">
+          <button type="submit" class="btn-sm btn-success" style="font-size:0.78rem">Move</button>
+          <button type="button" class="btn-sm btn-ghost" style="font-size:0.78rem"
+            onclick="document.getElementById('move-panel-{{.Video.ID}}').style.display='none'"
+          >Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Convert / Export panel -->
   <details style="padding-top:0.25rem">

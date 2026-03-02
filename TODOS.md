@@ -15,9 +15,7 @@ in the plans folder called "goals implementation status" with current status.
 Before fine-grained planning, read the list and arrange them in the order that
 makes the most sense. With a bias toward ease of complexity and implementation.
 
-1. Support drag and drop for folders and individual files
-2. allow a configurable library location and allow copying video files to library
-3. add UI to show different Codec information via ffmpeg
-4. recursively search directories that are uploaded, with a progress spinner or some other way of indicating it's working
-5. allow searching for liked and superliked videos
-6. allow manual input of watching a video 
+1. Add a way to delete a video from the UI of viewing the video
+2. Don't display "Loading..." on first load when there's no videos available
+3. Allow directory creation via the library and moving videos into directories
+4. check test coverage, check why CI build is failing in github, fix tests and CI to be green

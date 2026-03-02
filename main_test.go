@@ -26,7 +26,7 @@ func newTestServer(t *testing.T) *server {
 	if err != nil {
 		t.Fatalf("NewSQLite: %v", err)
 	}
-	return &server{store: s, sessions: make(map[string]time.Time), syncingDirs: make(map[int64]struct{}), convertSem: make(chan struct{}, 2), jobs: make(map[string]*ytdlpJob)}
+	return &server{store: s, sessions: make(map[string]time.Time), syncingDirs: make(map[int64]struct{}), convertSem: make(chan struct{}, 2), jobs: make(map[string]*ytdlpJob), convertJobs: make(map[string]*convertJob)}
 }
 
 // --- Unit tests ---
@@ -774,13 +774,13 @@ func TestHandleYTDLP_NotInstalled(t *testing.T) {
 }
 
 func TestHandleConvert_SameExtension(t *testing.T) {
-	// mkv→mkv (copy preset) would overwrite the source; expect 400.
+	// mkv-copy on a .mkv source would overwrite the source; expect 400.
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mkv")
 
-	form := url.Values{"format": {"mkv"}}
+	form := url.Values{"format": {"mkv-copy"}}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/convert", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -808,7 +808,7 @@ func TestHandleConvert_InvalidFormat(t *testing.T) {
 
 func TestHandleConvert_BadVideo(t *testing.T) {
 	srv := newTestServer(t)
-	form := url.Values{"format": {"mp4"}}
+	form := url.Values{"format": {"mp4-h264"}}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/videos/999/convert", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -819,6 +819,9 @@ func TestHandleConvert_BadVideo(t *testing.T) {
 }
 
 func TestHandleConvert_NoFFmpeg(t *testing.T) {
+	// The convert handler is async (SSE): the POST always returns 200 + a
+	// progress page. The ffmpeg error surfaces via the SSE stream, not the
+	// HTTP status of the initial POST.
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "clip.mp4"), []byte("fake"), 0644); err != nil {
 		t.Fatal(err)
@@ -828,15 +831,18 @@ func TestHandleConvert_NoFFmpeg(t *testing.T) {
 	d, _ := srv.store.AddDirectory(ctx, dir)
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
 
-	t.Setenv("PATH", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // empty PATH — ffmpeg not found
 
-	form := url.Values{"format": {"mkv"}}
+	form := url.Values{"format": {"mkv-copy"}}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/convert", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when ffmpeg missing, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (progress page), got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "EventSource") {
+		t.Error("expected progress page with EventSource in response body")
 	}
 }
 
@@ -1927,5 +1933,82 @@ func TestHandleImportUpload_VideoAppearsInList(t *testing.T) {
 	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
 	if len(vids) != 1 {
 		t.Fatalf("expected 1 video in DB after upload, got %d", len(vids))
+	}
+}
+
+func TestHandleMoveVideo(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+
+	// Write a real file so Rename has something to move.
+	if err := os.WriteFile(filepath.Join(srcDir, "clip.mp4"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	src, _ := srv.store.AddDirectory(ctx, srcDir)
+	dst, _ := srv.store.AddDirectory(ctx, dstDir)
+	v, _ := srv.store.UpsertVideo(ctx, src.ID, src.Path, "clip.mp4")
+
+	form := url.Values{"dir_id": {itoa(dst.ID)}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/move", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// File should be at destination.
+	if _, err := os.Stat(filepath.Join(dstDir, "clip.mp4")); err != nil {
+		t.Errorf("file not found at destination: %v", err)
+	}
+	// File should be gone from source.
+	if _, err := os.Stat(filepath.Join(srcDir, "clip.mp4")); err == nil {
+		t.Error("file still exists at source after move")
+	}
+}
+
+func TestHandleMoveVideo_WithSubdir(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(srcDir, "ep1.mp4"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	src, _ := srv.store.AddDirectory(ctx, srcDir)
+	dst, _ := srv.store.AddDirectory(ctx, dstDir)
+	v, _ := srv.store.UpsertVideo(ctx, src.ID, src.Path, "ep1.mp4")
+
+	form := url.Values{"dir_id": {itoa(dst.ID)}, "subdir": {"Season 1"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/move", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "Season 1", "ep1.mp4")); err != nil {
+		t.Errorf("file not found in sub-folder: %v", err)
+	}
+}
+
+func TestHandleMoveVideo_BadVideo(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	dst, _ := srv.store.AddDirectory(ctx, t.TempDir())
+
+	form := url.Values{"dir_id": {itoa(dst.ID)}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/999/move", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }
