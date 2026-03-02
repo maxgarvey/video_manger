@@ -1,0 +1,79 @@
+<div id="cprog-{{.JobID}}" style="display:flex;flex-direction:column;gap:0.35rem;padding:0.5rem 0;font-size:0.78rem">
+  <div style="color:#888">
+    Converting → <code style="color:#aaa;font-size:0.75rem">{{.OutName}}</code>
+  </div>
+
+  <!-- Progress bar -->
+  <div style="position:relative;height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden">
+    <div id="cbar-{{.JobID}}"
+      style="height:100%;background:#3a6a3a;border-radius:2px;width:0%;transition:width 0.4s ease"></div>
+    <div id="cbar-ind-{{.JobID}}"
+      style="position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,#3a6a3a 40%,#4a9a4a 50%,#3a6a3a 60%,transparent 100%);background-size:200% 100%;animation:cbar-sweep 1.4s linear infinite"></div>
+  </div>
+
+  <!-- Log lines -->
+  <div id="clog-{{.JobID}}"
+    style="font-family:monospace;font-size:0.7rem;color:#555;display:flex;flex-direction:column;gap:0.05rem;max-height:4.5rem;overflow-y:auto"></div>
+
+  <!-- Result -->
+  <div id="cresult-{{.JobID}}"></div>
+</div>
+
+<style>
+@keyframes cbar-sweep {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+</style>
+
+<script>
+(function() {
+  var jobID   = "{{.JobID}}";
+  var videoID = "{{.VideoID}}";
+  var bar     = document.getElementById("cbar-" + jobID);
+  var barInd  = document.getElementById("cbar-ind-" + jobID);
+  var log     = document.getElementById("clog-" + jobID);
+  var result  = document.getElementById("cresult-" + jobID);
+  var pctSeen = false;
+
+  var es = new EventSource("/videos/" + videoID + "/convert/events/" + jobID);
+
+  es.onmessage = function(e) {
+    var line = document.createElement("div");
+    line.textContent = e.data;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+
+    // Parse "XX%" from progress lines
+    var m = e.data.match(/(\d+)%/);
+    if (m) {
+      if (!pctSeen) {
+        pctSeen = true;
+        barInd.style.display = "none"; // hide indeterminate once we have real %
+      }
+      bar.style.width = Math.min(parseInt(m[1], 10), 99) + "%";
+    }
+  };
+
+  es.addEventListener("done", function(e) {
+    es.close();
+    barInd.style.display = "none";
+    bar.style.width = "100%";
+    bar.style.background = "#4a9a4a";
+    result.innerHTML =
+      '<span style="color:#4a9;font-size:0.78rem">✓ Saved as <strong>' +
+      e.data + '</strong> — added to library</span>';
+    htmx.ajax("GET", "/videos", {target: "#video-list", swap: "innerHTML"});
+  });
+
+  es.addEventListener("error", function(e) {
+    es.close();
+    barInd.style.display = "none";
+    bar.style.width = "100%";
+    bar.style.background = "#7a3a3a";
+    result.innerHTML =
+      '<span style="color:#f08080;font-size:0.78rem">✗ ' +
+      (e.data || "Conversion failed") + '</span>';
+  });
+})();
+</script>

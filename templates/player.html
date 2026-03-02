@@ -169,31 +169,94 @@
   </div>
   {{end}}
 
-  <!-- Export & Convert -->
-  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;padding-top:0.25rem">
-    <form hx-post="/videos/{{.Video.ID}}/export/usb"
-          hx-target="#convert-status-{{.Video.ID}}"
-          hx-indicator="#convert-status-{{.Video.ID}}">
-      <button type="submit" class="btn-sm"
-        title="Transcode to H.264/AAC MP4 (BluRay/USB compatible) and download"
-      >📀 Export USB</button>
-    </form>
-    <form hx-post="/videos/{{.Video.ID}}/convert"
-          hx-target="#video-list"
-          hx-indicator="#convert-status-{{.Video.ID}}"
-          style="display:flex;gap:0.3rem;align-items:center">
-      <select name="format"
-        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.4rem;border-radius:4px;font-size:0.8rem">
-        <option value="mp4">→ MP4</option>
-        <option value="webm">→ WebM</option>
-        <option value="mkv">→ MKV</option>
-      </select>
-      <button type="submit" class="btn-sm"
-        title="Convert to selected format"
-      >🔄 Convert</button>
-    </form>
-  </div>
-  <div id="convert-status-{{.Video.ID}}" class="htmx-indicator" style="font-size:0.78rem;color:#888"><span class="spinner"></span> Processing…</div>
+  <!-- Convert / Export panel -->
+  <details style="padding-top:0.25rem">
+    <summary style="font-size:0.8rem;color:#777;cursor:pointer;user-select:none;padding:0.2rem 0">
+      ⚙ Convert / Export
+    </summary>
+    <div style="display:flex;flex-direction:column;gap:0.65rem;padding:0.55rem 0 0.1rem">
+
+      <!-- Format & codec radio list -->
+      <div>
+        <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555;margin-bottom:0.35rem">Format &amp; codec</div>
+        <div style="display:flex;flex-direction:column;gap:0.2rem">
+          {{range .Formats}}
+          <label style="display:flex;align-items:flex-start;gap:0.45rem;cursor:pointer;padding:0.28rem 0.45rem;border-radius:4px;border:1px solid #222">
+            <input type="radio" name="conv-format-{{$.Video.ID}}" value="{{.Key}}"
+              style="margin-top:0.18rem;flex-shrink:0;accent-color:#4a7a4a"
+              {{if eq .Key "mp4-h264"}}checked{{end}}
+              onchange="convUpdateQuality({{$.Video.ID}})">
+            <div>
+              <div style="font-size:0.82rem;color:#ccc;font-weight:500">{{.Label}}</div>
+              <div style="font-size:0.68rem;color:#555;margin-top:0.03rem">{{.Description}}</div>
+            </div>
+          </label>
+          {{end}}
+        </div>
+      </div>
+
+      <!-- Quality preset (hidden for mkv-copy) -->
+      <div id="conv-quality-{{.Video.ID}}">
+        <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555;margin-bottom:0.3rem">Quality</div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;color:#bbb">
+            <input type="radio" name="conv-quality-{{.Video.ID}}" value="fast" style="accent-color:#4a7a4a"> Fast</label>
+          <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;color:#bbb">
+            <input type="radio" name="conv-quality-{{.Video.ID}}" value="balanced" checked style="accent-color:#4a7a4a"> Balanced</label>
+          <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;color:#bbb">
+            <input type="radio" name="conv-quality-{{.Video.ID}}" value="quality" style="accent-color:#4a7a4a"> Best</label>
+        </div>
+        <div style="font-size:0.66rem;color:#444;margin-top:0.22rem">
+          Fast = smaller file / Balanced = good default / Best = highest quality
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center">
+        <button class="btn-sm" onclick="startConvert({{.Video.ID}})">🔄 Convert</button>
+        <form action="/videos/{{.Video.ID}}/export/usb" method="post"
+              style="display:inline"
+              onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='⏳ Exporting…'">
+          <button type="submit" class="btn-sm"
+            title="Re-encode as H.264/AAC MP4 with faststart (TV/USB compatible) and download"
+          >📀 Export USB</button>
+        </form>
+      </div>
+
+      <!-- Progress / result area -->
+      <div id="convert-output-{{.Video.ID}}"></div>
+
+    </div>
+  </details>
+
+<script>
+function convUpdateQuality(vid) {
+  var fmt = document.querySelector('input[name="conv-format-' + vid + '"]:checked');
+  var row = document.getElementById('conv-quality-' + vid);
+  if (fmt && row) row.style.display = fmt.value === 'mkv-copy' ? 'none' : '';
+}
+
+function startConvert(vid) {
+  var fmtEl = document.querySelector('input[name="conv-format-' + vid + '"]:checked');
+  var qEl   = document.querySelector('input[name="conv-quality-' + vid + '"]:checked');
+  var format  = fmtEl ? fmtEl.value : 'mp4-h264';
+  var quality = qEl   ? qEl.value   : 'balanced';
+  var out = document.getElementById('convert-output-' + vid);
+  out.innerHTML = '<span style="color:#888;font-size:0.78rem"><span class="spinner"></span> Starting…</span>';
+  var fd = new FormData();
+  fd.append('format', format);
+  fd.append('quality', quality);
+  fetch('/videos/' + vid + '/convert', {method: 'POST', body: fd})
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      out.innerHTML = html;
+      htmx.process(out);
+    })
+    .catch(function(e) {
+      out.innerHTML = '<span style="color:#f08080;font-size:0.78rem">✗ ' + e + '</span>';
+    });
+}
+</script>
 
   <!-- TMDB Lookup, Share & Trim -->
   <div style="display:flex;gap:0.4rem;padding-top:0.25rem;flex-wrap:wrap">

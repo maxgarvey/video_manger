@@ -121,6 +121,7 @@ func main() {
 		syncingDirs: make(map[int64]struct{}),
 		convertSem:  make(chan struct{}, convertConcurrent),
 		jobs:        make(map[string]*ytdlpJob),
+		convertJobs: make(map[string]*convertJob),
 	}
 	if *password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)

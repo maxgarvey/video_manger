@@ -108,7 +108,8 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		AllTags      []store.Tag
 		FileNotFound bool
 		LibraryPath  string
-	}{video, tags, allTags, fileNotFound, strings.TrimSpace(libPath)}
+		Formats      []transcode.FormatEntry
+	}{video, tags, allTags, fileNotFound, strings.TrimSpace(libPath), transcode.FormatList}
 	render(w, "player.html", data)
 }
 
@@ -748,15 +749,20 @@ func (s *server) handleYTDLPJobEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 }
 
-func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleConvertStart(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
 	if !ok {
 		return
 	}
 	format := strings.ToLower(strings.TrimSpace(r.FormValue("format")))
+	quality := strings.ToLower(strings.TrimSpace(r.FormValue("quality")))
+	if quality == "" {
+		quality = "balanced"
+	}
+
 	cf, ok := transcode.Formats[format]
 	if !ok {
-		http.Error(w, "format must be mp4, webm, or mkv", http.StatusBadRequest)
+		http.Error(w, "unsupported format", http.StatusBadRequest)
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -768,35 +774,110 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	ext := filepath.Ext(video.Filename)
 	base := strings.TrimSuffix(video.Filename, ext)
 
-	// Guard against overwriting the source file (e.g. mkv→mkv with copy codec).
 	if strings.EqualFold(ext, cf.Ext) {
-		http.Error(w, "source and output are the same file; choose a different format", http.StatusBadRequest)
+		http.Error(w, "source and output are the same format; choose a different format", http.StatusBadRequest)
 		return
 	}
 
 	outName := freeOutputName(video.DirectoryPath, base, "", cf.Ext)
 	outPath := filepath.Join(video.DirectoryPath, outName)
 
-	// Use a background context so the conversion is not killed if the browser
-	// disconnects mid-way. The file will be picked up by the next library poll.
+	totalSecs := metadata.ReadDuration(video.FilePath())
+
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		http.Error(w, "could not generate job id", http.StatusInternalServerError)
+		return
+	}
+	jobID := hex.EncodeToString(raw)
+
+	job := &convertJob{ch: make(chan string, 256)}
+	s.convertJobsMu.Lock()
+	s.convertJobs[jobID] = job
+	s.convertJobsMu.Unlock()
+
 	bgCtx := context.WithoutCancel(r.Context())
-	if err := transcode.Convert(bgCtx, s.convertSem, video.FilePath(), outPath, cf); err != nil {
-		os.Remove(outPath) //nolint:errcheck
-		slog.Error("ffmpeg convert failed", "src", video.FilePath(), "dst", outPath, "err", err)
-		http.Error(w, "conversion failed: "+err.Error(), http.StatusInternalServerError)
+
+	go func() {
+		defer func() {
+			close(job.ch)
+			time.AfterFunc(10*time.Minute, func() {
+				s.convertJobsMu.Lock()
+				delete(s.convertJobs, jobID)
+				s.convertJobsMu.Unlock()
+			})
+		}()
+
+		send := func(line string) {
+			select {
+			case job.ch <- line:
+			default:
+			}
+		}
+
+		send("[queue] Waiting for conversion slot…")
+		s.convertSem <- struct{}{}
+		defer func() { <-s.convertSem }()
+
+		send(fmt.Sprintf("[ffmpeg] Converting to %s…", cf.Label))
+		if err := transcode.ConvertProgress(bgCtx, video.FilePath(), outPath, cf, quality, totalSecs, send); err != nil {
+			os.Remove(outPath) //nolint:errcheck
+			slog.Error("ffmpeg convert failed", "src", video.FilePath(), "dst", outPath, "err", err)
+			job.err = err
+			return
+		}
+
+		job.outName = outName
+
+		if video.DirectoryID != 0 {
+			if dir, err := s.store.GetDirectory(bgCtx, video.DirectoryID); err == nil {
+				if _, err := s.store.UpsertVideo(bgCtx, dir.ID, dir.Path, outName); err != nil {
+					slog.Warn("register converted file failed", "filename", outName, "err", err)
+				}
+			}
+		}
+	}()
+
+	render(w, "convert_progress.html", map[string]any{
+		"VideoID": id,
+		"JobID":   jobID,
+		"OutName": outName,
+		"Format":  cf.Label,
+	})
+}
+
+func (s *server) handleConvertEvents(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobID")
+	s.convertJobsMu.Lock()
+	job, ok := s.convertJobs[jobID]
+	s.convertJobsMu.Unlock()
+	if !ok {
+		http.Error(w, "job not found", http.StatusNotFound)
 		return
 	}
 
-	// Register the converted file in the library.
-	if video.DirectoryID != 0 {
-		if dir, err := s.store.GetDirectory(bgCtx, video.DirectoryID); err == nil {
-			if _, err := s.store.UpsertVideo(bgCtx, dir.ID, dir.Path, outName); err != nil {
-				slog.Warn("register converted file failed", "filename", outName, "err", err)
-			}
-		}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
 	}
 
-	s.serveVideoList(w, r)
+	for line := range job.ch {
+		safe := strings.ReplaceAll(strings.ReplaceAll(line, "\r", ""), "\n", " ")
+		fmt.Fprintf(w, "data: %s\n\n", safe) //nolint:errcheck
+		flusher.Flush()
+	}
+
+	if job.err != nil {
+		msg := strings.ReplaceAll(job.err.Error(), "\n", " ")
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", msg) //nolint:errcheck
+	} else {
+		fmt.Fprintf(w, "event: done\ndata: %s\n\n", job.outName) //nolint:errcheck
+	}
+	flusher.Flush()
 }
 
 func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {

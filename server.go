@@ -25,6 +25,15 @@ type ytdlpJob struct {
 	err error
 }
 
+// convertJob tracks a running ffmpeg conversion. Lines are sent to ch as
+// they are produced; ch is closed when the job finishes. err is set (if
+// non-nil) and outName is set (on success) before ch is closed.
+type convertJob struct {
+	ch      chan string
+	err     error
+	outName string // output filename, set on success
+}
+
 type server struct {
 	store        store.Store
 	port         string
@@ -34,9 +43,11 @@ type server struct {
 	sessionsMu   sync.RWMutex
 	syncingDirs  map[int64]struct{}
 	syncingMu    sync.Mutex
-	convertSem   chan struct{} // limits concurrent ffmpeg/yt-dlp processes
-	jobs         map[string]*ytdlpJob // active yt-dlp download jobs
-	jobsMu       sync.Mutex
+	convertSem    chan struct{}          // limits concurrent ffmpeg/yt-dlp processes
+	jobs          map[string]*ytdlpJob  // active yt-dlp download jobs
+	jobsMu        sync.Mutex
+	convertJobs   map[string]*convertJob // active ffmpeg convert jobs
+	convertJobsMu sync.Mutex
 }
 
 // videoGroup is a view-layer grouping of videos sharing the same directory.
@@ -174,7 +185,8 @@ func (s *server) routes() http.Handler {
 
 	// Export / convert
 	r.Post("/videos/{id}/export/usb", s.handleExportUSB)
-	r.Post("/videos/{id}/convert", s.handleConvert)
+	r.Post("/videos/{id}/convert", s.handleConvertStart)
+	r.Get("/videos/{id}/convert/events/{jobID}", s.handleConvertEvents)
 
 	// yt-dlp download
 	r.Post("/ytdlp/download", s.handleYTDLPDownload)

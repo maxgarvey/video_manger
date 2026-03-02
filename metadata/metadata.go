@@ -162,6 +162,34 @@ func ReadStreams(path string) ([]Stream, error) {
 	return parseStreams(out)
 }
 
+// ReadDuration returns the total duration of the file in seconds using ffprobe.
+// Returns 0 if ffprobe is unavailable or fails.
+func ReadDuration(path string) float64 {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		return 0
+	}
+	out, err := exec.Command(
+		"ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_entries", "format=duration",
+		path,
+	).Output()
+	if err != nil {
+		return 0
+	}
+	var result struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		return 0
+	}
+	d, _ := strconv.ParseFloat(result.Format.Duration, 64)
+	return d
+}
+
 // --- internal ---
 
 type ffprobeOutput struct {

@@ -4,42 +4,167 @@
 package transcode
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // Format describes an ffmpeg output format.
 type Format struct {
-	Ext       string   // file extension including leading dot, e.g. ".mp4"
-	VideoArgs []string // ffmpeg codec args for the video stream
-	AudioArgs []string // ffmpeg codec args for the audio stream
+	Label       string            // human-readable name, e.g. "MP4 — H.264 + AAC"
+	Description string            // one-line description for the UI
+	Ext         string            // file extension including leading dot, e.g. ".mp4"
+	VideoArgs   []string          // ffmpeg codec args for the video stream
+	AudioArgs   []string          // ffmpeg codec args for the audio stream
+	CRF         map[string]string // quality preset → crf value; nil = no CRF (stream copy)
 }
 
 // Formats is the set of supported output formats.
 var Formats = map[string]Format{
-	"mp4":  {".mp4", []string{"-c:v", "libx264"}, []string{"-c:a", "aac"}},
-	"webm": {".webm", []string{"-c:v", "libvpx-vp9"}, []string{"-c:a", "libopus"}},
-	"mkv":  {".mkv", []string{"-c:v", "copy"}, []string{"-c:a", "copy"}},
+	"mp4-h264": {
+		Label:       "MP4 — H.264 + AAC",
+		Description: "Most compatible — plays on virtually any device, TV, or browser",
+		Ext:         ".mp4",
+		VideoArgs:   []string{"-c:v", "libx264"},
+		AudioArgs:   []string{"-c:a", "aac"},
+		CRF:         map[string]string{"fast": "28", "balanced": "23", "quality": "18"},
+	},
+	"mp4-h265": {
+		Label:       "MP4 — H.265/HEVC + AAC",
+		Description: "~40% smaller than H.264; requires a modern device or player",
+		Ext:         ".mp4",
+		VideoArgs:   []string{"-c:v", "libx265"},
+		AudioArgs:   []string{"-c:a", "aac"},
+		CRF:         map[string]string{"fast": "32", "balanced": "28", "quality": "22"},
+	},
+	"webm-vp9": {
+		Label:       "WebM — VP9 + Opus",
+		Description: "Royalty-free; excellent browser compatibility",
+		Ext:         ".webm",
+		VideoArgs:   []string{"-c:v", "libvpx-vp9", "-b:v", "0"},
+		AudioArgs:   []string{"-c:a", "libopus"},
+		CRF:         map[string]string{"fast": "40", "balanced": "33", "quality": "24"},
+	},
+	"mkv-copy": {
+		Label:       "MKV — stream copy",
+		Description: "Fast container remux — no re-encode (may fail if codec is incompatible)",
+		Ext:         ".mkv",
+		VideoArgs:   []string{"-c:v", "copy"},
+		AudioArgs:   []string{"-c:a", "copy"},
+	},
 }
 
-// Convert re-encodes src to dst using the given Format.
-// sem is a concurrency-limiting channel; one slot is consumed for the duration
-// of the ffmpeg call. bgCtx should be a context.WithoutCancel-derived context
-// so that a browser disconnect doesn't kill the job mid-way.
-func Convert(bgCtx context.Context, sem chan struct{}, src, dst string, f Format) error {
-	select {
-	case sem <- struct{}{}:
-		defer func() { <-sem }()
-	case <-bgCtx.Done():
-		return fmt.Errorf("request cancelled")
+// FormatEntry pairs a format key with its Format for ordered UI display.
+type FormatEntry struct {
+	Key string
+	Format
+}
+
+// FormatList is the canonical display order for the UI.
+var FormatList = []FormatEntry{
+	{"mp4-h264", Formats["mp4-h264"]},
+	{"mp4-h265", Formats["mp4-h265"]},
+	{"webm-vp9", Formats["webm-vp9"]},
+	{"mkv-copy", Formats["mkv-copy"]},
+}
+
+// videoArgs builds the video argument slice for f, appending -crf if the
+// format has CRF presets and quality is non-empty.
+func videoArgs(f Format, quality string) []string {
+	args := append([]string(nil), f.VideoArgs...)
+	if f.CRF != nil {
+		if quality == "" {
+			quality = "balanced"
+		}
+		if crf, ok := f.CRF[quality]; ok {
+			args = append(args, "-crf", crf)
+		}
 	}
-	args := []string{"-y", "-i", src}
-	args = append(args, f.VideoArgs...)
+	return args
+}
+
+// parseHMS parses an ffmpeg progress time string "HH:MM:SS.ffffff" into seconds.
+func parseHMS(s string) float64 {
+	parts := strings.SplitN(s, ":", 3)
+	if len(parts) != 3 {
+		return 0
+	}
+	h, _ := strconv.ParseFloat(parts[0], 64)
+	m, _ := strconv.ParseFloat(parts[1], 64)
+	sec, _ := strconv.ParseFloat(parts[2], 64)
+	return h*3600 + m*60 + sec
+}
+
+// ConvertProgress runs the conversion and streams human-readable progress lines
+// to send. totalSecs is the source duration used for percentage completion;
+// pass 0 if unknown. The caller is responsible for acquiring a semaphore slot.
+// dst is removed on error by the caller; this function does not clean it up.
+func ConvertProgress(ctx context.Context, src, dst string, f Format, quality string, totalSecs float64, send func(string)) error {
+	args := []string{"-y", "-i", src, "-progress", "pipe:1", "-nostats"}
+	args = append(args, videoArgs(f, quality)...)
 	args = append(args, f.AudioArgs...)
 	args = append(args, dst)
-	return run(bgCtx, args...)
+
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...) //nolint:gosec
+	cmd.Stderr = &stderr
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	start := time.Now()
+	sc := bufio.NewScanner(stdout)
+	var (
+		frameN  float64
+		fps     float64
+		outSecs float64
+	)
+	for sc.Scan() {
+		parts := strings.SplitN(sc.Text(), "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key, val := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		switch key {
+		case "frame":
+			frameN, _ = strconv.ParseFloat(val, 64)
+		case "fps":
+			fps, _ = strconv.ParseFloat(val, 64)
+		case "out_time":
+			outSecs = parseHMS(val)
+		case "progress":
+			elapsed := time.Since(start).Seconds()
+			if val == "end" {
+				send(fmt.Sprintf("✓ Done in %.1fs", elapsed))
+			} else {
+				var pct string
+				if totalSecs > 0 && outSecs > 0 {
+					p := outSecs / totalSecs * 100
+					if p > 100 {
+						p = 100
+					}
+					pct = fmt.Sprintf(" / %.0f%%", p)
+				}
+				send(fmt.Sprintf("frame %d / %.1f fps / %.1fs elapsed%s",
+					int(frameN), fps, elapsed, pct))
+			}
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("%w\nstderr: %s", err, stderr.String())
+	}
+	return nil
 }
 
 // ExportUSB re-encodes src to dst as H.264+AAC MP4 optimised for USB playback.
