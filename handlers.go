@@ -704,11 +704,23 @@ func openFreeFile(dir, stem, ext string) (*os.File, string, error) {
 }
 
 func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
-	rawURL := strings.TrimSpace(r.FormValue("url"))
-	if rawURL == "" {
-		http.Error(w, "url required", http.StatusBadRequest)
+	rawURLs := strings.TrimSpace(r.FormValue("urls"))
+	if rawURLs == "" {
+		http.Error(w, "urls required", http.StatusBadRequest)
 		return
 	}
+	// Split on newlines; filter blank lines.
+	var urls []string
+	for _, line := range strings.Split(rawURLs, "\n") {
+		if u := strings.TrimSpace(line); u != "" {
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		http.Error(w, "no valid URLs provided", http.StatusBadRequest)
+		return
+	}
+
 	dirIDStr := strings.TrimSpace(r.FormValue("dir_id"))
 	if dirIDStr == "" {
 		http.Error(w, "dir_id required", http.StatusBadRequest)
@@ -725,107 +737,115 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate an opaque job ID.
-	raw := make([]byte, 8)
-	if _, err := rand.Read(raw); err != nil {
-		http.Error(w, "could not generate job id", http.StatusInternalServerError)
-		return
+	// Create a job for each URL; launch each in its own goroutine.
+	type jobEntry struct {
+		JobID string
+		URL   string
 	}
-	jobID := hex.EncodeToString(raw)
-
-	job := &ytdlpJob{ch: make(chan string, 2048)}
-	s.jobsMu.Lock()
-	s.jobs[jobID] = job
-	s.jobsMu.Unlock()
-
-	// Run the download in the background so the POST returns quickly.
-	go func() {
-		defer func() {
-			close(job.ch)
-			// Retain job for 10 minutes so late SSE clients can still read it.
-			time.AfterFunc(10*time.Minute, func() {
-				s.jobsMu.Lock()
-				delete(s.jobs, jobID)
-				s.jobsMu.Unlock()
-			})
-		}()
-
-		// Non-blocking send to avoid goroutine leaks if the channel fills.
-		send := func(line string) {
-			select {
-			case job.ch <- line:
-			default:
-			}
-		}
-
-		// Wait for a concurrency slot (same limit as ffmpeg operations).
-		send("[queue] Waiting for download slot…")
-		s.convertSem <- struct{}{}
-		defer func() { <-s.convertSem }()
-
-		pr, pw := io.Pipe()
-		cmd := exec.Command("yt-dlp", //nolint:gosec
-			"--no-playlist",
-			"--newline",
-			"--write-info-json",
-			"--no-write-thumbnail",
-			"-o", filepath.Join(dir.Path, "%(title)s.%(ext)s"),
-			rawURL,
-		)
-		cmd.Stdout = pw
-		cmd.Stderr = pw
-
-		if err := cmd.Start(); err != nil {
-			job.err = err
+	var entries []jobEntry
+	for _, rawURL := range urls {
+		raw := make([]byte, 8)
+		if _, err := rand.Read(raw); err != nil {
+			http.Error(w, "could not generate job id", http.StatusInternalServerError)
 			return
 		}
+		jobID := hex.EncodeToString(raw)
 
-		// Forward yt-dlp output lines to the job channel while it runs.
-		// Also watch for the "Destination:" line to capture the output path.
-		var videoPath string
-		scanDone := make(chan struct{})
+		job := &ytdlpJob{ch: make(chan string, 2048)}
+		s.jobsMu.Lock()
+		s.jobs[jobID] = job
+		s.jobsMu.Unlock()
+		entries = append(entries, jobEntry{JobID: jobID, URL: rawURL})
+
+		// Run the download in the background so the POST returns quickly.
 		go func() {
-			defer close(scanDone)
-			sc := bufio.NewScanner(pr)
-			for sc.Scan() {
-				line := sc.Text()
-				send(line)
-				// Capture destination path from yt-dlp output.
-				if p, ok := strings.CutPrefix(line, "[download] Destination: "); ok {
-					videoPath = strings.TrimSpace(p)
-				} else if after, ok2 := strings.CutPrefix(line, "[download] "); ok2 {
-					if idx := strings.Index(after, " has already been downloaded"); idx > 0 {
-						videoPath = strings.TrimSpace(after[:idx])
-					}
+			defer func() {
+				close(job.ch)
+				// Retain job for 10 minutes so late SSE clients can still read it.
+				time.AfterFunc(10*time.Minute, func() {
+					s.jobsMu.Lock()
+					delete(s.jobs, jobID)
+					s.jobsMu.Unlock()
+				})
+			}()
+
+			// Non-blocking send to avoid goroutine leaks if the channel fills.
+			send := func(line string) {
+				select {
+				case job.ch <- line:
+				default:
 				}
 			}
-		}()
-		job.err = cmd.Wait()
-		pw.Close()
-		<-scanDone
 
-		if job.err == nil {
-			// Tag the video file with metadata from the info.json.
-			if videoPath != "" {
-				infoJSON := videoPath + ".info.json"
-				if data, err := os.ReadFile(infoJSON); err == nil {
-					if u, ok := parseYTDLPInfoJSON(data); ok {
-						send("[video_manger] Writing metadata to file…")
-						if err := metadata.Write(videoPath, u); err != nil {
-							send("[video_manger] Warning: metadata write failed: " + err.Error())
+			// Wait for a concurrency slot (same limit as ffmpeg operations).
+			send("[queue] Waiting for download slot…")
+			s.convertSem <- struct{}{}
+			defer func() { <-s.convertSem }()
+
+			pr, pw := io.Pipe()
+			cmd := exec.Command("yt-dlp", //nolint:gosec
+				"--no-playlist",
+				"--newline",
+				"--write-info-json",
+				"--no-write-thumbnail",
+				"-o", filepath.Join(dir.Path, "%(title)s.%(ext)s"),
+				rawURL,
+			)
+			cmd.Stdout = pw
+			cmd.Stderr = pw
+
+			if err := cmd.Start(); err != nil {
+				job.err = err
+				return
+			}
+
+			// Forward yt-dlp output lines to the job channel while it runs.
+			// Also watch for the "Destination:" line to capture the output path.
+			var videoPath string
+			scanDone := make(chan struct{})
+			go func() {
+				defer close(scanDone)
+				sc := bufio.NewScanner(pr)
+				for sc.Scan() {
+					line := sc.Text()
+					send(line)
+					// Capture destination path from yt-dlp output.
+					if p, ok2 := strings.CutPrefix(line, "[download] Destination: "); ok2 {
+						videoPath = strings.TrimSpace(p)
+					} else if after, ok3 := strings.CutPrefix(line, "[download] "); ok3 {
+						if idx := strings.Index(after, " has already been downloaded"); idx > 0 {
+							videoPath = strings.TrimSpace(after[:idx])
 						}
 					}
-					os.Remove(infoJSON) //nolint:errcheck
 				}
-			}
-			send("[video_manger] Syncing library…")
-			s.syncDir(dir)
-			send("[video_manger] Done!")
-		}
-	}()
+			}()
+			job.err = cmd.Wait()
+			pw.Close()
+			<-scanDone
 
-	// Return a progress container that streams output via SSE.
-	render(w, "ytdlp_progress.html", jobID)
+			if job.err == nil {
+				// Tag the video file with metadata from the info.json.
+				if videoPath != "" {
+					infoJSON := videoPath + ".info.json"
+					if data, err := os.ReadFile(infoJSON); err == nil {
+						if u, ok2 := parseYTDLPInfoJSON(data); ok2 {
+							send("[video_manger] Writing metadata to file…")
+							if err := metadata.Write(videoPath, u); err != nil {
+								send("[video_manger] Warning: metadata write failed: " + err.Error())
+							}
+						}
+						os.Remove(infoJSON) //nolint:errcheck
+					}
+				}
+				send("[video_manger] Syncing library…")
+				s.syncDir(dir)
+				send("[video_manger] Done!")
+			}
+		}()
+	}
+
+	// Return one progress block per queued URL.
+	render(w, "ytdlp_progress.html", entries)
 }
 
 // handleYTDLPJobEvents streams yt-dlp output for a background download job

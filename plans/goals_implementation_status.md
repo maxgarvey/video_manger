@@ -113,3 +113,12 @@ Ordered by complexity (easiest first).
 | 65 | 1 | Close open tab when video deleted from library list | ✅ Done |
 | 66 | 2 | Store original filename at import time | ✅ Done |
 | 67 | 3 | Standardised fields: genre, season/episode, actors, studio, channel | ✅ Done |
+
+## Round 8 — New TODOs
+
+Ordered by complexity (easiest first).
+
+| # | TODOS # | Feature | Status |
+|---|---------|---------|--------|
+| 68 | 3 | yt-dlp metadata tagging on import (write-info-json → ffmpeg stream-copy) | ✅ Done |
+| 69 | 1+2 | yt-dlp download queue + queue progress UI (textarea, beforeend, multi-job) | ✅ Done |

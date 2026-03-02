@@ -403,15 +403,21 @@
       <!-- Download from URL -->
       <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:0.4rem">
         <h2>Download from URL</h2>
-        <form hx-post="/ytdlp/download" hx-target="#ytdlp-output"
+        <form hx-post="/ytdlp/download" hx-target="#ytdlp-output" hx-swap="beforeend"
               style="display:flex;flex-direction:column;gap:0.4rem">
-          <input type="text" name="url" placeholder="YouTube / video URL">
+          <textarea name="urls" rows="3" placeholder="One URL per line"
+            style="background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.5rem;border-radius:4px;font-size:0.85rem;resize:vertical;font-family:inherit"></textarea>
           <select name="dir_id" id="ytdlp-dir-select"
             style="background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.5rem;border-radius:4px;font-size:0.85rem"
             hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
           <button type="submit">⬇ Download</button>
         </form>
-        <div id="ytdlp-output" style="margin-top:0.4rem;display:flex;flex-direction:column;gap:0.3rem"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:0.4rem">
+          <span style="font-size:0.7rem;color:#555">Download queue</span>
+          <button class="btn-sm btn-ghost" style="font-size:0.7rem"
+            onclick="document.getElementById('ytdlp-output').innerHTML=''">Clear</button>
+        </div>
+        <div id="ytdlp-output" style="display:flex;flex-direction:column;gap:0.5rem"></div>
       </div>
 
     </div>

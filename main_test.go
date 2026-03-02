@@ -728,7 +728,7 @@ func TestHandleYTDLP_MissingURL(t *testing.T) {
 
 func TestHandleYTDLP_MissingDirID(t *testing.T) {
 	srv := newTestServer(t)
-	form := url.Values{"url": {"https://example.com/video"}}
+	form := url.Values{"urls": {"https://example.com/video"}}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -740,7 +740,7 @@ func TestHandleYTDLP_MissingDirID(t *testing.T) {
 
 func TestHandleYTDLP_InvalidDir(t *testing.T) {
 	srv := newTestServer(t)
-	form := url.Values{"url": {"https://example.com/video"}, "dir_id": {"999"}}
+	form := url.Values{"urls": {"https://example.com/video"}, "dir_id": {"999"}}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -760,7 +760,7 @@ func TestHandleYTDLP_NotInstalled(t *testing.T) {
 
 	t.Setenv("PATH", t.TempDir()) // empty PATH — yt-dlp not found
 
-	form := url.Values{"url": {"https://example.com/v"}, "dir_id": {itoa(d.ID)}}
+	form := url.Values{"urls": {"https://example.com/v"}, "dir_id": {itoa(d.ID)}}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -770,6 +770,31 @@ func TestHandleYTDLP_NotInstalled(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "EventSource") {
 		t.Error("expected progress page with EventSource in response body")
+	}
+}
+
+func TestHandleYTDLP_MultipleURLs(t *testing.T) {
+	// Submitting multiple URLs should create one progress block per URL.
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, t.TempDir())
+
+	t.Setenv("PATH", t.TempDir()) // empty PATH — yt-dlp not installed; jobs fail async
+
+	urls := "https://example.com/v1\nhttps://example.com/v2\nhttps://example.com/v3"
+	form := url.Values{"urls": {urls}, "dir_id": {itoa(d.ID)}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	// Should have 3 EventSource subscriptions.
+	count := strings.Count(body, "EventSource")
+	if count != 3 {
+		t.Errorf("expected 3 EventSource blocks, got %d", count)
 	}
 }
 

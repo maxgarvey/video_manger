@@ -1,25 +1,29 @@
-<pre id="ytdlp-out"
-  style="font-size:0.72rem;color:#aaa;background:#111;border:1px solid #333;border-radius:4px;
-         padding:0.5rem;max-height:10rem;overflow-y:auto;margin:0;white-space:pre-wrap;word-break:break-all"></pre>
-<span id="ytdlp-msg" style="font-size:0.8rem;color:#888"><span class="spinner"></span> Downloading…</span>
+{{range .}}
+<div style="border:1px solid #2a2a2a;border-radius:4px;padding:0.5rem;display:flex;flex-direction:column;gap:0.3rem">
+  <div style="font-size:0.7rem;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.URL}}">{{.URL}}</div>
+  <pre id="ytdlp-out-{{.JobID}}"
+    style="font-size:0.72rem;color:#aaa;background:#111;border:1px solid #222;border-radius:4px;
+           padding:0.4rem;max-height:8rem;overflow-y:auto;margin:0;white-space:pre-wrap;word-break:break-all"></pre>
+  <span id="ytdlp-msg-{{.JobID}}" style="font-size:0.8rem;color:#888"><span class="spinner"></span> Downloading…</span>
+</div>
 <script>
 (function() {
-  var pre = document.getElementById('ytdlp-out');
-  var msg = document.getElementById('ytdlp-msg');
-  var es = new EventSource('/ytdlp/job/{{.}}/events');
+  var pre = document.getElementById('ytdlp-out-{{.JobID}}');
+  var msg = document.getElementById('ytdlp-msg-{{.JobID}}');
+  var es = new EventSource('/ytdlp/job/{{.JobID}}/events');
   es.onmessage = function(e) {
     pre.textContent += e.data + '\n';
     pre.scrollTop = pre.scrollHeight;
   };
   es.addEventListener('done', function() {
     es.close();
-    msg.innerHTML = '✓ Download complete';
+    msg.innerHTML = '✓ Done';
     msg.style.color = '#4a9a4a';
     htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'morph:innerHTML'});
   });
   es.addEventListener('error', function(evt) {
     es.close();
-    msg.innerHTML = '✗ Download failed';
+    msg.innerHTML = '✗ Failed';
     msg.style.color = '#c44';
   });
   es.onerror = function() {
@@ -30,3 +34,4 @@
   };
 })();
 </script>
+{{end}}
