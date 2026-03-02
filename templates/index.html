@@ -365,8 +365,17 @@
       <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:0.4rem">
         <h2>Directories</h2>
         <div id="directories" hx-get="/directories" hx-trigger="load"></div>
-        <button class="btn-sm" hx-get="/fs" hx-target="#dir-browser-wrap" hx-swap="innerHTML"
-          style="text-align:left">📁 Browse to add folder…</button>
+        <form hx-post="/directories" hx-target="#directories" style="display:flex;gap:0.3rem">
+          <input type="text" name="path" id="add-dir-input" value="{{.HomeDir}}"
+            placeholder="/path/to/folder"
+            style="flex:1"
+            onclick="this.select()">
+          <button type="submit" class="btn-sm" title="Add this directory to the library">Add</button>
+        </form>
+        <button class="btn-sm" style="text-align:left"
+          hx-get="/fs" hx-target="#dir-browser-wrap" hx-swap="innerHTML"
+          hx-on::after-request="document.getElementById('add-dir-input').value = ''">
+          📁 Browse…</button>
         <div id="dir-browser-wrap"></div>
         <details style="margin-top:0.1rem">
           <summary style="font-size:0.78rem">Create new folder on disk</summary>
