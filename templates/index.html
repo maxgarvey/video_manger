@@ -370,7 +370,7 @@
         <h2>Filter by Tag</h2>
         <div id="tag-filters" hx-get="/tags" hx-trigger="load"></div>
         <button hx-get="/videos" hx-target="#video-list"
-          onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value='';document.getElementById('active-rating').value='';updateRatingBtns()"
+          onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value='';document.getElementById('active-rating').value='';updateRatingBtns();updateTagBtns()"
           style="margin-top:0.4rem;width:100%">Show all</button>
       </section>
     </div>
@@ -656,6 +656,30 @@
         });
       });
     })();
+
+    // ── Tag filter toggle ───────────────────────────────────────────
+    function toggleTagFilter(tagID) {
+      var at = document.getElementById('active-tag');
+      if (at.value == tagID) {
+        at.value = '';
+        htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+      } else {
+        at.value = tagID;
+        document.getElementById('video-search').value = '';
+        document.getElementById('active-rating').value = '';
+        updateRatingBtns();
+        htmx.ajax('GET', '/videos?tag_id=' + tagID, {target: '#video-list', swap: 'innerHTML'});
+      }
+      updateTagBtns();
+    }
+
+    function updateTagBtns() {
+      var at = document.getElementById('active-tag').value;
+      document.querySelectorAll('.tag-filter-btn').forEach(function(btn) {
+        var id = btn.id.replace('tag-btn-', '');
+        btn.classList.toggle('btn-active-filter', id === String(at));
+      });
+    }
 
     // ── Rating filter toggle ────────────────────────────────────────
     function toggleRatingFilter(rating) {

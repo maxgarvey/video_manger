@@ -1,12 +1,9 @@
 {{if .}}
 <div class="tag-filter-list">
   {{range .}}
-  <button class="btn-sm"
-    hx-get="/videos"
-    hx-target="#video-list"
-    hx-include="#video-search"
-    hx-vals='{"tag_id":"{{.ID}}"}'
-    onclick="document.getElementById('active-tag').value='{{.ID}}'"
+  <button class="btn-sm tag-filter-btn"
+    id="tag-btn-{{.ID}}"
+    onclick="toggleTagFilter({{.ID}})"
     style="border-radius:12px"
   >{{.Name}}</button>
   {{end}}
