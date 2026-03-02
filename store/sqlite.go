@@ -7,13 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/maxgarvey/video_manger/db"
 	_ "modernc.org/sqlite"
 )
 
 // SQLiteStore implements Store backed by a SQLite database.
 type SQLiteStore struct {
-	q    *db.Queries
 	conn *sql.DB
 }
 
@@ -39,7 +37,7 @@ func NewSQLite(path string) (*SQLiteStore, error) {
 	if err := runMigrations(conn); err != nil {
 		return nil, err
 	}
-	return &SQLiteStore{q: db.New(conn), conn: conn}, nil
+	return &SQLiteStore{conn: conn}, nil
 }
 
 // Close releases the underlying database connection.
@@ -59,27 +57,33 @@ func (s *SQLiteStore) GetDirectory(ctx context.Context, id int64) (Directory, er
 }
 
 func (s *SQLiteStore) AddDirectory(ctx context.Context, path string) (Directory, error) {
-	row, err := s.q.AddDirectory(ctx, path)
-	if err != nil {
-		return Directory{}, err
-	}
-	return Directory{ID: row.ID, Path: row.Path}, nil
+	var d Directory
+	err := s.conn.QueryRowContext(ctx,
+		`INSERT INTO directories (path) VALUES (?) RETURNING id, path`, path,
+	).Scan(&d.ID, &d.Path)
+	return d, err
 }
 
 func (s *SQLiteStore) ListDirectories(ctx context.Context) ([]Directory, error) {
-	rows, err := s.q.ListDirectories(ctx)
+	rows, err := s.conn.QueryContext(ctx, `SELECT id, path FROM directories ORDER BY path`)
 	if err != nil {
 		return nil, err
 	}
-	dirs := make([]Directory, len(rows))
-	for i, r := range rows {
-		dirs[i] = Directory{ID: r.ID, Path: r.Path}
+	defer rows.Close()
+	var dirs []Directory
+	for rows.Next() {
+		var d Directory
+		if err := rows.Scan(&d.ID, &d.Path); err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, d)
 	}
-	return dirs, nil
+	return dirs, rows.Err()
 }
 
 func (s *SQLiteStore) DeleteDirectory(ctx context.Context, id int64) error {
-	return s.q.DeleteDirectory(ctx, id)
+	_, err := s.conn.ExecContext(ctx, `DELETE FROM directories WHERE id = ?`, id)
+	return err
 }
 
 func (s *SQLiteStore) DeleteDirectoryAndVideos(ctx context.Context, id int64) ([]string, error) {
@@ -244,10 +248,8 @@ func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
 }
 
 func (s *SQLiteStore) UpdateVideoName(ctx context.Context, id int64, name string) error {
-	return s.q.UpdateVideoName(ctx, db.UpdateVideoNameParams{
-		ID:          id,
-		DisplayName: name,
-	})
+	_, err := s.conn.ExecContext(ctx, `UPDATE videos SET display_name = ? WHERE id = ?`, name, id)
+	return err
 }
 
 func (s *SQLiteStore) DeleteVideo(ctx context.Context, id int64) error {
@@ -311,31 +313,39 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 // --- Tags ---
 
 func (s *SQLiteStore) UpsertTag(ctx context.Context, name string) (Tag, error) {
-	row, err := s.q.UpsertTag(ctx, name)
-	if err != nil {
-		return Tag{}, err
-	}
-	return Tag{ID: row.ID, Name: row.Name}, nil
+	var t Tag
+	err := s.conn.QueryRowContext(ctx,
+		`INSERT INTO tags (name) VALUES (?) ON CONFLICT (name) DO UPDATE SET name = excluded.name RETURNING id, name`,
+		name,
+	).Scan(&t.ID, &t.Name)
+	return t, err
 }
 
 func (s *SQLiteStore) ListTags(ctx context.Context) ([]Tag, error) {
-	rows, err := s.q.ListTags(ctx)
+	rows, err := s.conn.QueryContext(ctx, `SELECT id, name FROM tags ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
-	tags := make([]Tag, len(rows))
-	for i, r := range rows {
-		tags[i] = Tag{ID: r.ID, Name: r.Name}
+	defer rows.Close()
+	var tags []Tag
+	for rows.Next() {
+		var t Tag
+		if err := rows.Scan(&t.ID, &t.Name); err != nil {
+			return nil, err
+		}
+		tags = append(tags, t)
 	}
-	return tags, nil
+	return tags, rows.Err()
 }
 
 func (s *SQLiteStore) TagVideo(ctx context.Context, videoID, tagID int64) error {
-	return s.q.TagVideo(ctx, db.TagVideoParams{VideoID: videoID, TagID: tagID})
+	_, err := s.conn.ExecContext(ctx, `INSERT OR IGNORE INTO video_tags (video_id, tag_id) VALUES (?, ?)`, videoID, tagID)
+	return err
 }
 
 func (s *SQLiteStore) UntagVideo(ctx context.Context, videoID, tagID int64) error {
-	return s.q.UntagVideo(ctx, db.UntagVideoParams{VideoID: videoID, TagID: tagID})
+	_, err := s.conn.ExecContext(ctx, `DELETE FROM video_tags WHERE video_id = ? AND tag_id = ?`, videoID, tagID)
+	return err
 }
 
 func (s *SQLiteStore) PruneOrphanTags(ctx context.Context) error {
@@ -345,15 +355,25 @@ func (s *SQLiteStore) PruneOrphanTags(ctx context.Context) error {
 }
 
 func (s *SQLiteStore) ListTagsByVideo(ctx context.Context, videoID int64) ([]Tag, error) {
-	rows, err := s.q.ListTagsByVideo(ctx, videoID)
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT t.id, t.name FROM tags t
+		JOIN video_tags vt ON t.id = vt.tag_id
+		WHERE vt.video_id = ?
+		ORDER BY t.name
+	`, videoID)
 	if err != nil {
 		return nil, err
 	}
-	tags := make([]Tag, len(rows))
-	for i, r := range rows {
-		tags[i] = Tag{ID: r.ID, Name: r.Name}
+	defer rows.Close()
+	var tags []Tag
+	for rows.Next() {
+		var t Tag
+		if err := rows.Scan(&t.ID, &t.Name); err != nil {
+			return nil, err
+		}
+		tags = append(tags, t)
 	}
-	return tags, nil
+	return tags, rows.Err()
 }
 
 // --- scan helpers ---
