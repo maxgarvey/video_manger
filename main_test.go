@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1526,5 +1528,267 @@ func TestAuth_WithSessionCookie_PassesThrough(t *testing.T) {
 	srv.routes().ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("expected 200 with valid session, got %d", rec2.Code)
+	}
+}
+
+// E7: reltime edge cases
+func TestReltime(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"not-a-date", "not-a-date"},
+		{time.Now().UTC().Format("2006-01-02 15:04:05"), "just now"},
+		{time.Now().UTC().Add(-30 * time.Second).Format("2006-01-02 15:04:05"), "just now"},
+		{time.Now().UTC().Add(-90 * time.Second).Format("2006-01-02 15:04:05"), "1 min ago"},
+		{time.Now().UTC().Add(-5 * time.Minute).Format("2006-01-02 15:04:05"), "5 mins ago"},
+		{time.Now().UTC().Add(-90 * time.Minute).Format("2006-01-02 15:04:05"), "1 hr ago"},
+		{time.Now().UTC().Add(-5 * time.Hour).Format("2006-01-02 15:04:05"), "5 hrs ago"},
+		{time.Now().UTC().Add(-36 * time.Hour).Format("2006-01-02 15:04:05"), "yesterday"},
+		{time.Now().UTC().Add(-4 * 24 * time.Hour).Format("2006-01-02 15:04:05"), "4 days ago"},
+	}
+	for _, tc := range cases {
+		got := reltime(tc.input)
+		if got != tc.want {
+			t.Errorf("reltime(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+// E6: handleBrowseFS
+func TestHandleBrowseFS(t *testing.T) {
+	srv := newTestServer(t)
+	tmp := t.TempDir()
+
+	// Create a subdirectory
+	sub := filepath.Join(tmp, "subdir")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// BrowseFS is restricted to home dir — use a real path inside home
+	home, _ := os.UserHomeDir()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/fs?path="+url.QueryEscape(home), nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Path outside home dir should return 403
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/fs?path="+url.QueryEscape("/etc"), nil)
+	srv.routes().ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for /etc, got %d", rec2.Code)
+	}
+}
+
+// E6: handleNextUnwatched
+func TestHandleNextUnwatched(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+
+	// Empty library — expect 404
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/next-unwatched", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 on empty library, got %d", rec.Code)
+	}
+
+	// Add a video — should now be returned
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "ep01.mp4")
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/videos/next-unwatched", nil)
+	srv.routes().ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec2.Code)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(rec2.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if int64(body["id"].(float64)) != v.ID {
+		t.Errorf("expected id=%d, got %v", v.ID, body["id"])
+	}
+
+	// Mark watched — should be excluded
+	srv.store.RecordWatch(ctx, v.ID, 1) //nolint:errcheck
+	rec3 := httptest.NewRecorder()
+	req3 := httptest.NewRequest(http.MethodGet, "/videos/next-unwatched", nil)
+	srv.routes().ServeHTTP(rec3, req3)
+	if rec3.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after watching only video, got %d", rec3.Code)
+	}
+}
+
+// E6: handleListDuplicates
+func TestHandleListDuplicates(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	// Create temp dir with a real file so os.Stat succeeds
+	tmp := t.TempDir()
+	f1 := filepath.Join(tmp, "movie.mp4")
+	if err := os.WriteFile(f1, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f2 := filepath.Join(tmp, "subdir")
+	os.MkdirAll(f2, 0755)
+	f2 = filepath.Join(f2, "movie.mp4")
+	if err := os.WriteFile(f2, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	d1, _ := srv.store.AddDirectory(ctx, tmp)
+	d2, _ := srv.store.AddDirectory(ctx, filepath.Dir(f2))
+	srv.store.UpsertVideo(ctx, d1.ID, tmp, "movie.mp4")               //nolint:errcheck
+	srv.store.UpsertVideo(ctx, d2.ID, filepath.Dir(f2), "movie.mp4") //nolint:errcheck
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/duplicates", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	// Both files have same name and same size — should appear as duplicates
+	if !strings.Contains(rec.Body.String(), "movie.mp4") {
+		t.Error("expected duplicate filename in response")
+	}
+}
+
+// E4: handleImportUpload
+func TestHandleImportUpload(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	tmp := t.TempDir()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+
+	// Build multipart body
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	mw.WriteField("dir_id", itoa(d.ID))
+	mw.WriteField("filename", "clip.mp4")
+	fw, _ := mw.CreateFormFile("file", "clip.mp4")
+	fw.Write([]byte("fake video content"))
+	mw.Close()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/import/upload", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// File should now exist on disk
+	if _, err := os.Stat(filepath.Join(tmp, "clip.mp4")); err != nil {
+		t.Errorf("expected clip.mp4 on disk: %v", err)
+	}
+
+	// Video should be in the DB
+	videos, err := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("ListVideosByDirectory: %v", err)
+	}
+	if len(videos) == 0 {
+		t.Error("expected video in DB after upload")
+	}
+}
+
+func TestHandleImportUpload_PathTraversal(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	tmp := t.TempDir()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	mw.WriteField("dir_id", itoa(d.ID))
+	mw.WriteField("filename", "../../etc/passwd.mp4") // path traversal attempt
+	fw, _ := mw.CreateFormFile("file", "passwd.mp4")
+	fw.Write([]byte("evil"))
+	mw.Close()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/import/upload", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (traversal stripped), got %d", rec.Code)
+	}
+	// File should land in tmp, not escape it
+	if _, err := os.Stat(filepath.Join(tmp, "passwd.mp4")); err != nil {
+		t.Errorf("expected passwd.mp4 in tmp dir: %v", err)
+	}
+}
+
+func TestHandleImportUpload_NotVideo(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	tmp := t.TempDir()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	mw.WriteField("dir_id", itoa(d.ID))
+	mw.WriteField("filename", "document.pdf")
+	fw, _ := mw.CreateFormFile("file", "document.pdf")
+	fw.Write([]byte("pdf content"))
+	mw.Close()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/import/upload", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for non-video, got %d", rec.Code)
+	}
+}
+
+// E5: handleTrim negative paths
+func TestHandleTrim_InvalidID(t *testing.T) {
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/notanid/trim", strings.NewReader("start=0&end=10"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleTrim_VideoNotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/999/trim", strings.NewReader("start=0&end=10"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestHandleTrim_NoFFmpeg(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	tmp := t.TempDir()
+	f := filepath.Join(tmp, "clip.mp4")
+	os.WriteFile(f, []byte("fake"), 0644)
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, tmp, "clip.mp4")
+
+	t.Setenv("PATH", t.TempDir()) // no ffmpeg
+
+	form := url.Values{"start": {"0"}, "end": {"10"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/trim", v.ID), strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when ffmpeg missing, got %d", rec.Code)
 	}
 }

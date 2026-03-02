@@ -87,6 +87,24 @@ func reltime(s string) string {
 	}
 }
 
+// parseIDParam extracts and parses the "{id}" URL parameter as int64.
+// On error it writes a 400 response and returns false.
+func parseIDParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return 0, false
+	}
+	return id, true
+}
+
+// render executes the named template, writing a 500 on error.
+func render(w http.ResponseWriter, name string, data any) {
+	if err := templates.ExecuteTemplate(w, name, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 // ytdlpJob tracks a running yt-dlp download. Lines are sent to ch as
 // they are produced; ch is closed when the download finishes. err is set
 // (if non-nil) before ch is closed.
@@ -242,17 +260,13 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	if err := templates.ExecuteTemplate(w, "login.html", nil); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "login.html", nil)
 }
 
 func (s *server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	pw := r.FormValue("password")
 	if bcrypt.CompareHashAndPassword(s.passwordHash, []byte(pw)) != nil {
-		if err := templates.ExecuteTemplate(w, "login.html", "Wrong password."); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+		render(w, "login.html", "Wrong password.")
 		return
 	}
 	// Generate a session token.
@@ -354,7 +368,7 @@ func (s *server) routes() http.Handler {
 	r.Get("/fs", s.handleBrowseFS)
 
 	// Directories
-	r.Get("/directories", s.handleListDirectories)
+	r.Get("/directories", s.serveDirList)
 	r.Get("/directories/options", s.handleDirectoryOptions)
 	r.Post("/directories", s.handleAddDirectory)
 	r.Post("/directories/create", s.handleCreateDirectory)
@@ -550,15 +564,12 @@ func localAddresses(port string) []string {
 }
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if err := templates.ExecuteTemplate(w, "index.html", nil); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "index.html", nil)
 }
 
 func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -587,16 +598,13 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		FileNotFound bool
 		LibraryPath  string
 	}{video, tags, allTags, fileNotFound, strings.TrimSpace(libPath)}
-	if err := templates.ExecuteTemplate(w, "player.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "player.html", data)
 }
 
 
 func (s *server) handleVideoFile(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -608,9 +616,8 @@ func (s *server) handleVideoFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleUpdateVideoName(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	name := r.FormValue("name")
@@ -632,9 +639,8 @@ func (s *server) handleUpdateVideoName(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleVideoTags(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	tags, err := s.store.ListTagsByVideo(r.Context(), id)
@@ -642,18 +648,15 @@ func (s *server) handleVideoTags(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := templates.ExecuteTemplate(w, "video_tags.html", struct {
+	render(w, "video_tags.html", struct {
 		VideoID int64
 		Tags    []store.Tag
-	}{id, tags}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	}{id, tags})
 }
 
 func (s *server) handleAddVideoTag(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	tagName := strings.TrimSpace(r.FormValue("tag"))
@@ -679,18 +682,15 @@ func (s *server) handleAddVideoTag(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		s.syncTagsToFile(r.Context(), video)
 	}
-	if err := templates.ExecuteTemplate(w, "video_tags.html", struct {
+	render(w, "video_tags.html", struct {
 		VideoID int64
 		Tags    []store.Tag
-	}{id, tags}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	}{id, tags})
 }
 
 func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	tagID, err := strconv.ParseInt(chi.URLParam(r, "tagID"), 10, 64)
@@ -702,7 +702,9 @@ func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.store.PruneOrphanTags(r.Context()) //nolint:errcheck
+	if err := s.store.PruneOrphanTags(r.Context()); err != nil {
+		log.Printf("prune orphan tags: %v", err)
+	}
 	tags, err := s.store.ListTagsByVideo(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -712,18 +714,15 @@ func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		s.syncTagsToFile(r.Context(), video)
 	}
-	if err := templates.ExecuteTemplate(w, "video_tags.html", struct {
+	render(w, "video_tags.html", struct {
 		VideoID int64
 		Tags    []store.Tag
-	}{id, tags}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	}{id, tags})
 }
 
 func (s *server) handleVideoDeleteConfirm(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -731,29 +730,27 @@ func (s *server) handleVideoDeleteConfirm(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if err := templates.ExecuteTemplate(w, "video_delete_confirm.html", video); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "video_delete_confirm.html", video)
 }
 
 func (s *server) handleDeleteVideo(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	if err := s.store.DeleteVideo(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.store.PruneOrphanTags(r.Context()) //nolint:errcheck
+	if err := s.store.PruneOrphanTags(r.Context()); err != nil {
+		log.Printf("prune orphan tags: %v", err)
+	}
 	s.serveVideoList(w, r)
 }
 
 func (s *server) handleDeleteVideoAndFile(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -772,9 +769,8 @@ func (s *server) handleDeleteVideoAndFile(w http.ResponseWriter, r *http.Request
 }
 
 func (s *server) handleRelocateVideo(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	newPath := r.FormValue("newpath")
@@ -886,15 +882,12 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 		Groups  []videoGroup
 		History map[int64]store.WatchRecord
 	}{groupVideosByDir(videos), history}
-	if err := templates.ExecuteTemplate(w, "video_list.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "video_list.html", data)
 }
 
 func (s *server) handlePostProgress(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	pos, _ := strconv.ParseFloat(r.FormValue("position"), 64)
@@ -906,9 +899,8 @@ func (s *server) handlePostProgress(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -927,9 +919,8 @@ func (s *server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
 // handleMarkWatched manually marks a video as watched and refreshes the
 // video list so the ✓ indicator updates immediately.
 func (s *server) handleMarkWatched(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	if err := s.store.RecordWatch(r.Context(), id, 1); err != nil {
@@ -940,9 +931,8 @@ func (s *server) handleMarkWatched(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleClearProgress(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	if err := s.store.ClearWatch(r.Context(), id); err != nil {
@@ -953,9 +943,8 @@ func (s *server) handleClearProgress(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleCopyToLibrary(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	libPath, _ := s.store.GetSetting(r.Context(), "library_path")
@@ -1199,9 +1188,7 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Return a progress container that streams output via SSE.
-	if err := templates.ExecuteTemplate(w, "ytdlp_progress.html", jobID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "ytdlp_progress.html", jobID)
 }
 
 // handleYTDLPJobEvents streams yt-dlp output for a background download job
@@ -1254,9 +1241,8 @@ var convertFormats = map[string]convertFormat{
 }
 
 func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	format := strings.ToLower(strings.TrimSpace(r.FormValue("format")))
@@ -1322,9 +1308,8 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -1371,9 +1356,8 @@ func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleSetRating(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	// Verify the video exists before updating (SetVideoRating is a blind UPDATE).
@@ -1396,15 +1380,12 @@ func (s *server) handleSetRating(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := templates.ExecuteTemplate(w, "rating_buttons.html", video); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "rating_buttons.html", video)
 }
 
 func (s *server) handleGetMetadata(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -1425,15 +1406,12 @@ func (s *server) handleGetMetadata(w http.ResponseWriter, r *http.Request) {
 		Native  metadata.Meta
 		Streams []metadata.Stream
 	}{id, native, streams}
-	if err := templates.ExecuteTemplate(w, "file_metadata.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "file_metadata.html", data)
 }
 
 func (s *server) handleEditMetadata(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -1449,15 +1427,12 @@ func (s *server) handleEditMetadata(w http.ResponseWriter, r *http.Request) {
 		VideoID int64
 		Native  metadata.Meta
 	}{id, native}
-	if err := templates.ExecuteTemplate(w, "file_metadata_edit.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "file_metadata_edit.html", data)
 }
 
 func (s *server) handleUpdateMetadata(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -1494,9 +1469,7 @@ func (s *server) handleUpdateMetadata(w http.ResponseWriter, r *http.Request) {
 		VideoID int64
 		Native  metadata.Meta
 	}{id, native}
-	if err := templates.ExecuteTemplate(w, "file_metadata.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "file_metadata.html", data)
 }
 
 func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
@@ -1505,15 +1478,12 @@ func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := templates.ExecuteTemplate(w, "tags.html", tags); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "tags.html", tags)
 }
 
 func (s *server) handleDirectoryDeleteConfirm(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	dir, err := s.store.GetDirectory(r.Context(), id)
@@ -1521,15 +1491,12 @@ func (s *server) handleDirectoryDeleteConfirm(w http.ResponseWriter, r *http.Req
 		http.Error(w, "directory not found", http.StatusNotFound)
 		return
 	}
-	if err := templates.ExecuteTemplate(w, "directory_delete_confirm.html", dir); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "directory_delete_confirm.html", dir)
 }
 
 func (s *server) handleDeleteDirectoryAndFiles(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	// Atomically delete all video records and the directory in a single
@@ -1621,9 +1588,8 @@ func tmdbGet(apiKey, path string, out any) error {
 }
 
 func (s *server) handleLookupModal(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	apiKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
@@ -1631,15 +1597,12 @@ func (s *server) handleLookupModal(w http.ResponseWriter, r *http.Request) {
 		VideoID int64
 		HasKey  bool
 	}{id, apiKey != ""}
-	if err := templates.ExecuteTemplate(w, "lookup_modal.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "lookup_modal.html", data)
 }
 
 func (s *server) handleLookupSearch(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	apiKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
@@ -1672,15 +1635,12 @@ func (s *server) handleLookupSearch(w http.ResponseWriter, r *http.Request) {
 		VideoID int64
 		Results []tmdbSearchResult
 	}{id, result.Results}
-	if err := templates.ExecuteTemplate(w, "lookup_results.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "lookup_results.html", data)
 }
 
 func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
@@ -1770,9 +1730,7 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 		VideoID int64
 		Native  metadata.Meta
 	}{id, native}
-	if err := templates.ExecuteTemplate(w, "file_metadata.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "file_metadata.html", data)
 }
 
 func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -1791,9 +1749,7 @@ func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		HasTMDBKey:     tmdbKey != "",
 		LibraryPath:    libPath,
 	}
-	if err := templates.ExecuteTemplate(w, "settings.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "settings.html", data)
 }
 
 func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
@@ -1838,19 +1794,12 @@ func (s *server) serveDirList(w http.ResponseWriter, r *http.Request) {
 		Dirs    []store.Directory
 		Syncing map[int64]bool
 	}{dirs, syncing}
-	if err := templates.ExecuteTemplate(w, "directories.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *server) handleListDirectories(w http.ResponseWriter, r *http.Request) {
-	s.serveDirList(w, r)
+	render(w, "directories.html", data)
 }
 
 func (s *server) handleSyncDirectory(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	dir, err := s.store.GetDirectory(r.Context(), id)
@@ -1868,9 +1817,7 @@ func (s *server) handleDirectoryOptions(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := templates.ExecuteTemplate(w, "directory_options.html", dirs); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "directory_options.html", dirs)
 }
 
 // addAndSyncDir registers path in the DB, starts an async sync, then renders
@@ -1924,9 +1871,8 @@ func (s *server) handleAddDirectory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	if err := s.store.DeleteDirectory(r.Context(), id); err != nil {
@@ -1986,17 +1932,14 @@ func (s *server) handleBrowseFS(w http.ResponseWriter, r *http.Request) {
 		Entries []string
 	}{path, parent, dirs}
 
-	if err := templates.ExecuteTemplate(w, "dir_browser.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "dir_browser.html", data)
 }
 
 // --- P2P sharing ---
 
 func (s *server) handleSharePanel(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	if _, err := s.store.GetVideo(r.Context(), id); err != nil {
@@ -2016,9 +1959,7 @@ func (s *server) handleSharePanel(w http.ResponseWriter, r *http.Request) {
 		VideoID int64
 		Links   []string
 	}{id, links}
-	if err := templates.ExecuteTemplate(w, "share_panel.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "share_panel.html", data)
 }
 
 // dupGroup holds a set of videos that appear to be duplicates (same filename + size).
@@ -2058,9 +1999,7 @@ func (s *server) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
 		groups = append(groups, dupGroup{Filename: k.name, SizeMB: sizeMB, Videos: vs})
 	}
 
-	if err := templates.ExecuteTemplate(w, "duplicates.html", groups); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "duplicates.html", groups)
 }
 
 func (s *server) handleNextUnwatched(w http.ResponseWriter, r *http.Request) {
@@ -2085,20 +2024,16 @@ func (s *server) handleRandomVideoID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleTrimPanel(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
-	if err := templates.ExecuteTemplate(w, "trim_panel.html", id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "trim_panel.html", id)
 }
 
 func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseIDParam(w, r)
+	if !ok {
 		return
 	}
 	video, err := s.store.GetVideo(r.Context(), id)
