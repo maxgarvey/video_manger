@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -147,7 +148,7 @@ func (s *server) handleUpdateVideoName(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("write title metadata failed", "path", video.FilePath(), "err", err)
 		}
 	}
-	w.Write([]byte(video.Title())) //nolint
+	w.Write([]byte(html.EscapeString(video.Title()))) //nolint:errcheck
 }
 
 func (s *server) handleVideoTags(w http.ResponseWriter, r *http.Request) {
@@ -297,7 +298,7 @@ func (s *server) handleRelocateVideo(w http.ResponseWriter, r *http.Request) {
 	newDir := filepath.Dir(newPath)
 	newFilename := filepath.Base(newPath)
 
-	// Find or create a directory record for the parent dir.
+	// Restrict relocation to paths under a registered directory for security.
 	dirs, err := s.store.ListDirectories(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -305,12 +306,27 @@ func (s *server) handleRelocateVideo(w http.ResponseWriter, r *http.Request) {
 	}
 	var dirID int64
 	for _, d := range dirs {
-		if d.Path == newDir {
-			dirID = d.ID
+		if d.Path == newDir || strings.HasPrefix(newDir, d.Path+string(filepath.Separator)) {
+			if d.Path == newDir {
+				dirID = d.ID
+			}
 			break
 		}
 	}
 	if dirID == 0 {
+		// newDir is under a registered directory but is itself a sub-folder;
+		// register it so the video is tracked.
+		underRegistered := false
+		for _, d := range dirs {
+			if strings.HasPrefix(newDir, d.Path+string(filepath.Separator)) {
+				underRegistered = true
+				break
+			}
+		}
+		if !underRegistered {
+			http.Error(w, "new path must be inside a registered library directory", http.StatusForbidden)
+			return
+		}
 		dir, err := s.store.AddDirectory(r.Context(), newDir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -568,16 +584,41 @@ func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try a fast rename first; fall back to copy+remove for cross-device moves.
+	crossDevice := false
 	if err := os.Rename(src, dst); err != nil {
+		crossDevice = true
 		if err2 := copyFile(src, dst); err2 != nil {
 			http.Error(w, "move failed: "+err2.Error(), http.StatusInternalServerError)
 			return
 		}
-		os.Remove(src) //nolint:errcheck
 	}
 
 	if err := s.store.UpdateVideoPath(r.Context(), id, destDirID, destDirPath, video.Filename); err != nil {
-		slog.Error("update video path failed", "err", err)
+		// DB update failed after the file has already been copied/moved.
+		// Attempt to roll back the filesystem change so nothing is left inconsistent.
+		if crossDevice {
+			if rb := os.Rename(dst, src); rb != nil {
+				slog.Error("move rollback failed: file is at dst but DB was not updated",
+					"src", src, "dst", dst, "dbErr", err, "rbErr", rb)
+			} else {
+				os.Remove(dst) //nolint:errcheck
+			}
+		} else {
+			// Rename was atomic; move it back.
+			if rb := os.Rename(dst, src); rb != nil {
+				slog.Error("move rollback failed", "src", src, "dst", dst, "dbErr", err, "rbErr", rb)
+			}
+		}
+		http.Error(w, "move failed (database update): "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// For cross-device moves, now that the DB is consistent, remove the source.
+	if crossDevice {
+		if err := os.Remove(src); err != nil {
+			slog.Warn("cross-device move: could not remove source after successful DB update",
+				"src", src, "err", err)
+		}
 	}
 
 	// Sync both directories so the library reflects the change.
