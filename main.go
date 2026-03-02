@@ -178,10 +178,13 @@ func main() {
 	slog.Info("shutting down")
 	stop()
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Give in-flight short requests a moment to finish, then force-close.
+	// Long-lived connections (video streams, SSE) would otherwise block for
+	// the full timeout, so we close immediately after the grace period.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("graceful shutdown failed", "err", err)
+		httpSrv.Close() //nolint:errcheck
 	}
 	s.Close() //nolint:errcheck
 }
