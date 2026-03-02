@@ -1118,6 +1118,64 @@ func (s *server) handleUpdateMetadata(w http.ResponseWriter, r *http.Request) {
 	render(w, "file_metadata.html", data)
 }
 
+// --- Standardised video fields (genre / season / episode / actors / studio / channel) ---
+
+func (s *server) handleGetVideoFields(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDParam(w, r)
+	if !ok {
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
+	render(w, "video_fields.html", video)
+}
+
+func (s *server) handleEditVideoFields(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDParam(w, r)
+	if !ok {
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
+	render(w, "video_fields_edit.html", video)
+}
+
+func (s *server) handleUpdateVideoFields(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDParam(w, r)
+	if !ok {
+		return
+	}
+	parseInt := func(key string) int {
+		n, _ := strconv.Atoi(r.FormValue(key))
+		return n
+	}
+	f := store.VideoFields{
+		Genre:         r.FormValue("genre"),
+		SeasonNumber:  parseInt("season_number"),
+		EpisodeNumber: parseInt("episode_number"),
+		EpisodeTitle:  r.FormValue("episode_title"),
+		Actors:        r.FormValue("actors"),
+		Studio:        r.FormValue("studio"),
+		Channel:       r.FormValue("channel"),
+	}
+	if err := s.store.UpdateVideoFields(r.Context(), id, f); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	video, err := s.store.GetVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, "video not found", http.StatusNotFound)
+		return
+	}
+	render(w, "video_fields.html", video)
+}
+
 func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
 	tags, err := s.store.ListTags(r.Context())
 	if err != nil {
@@ -1305,6 +1363,7 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 	tmdbID := r.FormValue("tmdb_id")
 
 	var u metadata.Updates
+	var dbFields store.VideoFields
 	switch mediaType {
 	case "movie":
 		var detail tmdbMovieDetail
@@ -1323,6 +1382,7 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 			Genre:       &genre,
 			Date:        &detail.Release,
 		}
+		dbFields = store.VideoFields{Genre: genre}
 	case "tv":
 		seasonStr := r.FormValue("season")
 		episodeStr := r.FormValue("episode")
@@ -1351,6 +1411,12 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 			EpisodeNum:  &episodeNumStr,
 			Date:        &ep.AirDate,
 		}
+		dbFields = store.VideoFields{
+			SeasonNumber:  ep.SeasonNum,
+			EpisodeNumber: ep.EpisodeNum,
+			EpisodeTitle:  ep.Name,
+			Channel:       series.Name,
+		}
 	default:
 		http.Error(w, "media_type must be movie or tv", http.StatusBadRequest)
 		return
@@ -1368,6 +1434,11 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.UpdateVideoName(r.Context(), id, *u.Title); err != nil {
 			slog.Warn("update display_name after TMDB apply failed", "videoID", id, "err", err)
 		}
+	}
+
+	// Persist genre/season/episode fields to DB.
+	if err := s.store.UpdateVideoFields(r.Context(), id, dbFields); err != nil {
+		slog.Warn("update video fields after TMDB apply failed", "videoID", id, "err", err)
 	}
 
 	// Refresh the metadata view.

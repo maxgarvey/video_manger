@@ -184,6 +184,11 @@
        hx-get="/videos/{{.Video.ID}}/metadata"
        hx-trigger="load"></div>
 
+  <!-- Standardised descriptive fields (genre / season / actors / studio / channel) -->
+  <div hx-get="/videos/{{.Video.ID}}/fields"
+       hx-trigger="load"
+       hx-swap="outerHTML"></div>
+
   <!-- Copy to library -->
   {{if .LibraryPath}}
   <div style="display:flex;gap:0.4rem;align-items:center;padding-top:0.25rem">

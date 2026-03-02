@@ -206,6 +206,11 @@ func (s *server) routes() http.Handler {
 	r.Get("/videos/{id}/metadata/edit", s.handleEditMetadata)
 	r.Put("/videos/{id}/metadata", s.handleUpdateMetadata)
 
+	// Standardised descriptive fields (genre, season/episode, actors, studio, channel)
+	r.Get("/videos/{id}/fields", s.handleGetVideoFields)
+	r.Get("/videos/{id}/fields/edit", s.handleEditVideoFields)
+	r.Put("/videos/{id}/fields", s.handleUpdateVideoFields)
+
 	// Tags
 	r.Get("/videos/{id}/tags", s.handleVideoTags)
 	r.Post("/videos/{id}/tags", s.handleAddVideoTag)

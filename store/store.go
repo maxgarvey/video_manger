@@ -21,6 +21,31 @@ type Video struct {
 	DisplayName      string
 	Rating           int    // 0=neutral, 1=liked, 2=double-liked
 	OriginalFilename string // filename at first import; never changed on rename/move
+	// Standardised descriptive fields (see VideoFields).
+	Genre         string
+	SeasonNumber  int
+	EpisodeNumber int
+	EpisodeTitle  string
+	Actors        string
+	Studio        string
+	Channel       string
+}
+
+// VideoFields holds the editable standardised descriptive fields for a video.
+type VideoFields struct {
+	Genre         string
+	SeasonNumber  int
+	EpisodeNumber int
+	EpisodeTitle  string
+	Actors        string
+	Studio        string
+	Channel       string
+}
+
+// HasFields reports whether any standardised field is populated.
+func (v Video) HasFields() bool {
+	return v.Genre != "" || v.SeasonNumber > 0 || v.EpisodeNumber > 0 ||
+		v.EpisodeTitle != "" || v.Actors != "" || v.Studio != "" || v.Channel != ""
 }
 
 // Title returns the display name if set, otherwise the filename.
@@ -73,6 +98,7 @@ type Store interface {
 	SetVideoRating(ctx context.Context, id int64, rating int) error
 	DeleteVideo(ctx context.Context, id int64) error
 	UpdateVideoPath(ctx context.Context, id, dirID int64, dirPath, filename string) error
+	UpdateVideoFields(ctx context.Context, id int64, f VideoFields) error
 	ListVideosByMinRating(ctx context.Context, minRating int) ([]Video, error)
 	SearchVideos(ctx context.Context, query string) ([]Video, error)
 	ListVideosByRating(ctx context.Context) ([]Video, error)

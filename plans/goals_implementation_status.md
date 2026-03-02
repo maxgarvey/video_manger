@@ -103,3 +103,13 @@ Ordered by complexity (easiest first).
 | 62 | 2 | Don't display "Loading…" on first load when no videos available | ✅ Done |
 | 63 | 1 | Delete video from the player info panel | ✅ Done |
 | 64 | 3 | Move video to a different directory (with optional new sub-folder) | ✅ Done |
+
+## Round 7 — New TODOs
+
+Ordered by complexity (easiest first).
+
+| # | TODOS # | Feature | Status |
+|---|---------|---------|--------|
+| 65 | 1 | Close open tab when video deleted from library list | ✅ Done |
+| 66 | 2 | Store original filename at import time | ✅ Done |
+| 67 | 3 | Standardised fields: genre, season/episode, actors, studio, channel | ✅ Done |
