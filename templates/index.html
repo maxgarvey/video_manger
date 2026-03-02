@@ -174,6 +174,7 @@
     .btn-success:hover { background: #1e4a1e; }
     .btn-ghost { background: none; border-color: #3a3a3a; color: #666; }
     .btn-ghost:hover { background: #1e1e1e; }
+    .btn-active-filter { background: #2a3a2a; border-color: #4a7a4a; color: #8f8; }
     .btn-icon { background: none; border: none; color: #555; padding: 0.2rem 0.35rem; line-height: 1; }
     .btn-icon:hover { background: none; color: #888; }
     .tag-filter-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
@@ -355,18 +356,13 @@
       </details>
       <section>
         <h2>Filter by Rating</h2>
+        <input type="hidden" id="active-rating" value="">
         <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
-          <button class="btn-sm"
-            hx-get="/videos"
-            hx-target="#video-list"
-            hx-vals='{"rating":"1"}'
-            onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value=''"
+          <button class="btn-sm" id="rating-btn-1"
+            onclick="toggleRatingFilter(1)"
             style="border-radius:12px">👍 Liked</button>
-          <button class="btn-sm"
-            hx-get="/videos"
-            hx-target="#video-list"
-            hx-vals='{"rating":"2"}'
-            onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value=''"
+          <button class="btn-sm" id="rating-btn-2"
+            onclick="toggleRatingFilter(2)"
             style="border-radius:12px">⭐ Favs</button>
         </div>
       </section>
@@ -374,7 +370,7 @@
         <h2>Filter by Tag</h2>
         <div id="tag-filters" hx-get="/tags" hx-trigger="load"></div>
         <button hx-get="/videos" hx-target="#video-list"
-          onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value=''"
+          onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value='';document.getElementById('active-rating').value='';updateRatingBtns()"
           style="margin-top:0.4rem;width:100%">Show all</button>
       </section>
     </div>
@@ -660,6 +656,30 @@
         });
       });
     })();
+
+    // ── Rating filter toggle ────────────────────────────────────────
+    function toggleRatingFilter(rating) {
+      var ar = document.getElementById('active-rating');
+      if (ar.value == rating) {
+        // Already active — clicking again clears the filter.
+        ar.value = '';
+        htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+      } else {
+        ar.value = rating;
+        document.getElementById('video-search').value = '';
+        document.getElementById('active-tag').value = '';
+        htmx.ajax('GET', '/videos?rating=' + rating, {target: '#video-list', swap: 'innerHTML'});
+      }
+      updateRatingBtns();
+    }
+
+    function updateRatingBtns() {
+      var ar = document.getElementById('active-rating').value;
+      [1, 2].forEach(function(r) {
+        var btn = document.getElementById('rating-btn-' + r);
+        if (btn) btn.classList.toggle('btn-active-filter', String(r) === String(ar));
+      });
+    }
 
     // Keyboard shortcuts: L=library  I=scroll-to-info  S=settings  Esc=close all
     document.addEventListener('keydown', function(e) {
