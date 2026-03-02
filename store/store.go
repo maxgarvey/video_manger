@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"time"
 )
 
 // Directory represents a registered video directory.
@@ -63,6 +64,7 @@ type Store interface {
 	// Video management
 	UpsertVideo(ctx context.Context, dirID int64, dirPath string, filename string) (Video, error)
 	ListVideos(ctx context.Context) ([]Video, error)
+	CountVideos(ctx context.Context) (int, error)
 	ListVideosByTag(ctx context.Context, tagID int64) ([]Video, error)
 	ListVideosByDirectory(ctx context.Context, dirID int64) ([]Video, error)
 	GetVideo(ctx context.Context, id int64) (Video, error)
@@ -75,6 +77,12 @@ type Store interface {
 	ListVideosByRating(ctx context.Context) ([]Video, error)
 	GetRandomVideo(ctx context.Context) (Video, error)
 	GetNextUnwatched(ctx context.Context, tagID int64) (Video, error)
+
+	// Session persistence (used when password auth is enabled)
+	SaveSession(ctx context.Context, token string, expiry time.Time) error
+	DeleteSession(ctx context.Context, token string) error
+	LoadSessions(ctx context.Context) (map[string]time.Time, error)
+	PruneExpiredSessions(ctx context.Context) error
 
 	// Settings
 	GetSetting(ctx context.Context, key string) (string, error)

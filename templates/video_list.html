@@ -38,6 +38,27 @@
 </ul>
 {{if $multi}}</details>{{end}}
 {{end}}
+{{if gt .Total .PageSize}}
+<div style="display:flex;align-items:center;justify-content:space-between;padding:0.4rem 0.2rem;font-size:0.75rem;color:#666;border-top:1px solid #2a2a2a;margin-top:0.4rem">
+  <span>{{.Total}} total · page {{.Page}}</span>
+  <div style="display:flex;gap:0.3rem">
+    {{if gt .Page 1}}
+    <button class="btn-sm"
+      hx-get="/videos?page={{add .Page -1}}&limit={{.PageSize}}"
+      hx-target="#video-list" hx-swap="innerHTML"
+      style="font-size:0.72rem;padding:0.2rem 0.5rem"
+    >‹ prev</button>
+    {{end}}
+    {{if lt (mul .Page .PageSize) .Total}}
+    <button class="btn-sm"
+      hx-get="/videos?page={{add .Page 1}}&limit={{.PageSize}}"
+      hx-target="#video-list" hx-swap="innerHTML"
+      style="font-size:0.72rem;padding:0.2rem 0.5rem"
+    >next ›</button>
+    {{end}}
+  </div>
+</div>
+{{end}}
 {{else}}
 <p style="color:#555;font-size:0.85rem">No videos found.<br>Add a directory to get started.</p>
 {{end}}

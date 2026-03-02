@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/maxgarvey/video_manger/db"
 	_ "modernc.org/sqlite"
@@ -145,6 +146,12 @@ func (s *SQLiteStore) ListVideos(ctx context.Context) ([]Video, error) {
 	return scanVideos(rows)
 }
 
+func (s *SQLiteStore) CountVideos(ctx context.Context) (int, error) {
+	var n int
+	err := s.conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM videos`).Scan(&n)
+	return n, err
+}
+
 func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.rating
@@ -269,8 +276,25 @@ func (s *SQLiteStore) ListVideosByMinRating(ctx context.Context, minRating int) 
 }
 
 func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, error) {
-	// Escape LIKE special characters so a user query of "%" or "_" is treated
-	// literally and doesn't inadvertently match all rows.
+	// The FTS5 trigram tokenizer requires ≥ 3 characters to form any trigrams.
+	// For short queries fall back to LIKE, which is fast enough at that scale.
+	if len([]rune(query)) >= 3 {
+		// Wrap in FTS5 phrase quotes so spaces and punctuation are treated
+		// literally (equivalent to LIKE '%query%' with the trigram tokenizer).
+		ftsQuery := `"` + strings.ReplaceAll(query, `"`, `""`) + `"`
+		rows, err := s.conn.QueryContext(ctx, `
+			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.rating
+			FROM videos v
+			JOIN videos_fts ON videos_fts.rowid = v.id
+			WHERE videos_fts MATCH ?
+			ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename)
+		`, ftsQuery)
+		if err == nil {
+			return scanVideos(rows)
+		}
+		// FTS table unavailable — fall through to LIKE.
+	}
+	// LIKE fallback: escape special chars so they are treated literally.
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT id, filename, directory_id, directory_path, display_name, rating
@@ -389,6 +413,46 @@ func (s *SQLiteStore) SaveSettings(ctx context.Context, pairs map[string]string)
 		}
 	}
 	return tx.Commit()
+}
+
+// --- Sessions ---
+
+func (s *SQLiteStore) SaveSession(ctx context.Context, token string, expiry time.Time) error {
+	_, err := s.conn.ExecContext(ctx,
+		`INSERT INTO sessions (token, expires_at) VALUES (?, ?)
+		 ON CONFLICT (token) DO UPDATE SET expires_at = excluded.expires_at`,
+		token, expiry.Unix())
+	return err
+}
+
+func (s *SQLiteStore) DeleteSession(ctx context.Context, token string) error {
+	_, err := s.conn.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, token)
+	return err
+}
+
+func (s *SQLiteStore) LoadSessions(ctx context.Context) (map[string]time.Time, error) {
+	rows, err := s.conn.QueryContext(ctx,
+		`SELECT token, expires_at FROM sessions WHERE expires_at > ?`, time.Now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := make(map[string]time.Time)
+	for rows.Next() {
+		var token string
+		var ts int64
+		if err := rows.Scan(&token, &ts); err != nil {
+			return nil, err
+		}
+		m[token] = time.Unix(ts, 0)
+	}
+	return m, rows.Err()
+}
+
+func (s *SQLiteStore) PruneExpiredSessions(ctx context.Context) error {
+	_, err := s.conn.ExecContext(ctx,
+		`DELETE FROM sessions WHERE expires_at <= ?`, time.Now().Unix())
+	return err
 }
 
 // --- Watch history ---

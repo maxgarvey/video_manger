@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -43,6 +44,8 @@ var templateFS embed.FS
 var templates = template.Must(template.New("").Funcs(template.FuncMap{
 	"base":    filepath.Base,
 	"reltime": reltime,
+	"add":     func(a, b int) int { return a + b },
+	"mul":     func(a, b int) int { return a * b },
 	"ext": func(filename string) string {
 		e := filepath.Ext(filename)
 		if len(e) > 1 {
@@ -51,6 +54,14 @@ var templates = template.Must(template.New("").Funcs(template.FuncMap{
 		return e
 	},
 }).ParseFS(templateFS, "templates/*.html"))
+
+// Server tunables – change these to adjust behaviour without recompiling.
+const (
+	sessionTTL        = 7 * 24 * time.Hour // session cookie lifetime
+	sessionPruneEvery = time.Hour           // how often to run the session pruner
+	libraryPollEvery  = 60 * time.Second    // how often to re-scan directories
+	convertConcurrent = 2                   // max concurrent ffmpeg/yt-dlp processes
+)
 
 // reltime formats a SQLite datetime string (UTC, "2006-01-02 15:04:05") as a
 // human-readable relative duration: "just now", "5 mins ago", "yesterday", "Jan 2".
@@ -171,7 +182,7 @@ func main() {
 		mdnsName:    "video-manger.local",
 		sessions:    make(map[string]time.Time),
 		syncingDirs: make(map[int64]struct{}),
-		convertSem:  make(chan struct{}, 2),
+		convertSem:  make(chan struct{}, convertConcurrent),
 		jobs:        make(map[string]*ytdlpJob),
 	}
 	if *password != "" {
@@ -180,13 +191,18 @@ func main() {
 			log.Fatalf("hash password: %v", err)
 		}
 		srv.passwordHash = hash
-		log.Println("Password protection enabled")
+		slog.Info("password protection enabled")
+	}
+
+	// Restore persisted sessions so logins survive a server restart.
+	if savedSessions, err := srv.store.LoadSessions(context.Background()); err == nil {
+		srv.sessions = savedSessions
 	}
 
 	if *dir != "" {
 		d, err := srv.store.AddDirectory(context.Background(), *dir)
 		if err != nil {
-			log.Printf("warning: could not register dir %s: %v", *dir, err)
+			slog.Warn("could not register startup dir", "path", *dir, "err", err)
 		} else {
 			srv.syncDir(d)
 		}
@@ -195,10 +211,10 @@ func main() {
 	portInt, _ := strconv.Atoi(*port) // zero is fine; zeroconf is best-effort
 	mdns, err := zeroconf.Register("video-manger", "_http._tcp", "local.", portInt, nil, nil)
 	if err != nil {
-		log.Printf("mDNS register: %v (continuing without mDNS)", err)
+		slog.Warn("mDNS register failed", "err", err)
 	} else {
 		defer mdns.Shutdown()
-		log.Printf("  mDNS: http://video-manger.local:%s", *port)
+		slog.Info("mDNS registered", "url", "http://video-manger.local:"+*port)
 	}
 
 	checkBinaries()
@@ -212,23 +228,23 @@ func main() {
 	httpSrv := &http.Server{Addr: ":" + *port, Handler: srv.routes()}
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("listen: %v", err)
+			slog.Error("HTTP server error", "err", err)
 		}
 	}()
 
-	log.Printf("Starting server on http://localhost:%s", *port)
+	slog.Info("server started", "url", "http://localhost:"+*port)
 	for _, addr := range localAddresses(*port) {
-		log.Printf("  LAN: %s", addr)
+		slog.Info("LAN address", "url", addr)
 	}
 
 	<-ctx.Done()
-	log.Println("Shutting down…")
+	slog.Info("shutting down")
 	stop()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("shutdown: %v", err)
+		slog.Error("graceful shutdown failed", "err", err)
 	}
 	s.Close() //nolint:errcheck
 }
@@ -276,9 +292,14 @@ func (s *server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := hex.EncodeToString(raw)
+	expiry := time.Now().Add(sessionTTL)
 	s.sessionsMu.Lock()
-	s.sessions[token] = time.Now().Add(7 * 24 * time.Hour)
+	s.sessions[token] = expiry
 	s.sessionsMu.Unlock()
+	// Persist session to DB so it survives a server restart.
+	if err := s.store.SaveSession(r.Context(), token, expiry); err != nil {
+		slog.Warn("persist session failed", "err", err)
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    token,
@@ -294,6 +315,7 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.sessionsMu.Lock()
 		delete(s.sessions, cookie.Value)
 		s.sessionsMu.Unlock()
+		_ = s.store.DeleteSession(r.Context(), cookie.Value)
 	}
 	http.SetCookie(w, &http.Cookie{Name: "session", Value: "", Path: "/", MaxAge: -1})
 	http.Redirect(w, r, "/login", http.StatusFound)
@@ -303,6 +325,7 @@ func (s *server) routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(middleware.Compress(5))
 	r.Use(s.authMiddleware)
 
 	r.Get("/login", s.handleLoginPage)
@@ -402,7 +425,7 @@ func (s *server) routes() http.Handler {
 func (s *server) syncDir(d store.Directory) {
 	if err := filepath.WalkDir(d.Path, func(path string, de fs.DirEntry, err error) error {
 		if err != nil {
-			log.Printf("sync walk %s: %v", path, err)
+			slog.Warn("sync walk error", "path", path, "err", err)
 			return nil // keep walking
 		}
 		if de.IsDir() || !isVideoFile(de.Name()) {
@@ -411,39 +434,39 @@ func (s *server) syncDir(d store.Directory) {
 		dir := filepath.Dir(path)
 		v, err := s.store.UpsertVideo(context.Background(), d.ID, dir, de.Name())
 		if err != nil {
-			log.Printf("upsert %s: %v", path, err)
+			slog.Warn("upsert video failed", "path", path, "err", err)
 			return nil
 		}
 		if v.DisplayName == "" {
 			if meta, err := metadata.Read(path); err == nil && meta.Title != "" {
 				if err := s.store.UpdateVideoName(context.Background(), v.ID, meta.Title); err != nil {
-					log.Printf("set native title %s: %v", path, err)
+					slog.Warn("set native title failed", "path", path, "err", err)
 				}
 			}
 		}
 		// Auto-tag with the registered directory's base name.
 		dirTag, err := s.store.UpsertTag(context.Background(), filepath.Base(d.Path))
 		if err != nil {
-			log.Printf("upsert dir tag %s: %v", d.Path, err)
+			slog.Warn("upsert dir tag failed", "dir", d.Path, "err", err)
 		} else if err := s.store.TagVideo(context.Background(), v.ID, dirTag.ID); err != nil {
-			log.Printf("tag video %d with dir tag: %v", v.ID, err)
+			slog.Warn("tag video with dir tag failed", "videoID", v.ID, "err", err)
 		}
 		return nil
 	}); err != nil {
-		log.Printf("syncDir walk %s: %v", d.Path, err)
+		slog.Error("syncDir walk failed", "path", d.Path, "err", err)
 	}
 
 	// Prune DB records for files that no longer exist on disk.
 	existing, err := s.store.ListVideosByDirectory(context.Background(), d.ID)
 	if err != nil {
-		log.Printf("syncDir list videos %s: %v", d.Path, err)
+		slog.Error("syncDir list videos failed", "path", d.Path, "err", err)
 		return
 	}
 	for _, v := range existing {
 		if _, err := os.Stat(v.FilePath()); os.IsNotExist(err) {
-			log.Printf("syncDir: removing stale entry %s", v.FilePath())
+			slog.Info("syncDir: removing stale entry", "path", v.FilePath())
 			if err := s.store.DeleteVideo(context.Background(), v.ID); err != nil {
-				log.Printf("syncDir: delete video %d: %v", v.ID, err)
+				slog.Error("syncDir: delete stale video failed", "videoID", v.ID, "err", err)
 			}
 		}
 	}
@@ -453,7 +476,7 @@ func (s *server) syncDir(d store.Directory) {
 // directories every 60 s so newly added files are picked up automatically.
 // Directories that are already being synced are skipped to avoid races.
 func (s *server) startLibraryPoller(ctx context.Context) {
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(libraryPollEvery)
 	defer ticker.Stop()
 	for {
 		select {
@@ -462,7 +485,7 @@ func (s *server) startLibraryPoller(ctx context.Context) {
 		case <-ticker.C:
 			dirs, err := s.store.ListDirectories(ctx)
 			if err != nil {
-				log.Printf("library poll: list dirs: %v", err)
+				slog.Error("library poll: list dirs failed", "err", err)
 				continue
 			}
 			for _, d := range dirs {
@@ -479,7 +502,7 @@ func (s *server) startLibraryPoller(ctx context.Context) {
 
 // startSessionPruner removes expired sessions once per hour.
 func (s *server) startSessionPruner(ctx context.Context) {
-	ticker := time.NewTicker(time.Hour)
+	ticker := time.NewTicker(sessionPruneEvery)
 	defer ticker.Stop()
 	for {
 		select {
@@ -494,6 +517,9 @@ func (s *server) startSessionPruner(ctx context.Context) {
 				}
 			}
 			s.sessionsMu.Unlock()
+			if err := s.store.PruneExpiredSessions(ctx); err != nil {
+				slog.Warn("prune expired sessions failed", "err", err)
+			}
 		}
 	}
 }
@@ -502,7 +528,7 @@ func (s *server) startSessionPruner(ctx context.Context) {
 func (s *server) syncTagsToFile(ctx context.Context, video store.Video) {
 	tags, err := s.store.ListTagsByVideo(ctx, video.ID)
 	if err != nil {
-		log.Printf("syncTagsToFile list tags %d: %v", video.ID, err)
+		slog.Warn("syncTagsToFile: list tags failed", "videoID", video.ID, "err", err)
 		return
 	}
 	names := make([]string, len(tags))
@@ -510,7 +536,7 @@ func (s *server) syncTagsToFile(ctx context.Context, video store.Video) {
 		names[i] = t.Name
 	}
 	if err := metadata.Write(video.FilePath(), metadata.Updates{Keywords: names}); err != nil {
-		log.Printf("syncTagsToFile write %s: %v", video.FilePath(), err)
+		slog.Warn("syncTagsToFile: write failed", "path", video.FilePath(), "err", err)
 	}
 }
 
@@ -632,7 +658,7 @@ func (s *server) handleUpdateVideoName(w http.ResponseWriter, r *http.Request) {
 	}
 	if name != "" {
 		if err := metadata.Write(video.FilePath(), metadata.Updates{Title: &name}); err != nil {
-			log.Printf("write title metadata %s: %v", video.FilePath(), err)
+			slog.Warn("write title metadata failed", "path", video.FilePath(), "err", err)
 		}
 	}
 	w.Write([]byte(video.Title())) //nolint
@@ -703,7 +729,7 @@ func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.PruneOrphanTags(r.Context()); err != nil {
-		log.Printf("prune orphan tags: %v", err)
+		slog.Warn("prune orphan tags failed", "err", err)
 	}
 	tags, err := s.store.ListTagsByVideo(r.Context(), id)
 	if err != nil {
@@ -743,7 +769,7 @@ func (s *server) handleDeleteVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.PruneOrphanTags(r.Context()); err != nil {
-		log.Printf("prune orphan tags: %v", err)
+		slog.Warn("prune orphan tags failed", "err", err)
 	}
 	s.serveVideoList(w, r)
 }
@@ -763,7 +789,7 @@ func (s *server) handleDeleteVideoAndFile(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := os.Remove(video.FilePath()); err != nil {
-		log.Printf("delete file %s: %v", video.FilePath(), err)
+		slog.Warn("delete file failed", "path", video.FilePath(), "err", err)
 	}
 	s.serveVideoList(w, r)
 }
@@ -877,11 +903,35 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 			return 0
 		})
 	}
+	// Pagination: default 500 per page; page= is 1-indexed.
+	const defaultPageSize = 500
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	total := len(videos)
+	start := (page - 1) * limit
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	pageVideos := videos[start:end]
+
 	history, _ := s.store.ListWatchHistory(r.Context())
 	data := struct {
-		Groups  []videoGroup
-		History map[int64]store.WatchRecord
-	}{groupVideosByDir(videos), history}
+		Groups   []videoGroup
+		History  map[int64]store.WatchRecord
+		Page     int
+		PageSize int
+		Total    int
+	}{groupVideosByDir(pageVideos), history, page, limit, total}
 	render(w, "video_list.html", data)
 }
 
@@ -1055,7 +1105,7 @@ func (s *server) handleImportUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := s.store.UpsertVideo(r.Context(), dir.ID, dir.Path, savedName)
 	if err != nil {
-		log.Printf("import upsert %s/%s: %v", dir.Path, savedName, err)
+		slog.Warn("import: upsert video failed", "dir", dir.Path, "filename", savedName, "err", err)
 	} else {
 		dirTag, err := s.store.UpsertTag(r.Context(), filepath.Base(dir.Path))
 		if err == nil {
@@ -1290,7 +1340,7 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	if err := cmd.Run(); err != nil {
 		// Remove any partial output file left behind by ffmpeg.
 		os.Remove(outPath) //nolint:errcheck
-		log.Printf("ffmpeg convert %s→%s: %v\n%s", video.FilePath(), outPath, err, stderr.String())
+		slog.Error("ffmpeg convert failed", "src", video.FilePath(), "dst", outPath, "err", err, "stderr", stderr.String())
 		http.Error(w, "conversion failed: "+stderr.String(), http.StatusInternalServerError)
 		return
 	}
@@ -1299,7 +1349,7 @@ func (s *server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	if video.DirectoryID != 0 {
 		if dir, err := s.store.GetDirectory(bgCtx, video.DirectoryID); err == nil {
 			if _, err := s.store.UpsertVideo(bgCtx, dir.ID, dir.Path, outName); err != nil {
-				log.Printf("register converted file %s: %v", outName, err)
+				slog.Warn("register converted file failed", "filename", outName, "err", err)
 			}
 		}
 	}
@@ -1343,7 +1393,7 @@ func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
 	)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		log.Printf("ffmpeg export %s: %v\nstderr: %s", video.FilePath(), err, stderr.String())
+		slog.Error("ffmpeg export failed", "path", video.FilePath(), "err", err, "stderr", stderr.String())
 		http.Error(w, "export failed: "+stderr.String(), http.StatusInternalServerError)
 		return
 	}
@@ -1395,11 +1445,11 @@ func (s *server) handleGetMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	native, err := metadata.Read(video.FilePath())
 	if err != nil {
-		log.Printf("ffprobe %s: %v", video.FilePath(), err)
+		slog.Warn("ffprobe failed", "path", video.FilePath(), "err", err)
 	}
 	streams, err := metadata.ReadStreams(video.FilePath())
 	if err != nil {
-		log.Printf("ffprobe streams %s: %v", video.FilePath(), err)
+		slog.Warn("ffprobe streams failed", "path", video.FilePath(), "err", err)
 	}
 	data := struct {
 		VideoID int64
@@ -1421,7 +1471,7 @@ func (s *server) handleEditMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	native, err := metadata.Read(video.FilePath())
 	if err != nil {
-		log.Printf("ffprobe %s: %v", video.FilePath(), err)
+		slog.Warn("ffprobe failed", "path", video.FilePath(), "err", err)
 	}
 	data := struct {
 		VideoID int64
@@ -1457,13 +1507,13 @@ func (s *server) handleUpdateMetadata(w http.ResponseWriter, r *http.Request) {
 		EpisodeNum:  strPtr("episode_sort"),
 	}
 	if err := metadata.Write(video.FilePath(), u); err != nil {
-		log.Printf("metadata write %s: %v", video.FilePath(), err)
+		slog.Warn("metadata write failed", "path", video.FilePath(), "err", err)
 		// Degrade gracefully: show the unchanged read view rather than a 500.
 	}
 	// Return the updated read-only view
 	native, err := metadata.Read(video.FilePath())
 	if err != nil {
-		log.Printf("ffprobe %s: %v", video.FilePath(), err)
+		slog.Warn("ffprobe failed", "path", video.FilePath(), "err", err)
 	}
 	data := struct {
 		VideoID int64
@@ -1508,7 +1558,7 @@ func (s *server) handleDeleteDirectoryAndFiles(w http.ResponseWriter, r *http.Re
 	}
 	for _, p := range paths {
 		if err := os.Remove(p); err != nil {
-			log.Printf("delete file %s: %v", p, err)
+			slog.Warn("delete file failed", "path", p, "err", err)
 		}
 	}
 	s.serveDirList(w, r)
@@ -1621,7 +1671,7 @@ func (s *server) handleLookupSearch(w http.ResponseWriter, r *http.Request) {
 		Results []tmdbSearchResult `json:"results"`
 	}
 	if err := tmdbGet(apiKey, path, &result); err != nil {
-		log.Printf("TMDB search %q: %v", q, err)
+		slog.Warn("TMDB search failed", "query", q, "err", err)
 		http.Error(w, "TMDB search failed", http.StatusBadGateway)
 		return
 	}
@@ -1663,7 +1713,7 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 	case "movie":
 		var detail tmdbMovieDetail
 		if err := tmdbGet(apiKey, "/3/movie/"+tmdbID, &detail); err != nil {
-			log.Printf("TMDB movie fetch %s: %v", tmdbID, err)
+			slog.Warn("TMDB movie fetch failed", "tmdbID", tmdbID, "err", err)
 			http.Error(w, "TMDB movie lookup failed", http.StatusBadGateway)
 			return
 		}
@@ -1685,7 +1735,7 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 			Name string `json:"name"`
 		}
 		if err := tmdbGet(apiKey, "/3/tv/"+tmdbID, &series); err != nil {
-			log.Printf("TMDB series fetch %s: %v", tmdbID, err)
+			slog.Warn("TMDB series fetch failed", "tmdbID", tmdbID, "err", err)
 		}
 		var ep tmdbEpisodeDetail
 		epPath := fmt.Sprintf("/3/tv/%s/season/%s/episode/%s", tmdbID, seasonStr, episodeStr)
@@ -1711,7 +1761,7 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := metadata.Write(video.FilePath(), u); err != nil {
-		log.Printf("lookup apply metadata write %s: %v", video.FilePath(), err)
+		slog.Error("lookup apply metadata write failed", "path", video.FilePath(), "err", err)
 		http.Error(w, "metadata write failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1720,7 +1770,7 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 	// reflects the new title without requiring a manual re-sync.
 	if u.Title != nil && *u.Title != "" {
 		if err := s.store.UpdateVideoName(r.Context(), id, *u.Title); err != nil {
-			log.Printf("update display_name after TMDB apply %d: %v", id, err)
+			slog.Warn("update display_name after TMDB apply failed", "videoID", id, "err", err)
 		}
 	}
 
@@ -2073,7 +2123,7 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		os.Remove(outPath) //nolint:errcheck
-		log.Printf("ffmpeg trim %s: %v\nstderr: %s", video.FilePath(), err, stderr.String())
+		slog.Error("ffmpeg trim failed", "path", video.FilePath(), "err", err, "stderr", stderr.String())
 		http.Error(w, "trim failed: "+stderr.String(), http.StatusInternalServerError)
 		return
 	}
@@ -2081,7 +2131,7 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	if video.DirectoryID != 0 {
 		if dir, err := s.store.GetDirectory(bgCtx, video.DirectoryID); err == nil {
 			if _, err := s.store.UpsertVideo(bgCtx, dir.ID, dir.Path, outName); err != nil {
-				log.Printf("register trimmed file %s: %v", outName, err)
+				slog.Warn("register trimmed file failed", "filename", outName, "err", err)
 			}
 		}
 	}
@@ -2109,7 +2159,7 @@ func freeOutputName(dir, base, suffix, ext string) string {
 func checkBinaries() {
 	for _, bin := range []string{"ffmpeg", "ffprobe", "yt-dlp"} {
 		if _, err := exec.LookPath(bin); err != nil {
-			log.Printf("WARNING: %q not found in PATH — related features will be unavailable", bin)
+			slog.Warn("binary not found in PATH", "binary", bin)
 		}
 	}
 }

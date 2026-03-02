@@ -1792,3 +1792,140 @@ func TestHandleTrim_NoFFmpeg(t *testing.T) {
 		t.Fatalf("expected 500 when ffmpeg missing, got %d", rec.Code)
 	}
 }
+
+// --- M6: syncDir tests ---
+
+// TestSyncDir_PrunesStaleEntries verifies that syncDir removes DB records for
+// files that have been deleted from disk.
+func TestSyncDir_PrunesStaleEntries(t *testing.T) {
+	tmp := t.TempDir()
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	// Register the directory and seed it with two video files.
+	if err := os.WriteFile(filepath.Join(tmp, "keep.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(tmp, "stale.mp4")
+	if err := os.WriteFile(stale, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := srv.store.AddDirectory(ctx, tmp)
+	if err != nil {
+		t.Fatalf("AddDirectory: %v", err)
+	}
+	srv.syncDir(d)
+
+	// Verify both files are in the DB after first sync.
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 2 {
+		t.Fatalf("expected 2 videos after first sync, got %d", len(vids))
+	}
+
+	// Delete one file from disk and re-sync.
+	if err := os.Remove(stale); err != nil {
+		t.Fatal(err)
+	}
+	srv.syncDir(d)
+
+	// Stale record should have been pruned.
+	vids, _ = srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video after pruning stale entry, got %d", len(vids))
+	}
+	if vids[0].Filename != "keep.mp4" {
+		t.Errorf("expected keep.mp4 to survive, got %q", vids[0].Filename)
+	}
+}
+
+// TestSyncDir_AutoTagsDirectory verifies that syncDir applies the directory's
+// base name as a tag to each video it discovers.
+func TestSyncDir_AutoTagsDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	if err := os.WriteFile(filepath.Join(tmp, "clip.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := srv.store.AddDirectory(ctx, tmp)
+	if err != nil {
+		t.Fatalf("AddDirectory: %v", err)
+	}
+	srv.syncDir(d)
+
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(vids))
+	}
+	tags, err := srv.store.ListTagsByVideo(ctx, vids[0].ID)
+	if err != nil {
+		t.Fatalf("ListTagsByVideo: %v", err)
+	}
+	dirBase := filepath.Base(tmp)
+	var found bool
+	for _, tg := range tags {
+		if tg.Name == dirBase {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected auto-tag %q but got %v", dirBase, tags)
+	}
+}
+
+// --- M8: Upload → sync integration test ---
+
+// TestHandleImportUpload_VideoAppearsInList uploads a video file and then
+// verifies that it appears in GET /videos, confirming the full upload→upsert
+// pipeline works end-to-end.
+func TestHandleImportUpload_VideoAppearsInList(t *testing.T) {
+	tmp := t.TempDir()
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	d, err := srv.store.AddDirectory(ctx, tmp)
+	if err != nil {
+		t.Fatalf("AddDirectory: %v", err)
+	}
+
+	// Build a multipart upload containing a tiny fake MP4.
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("dir_id", itoa(d.ID))
+	_ = mw.WriteField("filename", "integration.mp4")
+	fw, _ := mw.CreateFormFile("file", "integration.mp4")
+	fw.Write([]byte("fake video content"))
+	mw.Close()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/import/upload", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// The file should exist on disk.
+	entries, _ := os.ReadDir(tmp)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 file on disk after upload, got %d", len(entries))
+	}
+
+	// GET /videos should include the uploaded video.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/videos", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("video list: expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "integration") {
+		t.Error("uploaded video not found in video list after upload")
+	}
+
+	// The video should also be in the DB via the store.
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video in DB after upload, got %d", len(vids))
+	}
+}
