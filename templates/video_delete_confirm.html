@@ -4,10 +4,12 @@
     <button class="btn-sm" style="flex:1"
       hx-delete="/videos/{{.ID}}"
       hx-target="#video-list"
+      hx-on::after-request="closeTab({{.ID}})"
     >Remove from library</button>
     <button class="btn-sm btn-danger" style="flex:1"
       hx-delete="/videos/{{.ID}}/file"
       hx-target="#video-list"
+      hx-on::after-request="closeTab({{.ID}})"
     >Delete file</button>
     <button class="btn-sm btn-ghost"
       hx-get="/videos"
