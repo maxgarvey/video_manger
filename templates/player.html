@@ -153,6 +153,9 @@
       <button type="submit" class="btn-sm">Rename</button>
     </form>
   </div>
+  {{if .Video.OriginalFilename}}
+  <div style="font-size:0.75rem;color:#666" title="Filename at time of import">Original: {{.Video.OriginalFilename}}</div>
+  {{end}}
 
   <!-- Tags -->
   <div id="video-tags-{{.Video.ID}}" style="display:flex;flex-wrap:wrap;gap:0.3rem">

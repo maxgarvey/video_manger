@@ -14,12 +14,13 @@ type Directory struct {
 
 // Video represents a video file with optional metadata.
 type Video struct {
-	ID            int64
-	Filename      string
-	DirectoryID   int64
-	DirectoryPath string
-	DisplayName   string
-	Rating        int // 0=neutral, 1=liked, 2=double-liked
+	ID               int64
+	Filename         string
+	DirectoryID      int64
+	DirectoryPath    string
+	DisplayName      string
+	Rating           int    // 0=neutral, 1=liked, 2=double-liked
+	OriginalFilename string // filename at first import; never changed on rename/move
 }
 
 // Title returns the display name if set, otherwise the filename.
