@@ -361,30 +361,16 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 			if a.Rating != b.Rating {
 				return b.Rating - a.Rating // higher rating first
 			}
-			if a.Title() < b.Title() {
-				return -1
-			}
-			if a.Title() > b.Title() {
-				return 1
-			}
-			return 0
+			return naturalCmp(a.Title(), b.Title())
 		})
 	} else if !isSearch {
 		// For non-search views, sort by directory then title so groups are contiguous.
+		// naturalCmp ensures "Season 2" sorts before "Season 10".
 		slices.SortFunc(videos, func(a, b store.Video) int {
 			if a.DirectoryPath != b.DirectoryPath {
-				if a.DirectoryPath < b.DirectoryPath {
-					return -1
-				}
-				return 1
+				return naturalCmp(a.DirectoryPath, b.DirectoryPath)
 			}
-			if a.Title() < b.Title() {
-				return -1
-			}
-			if a.Title() > b.Title() {
-				return 1
-			}
-			return 0
+			return naturalCmp(a.Title(), b.Title())
 		})
 	}
 	// Pagination: default 500 per page; page= is 1-indexed.

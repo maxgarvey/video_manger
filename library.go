@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/maxgarvey/video_manger/metadata"
 	"github.com/maxgarvey/video_manger/store"
@@ -125,6 +126,51 @@ func (s *server) syncTagsToFile(ctx context.Context, video store.Video) {
 	if err := metadata.Write(video.FilePath(), metadata.Updates{Keywords: names}); err != nil {
 		slog.Warn("syncTagsToFile: write failed", "path", video.FilePath(), "err", err)
 	}
+}
+
+// naturalCmp compares two strings using natural sort order: runs of digits
+// are compared numerically so "Season 2" < "Season 10".
+// Returns negative, zero, or positive like strings.Compare.
+func naturalCmp(a, b string) int {
+	for a != "" || b != "" {
+		// Find the next chunk in each string: either all-digit or all-non-digit.
+		aDigit := a != "" && unicode.IsDigit(rune(a[0]))
+		bDigit := b != "" && unicode.IsDigit(rune(b[0]))
+
+		var aChunk, bChunk string
+		a, aChunk = splitChunk(a)
+		b, bChunk = splitChunk(b)
+
+		if aDigit && bDigit {
+			// Compare numerically: skip leading zeros then compare by length, then lexically.
+			aChunk = strings.TrimLeft(aChunk, "0")
+			bChunk = strings.TrimLeft(bChunk, "0")
+			if len(aChunk) != len(bChunk) {
+				return len(aChunk) - len(bChunk)
+			}
+		}
+		if aChunk < bChunk {
+			return -1
+		}
+		if aChunk > bChunk {
+			return 1
+		}
+	}
+	return 0
+}
+
+// splitChunk returns the first run of same-class characters (digit or non-digit)
+// from s, and the remainder of s.
+func splitChunk(s string) (rest, chunk string) {
+	if s == "" {
+		return "", ""
+	}
+	isD := unicode.IsDigit(rune(s[0]))
+	i := 1
+	for i < len(s) && unicode.IsDigit(rune(s[i])) == isD {
+		i++
+	}
+	return s[i:], s[:i]
 }
 
 // isVideoFile reports whether name has a video file extension.
