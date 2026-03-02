@@ -767,6 +767,8 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 		cmd := exec.Command("yt-dlp", //nolint:gosec
 			"--no-playlist",
 			"--newline",
+			"--write-info-json",
+			"--no-write-thumbnail",
 			"-o", filepath.Join(dir.Path, "%(title)s.%(ext)s"),
 			rawURL,
 		)
@@ -779,12 +781,23 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Forward yt-dlp output lines to the job channel while it runs.
+		// Also watch for the "Destination:" line to capture the output path.
+		var videoPath string
 		scanDone := make(chan struct{})
 		go func() {
 			defer close(scanDone)
 			sc := bufio.NewScanner(pr)
 			for sc.Scan() {
-				send(sc.Text())
+				line := sc.Text()
+				send(line)
+				// Capture destination path from yt-dlp output.
+				if p, ok := strings.CutPrefix(line, "[download] Destination: "); ok {
+					videoPath = strings.TrimSpace(p)
+				} else if after, ok2 := strings.CutPrefix(line, "[download] "); ok2 {
+					if idx := strings.Index(after, " has already been downloaded"); idx > 0 {
+						videoPath = strings.TrimSpace(after[:idx])
+					}
+				}
 			}
 		}()
 		job.err = cmd.Wait()
@@ -792,6 +805,19 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 		<-scanDone
 
 		if job.err == nil {
+			// Tag the video file with metadata from the info.json.
+			if videoPath != "" {
+				infoJSON := videoPath + ".info.json"
+				if data, err := os.ReadFile(infoJSON); err == nil {
+					if u, ok := parseYTDLPInfoJSON(data); ok {
+						send("[video_manger] Writing metadata to file…")
+						if err := metadata.Write(videoPath, u); err != nil {
+							send("[video_manger] Warning: metadata write failed: " + err.Error())
+						}
+					}
+					os.Remove(infoJSON) //nolint:errcheck
+				}
+			}
 			send("[video_manger] Syncing library…")
 			s.syncDir(dir)
 			send("[video_manger] Done!")
@@ -1267,6 +1293,79 @@ type tmdbEpisodeDetail struct {
 
 // tmdbClient is a dedicated HTTP client for TMDB API calls with a
 // conservative timeout so a slow or unresponsive TMDB doesn't hang handlers.
+// parseYTDLPInfoJSON converts a yt-dlp .info.json file into a metadata.Updates
+// that can be written directly to the video file via ffmpeg stream-copy.
+func parseYTDLPInfoJSON(data []byte) (metadata.Updates, bool) {
+	var info struct {
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		Uploader    string   `json:"uploader"`
+		Channel     string   `json:"channel"`
+		UploadDate  string   `json:"upload_date"`  // YYYYMMDD
+		ReleaseDate string   `json:"release_date"` // YYYYMMDD or empty
+		Tags        []string `json:"tags"`
+		Categories  []string `json:"categories"`
+		Genre       string   `json:"genre"`
+		Series      string   `json:"series"`
+		SeasonNum   int      `json:"season_number"`
+		EpisodeNum  int      `json:"episode_number"`
+		EpisodeID   string   `json:"episode_id"`
+	}
+	if err := json.Unmarshal(data, &info); err != nil {
+		return metadata.Updates{}, false
+	}
+
+	formatDate := func(d string) string {
+		if len(d) == 8 {
+			return d[:4] + "-" + d[4:6] + "-" + d[6:]
+		}
+		return d
+	}
+	date := formatDate(info.ReleaseDate)
+	if date == "" {
+		date = formatDate(info.UploadDate)
+	}
+
+	network := info.Channel
+	if network == "" {
+		network = info.Uploader
+	}
+
+	genre := info.Genre
+	if genre == "" && len(info.Categories) > 0 {
+		genre = info.Categories[0]
+	}
+
+	keywords := info.Tags
+
+	u := metadata.Updates{
+		Title:       strPtr(info.Title),
+		Description: strPtr(info.Description),
+		Genre:       strPtr(genre),
+		Date:        strPtr(date),
+		Keywords:    keywords,
+		Network:     strPtr(network),
+	}
+	if info.Series != "" {
+		u.Show = strPtr(info.Series)
+	}
+	if info.SeasonNum > 0 {
+		s := fmt.Sprintf("%d", info.SeasonNum)
+		u.SeasonNum = &s
+	}
+	if info.EpisodeNum > 0 {
+		e := fmt.Sprintf("%d", info.EpisodeNum)
+		u.EpisodeNum = &e
+	}
+	if info.EpisodeID != "" {
+		u.EpisodeID = strPtr(info.EpisodeID)
+	}
+	return u, true
+}
+
+// strPtr is a tiny helper used by parseYTDLPInfoJSON.
+func strPtr(s string) *string { return &s }
+
 var tmdbClient = &http.Client{Timeout: 15 * time.Second}
 
 func tmdbGet(apiKey, path string, out any) error {

@@ -2012,3 +2012,87 @@ func TestHandleMoveVideo_BadVideo(t *testing.T) {
 		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }
+
+// --- parseYTDLPInfoJSON ---
+
+func TestParseYTDLPInfoJSON_Full(t *testing.T) {
+	raw := `{
+		"title": "My Video",
+		"description": "A great video",
+		"channel": "TestChannel",
+		"uploader": "TestUploader",
+		"upload_date": "20230415",
+		"tags": ["tag1", "tag2"],
+		"categories": ["Entertainment"],
+		"genre": "Comedy",
+		"series": "My Show",
+		"season_number": 2,
+		"episode_number": 5,
+		"episode_id": "S02E05"
+	}`
+	u, ok := parseYTDLPInfoJSON([]byte(raw))
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if u.Title == nil || *u.Title != "My Video" {
+		t.Errorf("Title = %v", u.Title)
+	}
+	if u.Description == nil || *u.Description != "A great video" {
+		t.Errorf("Description = %v", u.Description)
+	}
+	if u.Genre == nil || *u.Genre != "Comedy" {
+		t.Errorf("Genre = %v", u.Genre)
+	}
+	if u.Date == nil || *u.Date != "2023-04-15" {
+		t.Errorf("Date = %v", u.Date)
+	}
+	if u.Network == nil || *u.Network != "TestChannel" {
+		t.Errorf("Network = %v", u.Network)
+	}
+	if u.Show == nil || *u.Show != "My Show" {
+		t.Errorf("Show = %v", u.Show)
+	}
+	if u.SeasonNum == nil || *u.SeasonNum != "2" {
+		t.Errorf("SeasonNum = %v", u.SeasonNum)
+	}
+	if u.EpisodeNum == nil || *u.EpisodeNum != "5" {
+		t.Errorf("EpisodeNum = %v", u.EpisodeNum)
+	}
+	if u.EpisodeID == nil || *u.EpisodeID != "S02E05" {
+		t.Errorf("EpisodeID = %v", u.EpisodeID)
+	}
+	if len(u.Keywords) != 2 || u.Keywords[0] != "tag1" {
+		t.Errorf("Keywords = %v", u.Keywords)
+	}
+}
+
+func TestParseYTDLPInfoJSON_FallbackGenre(t *testing.T) {
+	// When genre is absent, fall back to first category.
+	raw := `{"title":"X","categories":["Science & Technology"]}`
+	u, ok := parseYTDLPInfoJSON([]byte(raw))
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if u.Genre == nil || *u.Genre != "Science & Technology" {
+		t.Errorf("Genre fallback = %v", u.Genre)
+	}
+}
+
+func TestParseYTDLPInfoJSON_FallbackNetwork(t *testing.T) {
+	// When channel is absent, fall back to uploader.
+	raw := `{"title":"X","uploader":"SomeUploader"}`
+	u, ok := parseYTDLPInfoJSON([]byte(raw))
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if u.Network == nil || *u.Network != "SomeUploader" {
+		t.Errorf("Network fallback = %v", u.Network)
+	}
+}
+
+func TestParseYTDLPInfoJSON_InvalidJSON(t *testing.T) {
+	_, ok := parseYTDLPInfoJSON([]byte("not json"))
+	if ok {
+		t.Error("expected not ok for invalid JSON")
+	}
+}
