@@ -37,8 +37,7 @@ func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	homeDir, _ := os.UserHomeDir()
-	render(w, "index.html", map[string]any{"HomeDir": homeDir})
+	render(w, "index.html", nil)
 }
 
 func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {

@@ -391,7 +391,7 @@
         <h2>Directories</h2>
         <div id="directories" hx-get="/directories" hx-trigger="load"></div>
         <form hx-post="/directories" hx-target="#directories" style="display:flex;gap:0.3rem">
-          <input type="text" name="path" id="add-dir-input" value="{{.HomeDir}}"
+          <input type="text" name="path" id="add-dir-input"
             placeholder="/path/to/folder"
             style="flex:1"
             onclick="this.select()">
