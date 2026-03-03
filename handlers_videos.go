@@ -447,7 +447,13 @@ func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
 
 	// Create sub-folder if requested.
 	if subdir != "" {
-		destDirPath = filepath.Join(targetDir.Path, filepath.Clean(subdir))
+		// Reject names with path separators or parent-dir references to
+		// prevent traversal outside the target directory (e.g. "../../etc").
+		if strings.ContainsAny(subdir, "/\\") || strings.Contains(subdir, "..") {
+			http.Error(w, "subdir must not contain path separators or '..'", http.StatusBadRequest)
+			return
+		}
+		destDirPath = filepath.Join(targetDir.Path, subdir)
 		if err := os.MkdirAll(destDirPath, 0755); err != nil {
 			http.Error(w, "could not create sub-folder: "+err.Error(), http.StatusInternalServerError)
 			return

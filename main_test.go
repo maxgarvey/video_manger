@@ -2622,3 +2622,33 @@ func TestHandleUpdateVideoName_EscapedTitle(t *testing.T) {
 		t.Errorf("expected HX-Trigger: videoRenamed header, got %q", rec.Header().Get("HX-Trigger"))
 	}
 }
+
+// TestHandleMoveVideo_SubdirPathTraversal checks that supplying a "subdir"
+// with path separators or ".." is rejected with 400, preventing traversal
+// outside the target directory (e.g. "../../etc").
+func TestHandleMoveVideo_SubdirPathTraversal(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(srcDir, "ep1.mp4"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	src, _ := srv.store.AddDirectory(ctx, srcDir)
+	dst, _ := srv.store.AddDirectory(ctx, dstDir)
+	v, _ := srv.store.UpsertVideo(ctx, src.ID, src.Path, "ep1.mp4")
+
+	malicious := []string{"../../evil", "../up", "a/b", `a\b`}
+	for _, bad := range malicious {
+		form := url.Values{"dir_id": {itoa(dst.ID)}, "subdir": {bad}}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/move", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		srv.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("subdir=%q: expected 400, got %d", bad, rec.Code)
+		}
+	}
+}
