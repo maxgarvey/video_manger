@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -316,12 +317,20 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "urls required", http.StatusBadRequest)
 		return
 	}
-	// Split on newlines; filter blank lines.
+	// Split on newlines; validate each URL allows only http/https to prevent
+	// SSRF via file://, ftp://, or internal network schemes that yt-dlp accepts.
 	var urls []string
 	for _, line := range strings.Split(rawURLs, "\n") {
-		if u := strings.TrimSpace(line); u != "" {
-			urls = append(urls, u)
+		u := strings.TrimSpace(line)
+		if u == "" {
+			continue
 		}
+		parsed, parseErr := url.Parse(u)
+		if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			http.Error(w, "only http:// and https:// URLs are permitted", http.StatusBadRequest)
+			return
+		}
+		urls = append(urls, u)
 	}
 	if len(urls) == 0 {
 		http.Error(w, "no valid URLs provided", http.StatusBadRequest)

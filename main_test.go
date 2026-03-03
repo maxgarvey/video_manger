@@ -2319,6 +2319,64 @@ func TestHandleMoveVideo_BadVideo(t *testing.T) {
 	}
 }
 
+// --- yt-dlp URL validation (SSRF prevention) ---
+
+// TestHandleYTDLPDownload_BlockedSchemes verifies that non-http/https URLs are
+// rejected before being passed to yt-dlp, preventing SSRF via file:// etc.
+func TestHandleYTDLPDownload_BlockedSchemes(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	dir, _ := srv.store.AddDirectory(ctx, t.TempDir())
+
+	blocked := []string{
+		"file:///etc/passwd",
+		"ftp://internal.example.com/file",
+		"gopher://evil.example.com/",
+		"not-a-url",
+	}
+	for _, bad := range blocked {
+		form := url.Values{"urls": {bad}, "dir_id": {itoa(dir.ID)}}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		srv.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusServiceUnavailable {
+			// 503 is acceptable if yt-dlp is not installed; 400 is the target.
+			t.Errorf("url=%q: expected 400 or 503, got %d: %s", bad, rec.Code, rec.Body.String())
+		}
+		if rec.Code == http.StatusBadRequest {
+			if !strings.Contains(rec.Body.String(), "http") {
+				t.Errorf("url=%q: expected informative error, got %q", bad, rec.Body.String())
+			}
+		}
+	}
+}
+
+// TestHandleYTDLPDownload_AllowedSchemes verifies that valid http/https URLs
+// pass URL validation (they'll then fail if yt-dlp is not installed, which is fine).
+func TestHandleYTDLPDownload_AllowedSchemes(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	dir, _ := srv.store.AddDirectory(ctx, t.TempDir())
+
+	allowed := []string{
+		"https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		"http://example.com/video.mp4",
+	}
+	for _, good := range allowed {
+		form := url.Values{"urls": {good}, "dir_id": {itoa(dir.ID)}}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		srv.routes().ServeHTTP(rec, req)
+		// Either 200 (yt-dlp present) or 503 (not installed) are acceptable.
+		// 400 would mean the URL was incorrectly rejected.
+		if rec.Code == http.StatusBadRequest {
+			t.Errorf("url=%q: valid URL rejected with 400: %s", good, rec.Body.String())
+		}
+	}
+}
+
 // --- 3b: yt-dlp info.json path capture ---
 
 // TestYTDLPInfoJSONCleanup verifies that a .info.json file placed alongside a
