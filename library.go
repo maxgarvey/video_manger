@@ -179,6 +179,20 @@ func splitChunk(s string) (rest, chunk string) {
 
 // ── Sidecar JSON ──────────────────────────────────────────────────────────────
 
+// sidecarFieldMaxLen is the maximum byte length for any string field read from
+// a sidecar JSON file.  Values longer than this are silently truncated before
+// being stored so that a malicious sidecar cannot fill the database with
+// arbitrarily large strings.
+const sidecarFieldMaxLen = 1024
+
+// clampStr truncates s to sidecarFieldMaxLen bytes if it is longer.
+func clampStr(s string) string {
+	if len(s) > sidecarFieldMaxLen {
+		return s[:sidecarFieldMaxLen]
+	}
+	return s
+}
+
 // sidecarData holds optional metadata loaded from a JSON file that sits next
 // to a video file (same basename, .json extension).
 // Example: "film.mp4" → "film.json"
@@ -230,25 +244,33 @@ func (s *server) applySidecar(ctx context.Context, v store.Video) {
 		return
 	}
 
-	if sc.Title != "" {
-		if err := s.store.UpdateVideoName(ctx, v.ID, sc.Title); err != nil {
+	// Clamp all string fields to sidecarFieldMaxLen to prevent oversized DB writes.
+	title := clampStr(sc.Title)
+	actors := clampStr(sc.Actors)
+	genre := clampStr(sc.Genre)
+	episodeTitle := clampStr(sc.EpisodeTitle)
+	studio := clampStr(sc.Studio)
+	channel := clampStr(sc.Channel)
+
+	if title != "" {
+		if err := s.store.UpdateVideoName(ctx, v.ID, title); err != nil {
 			slog.Warn("sidecar: update title failed", "videoID", v.ID, "err", err)
 		}
 	}
 
 	// Only write video fields when the sidecar supplies at least one value,
 	// so that an empty sidecar never clears fields set through the UI.
-	if sc.Actors != "" || sc.Genre != "" || sc.SeasonNumber > 0 ||
-		sc.EpisodeNumber > 0 || sc.EpisodeTitle != "" ||
-		sc.Studio != "" || sc.Channel != "" {
+	if actors != "" || genre != "" || sc.SeasonNumber > 0 ||
+		sc.EpisodeNumber > 0 || episodeTitle != "" ||
+		studio != "" || channel != "" {
 		f := store.VideoFields{
-			Genre:         sc.Genre,
+			Genre:         genre,
 			SeasonNumber:  sc.SeasonNumber,
 			EpisodeNumber: sc.EpisodeNumber,
-			EpisodeTitle:  sc.EpisodeTitle,
-			Actors:        sc.Actors,
-			Studio:        sc.Studio,
-			Channel:       sc.Channel,
+			EpisodeTitle:  episodeTitle,
+			Actors:        actors,
+			Studio:        studio,
+			Channel:       channel,
 		}
 		if err := s.store.UpdateVideoFields(ctx, v.ID, f); err != nil {
 			slog.Warn("sidecar: update fields failed", "videoID", v.ID, "err", err)
@@ -256,7 +278,7 @@ func (s *server) applySidecar(ctx context.Context, v store.Video) {
 	}
 
 	for _, tagName := range sc.Tags {
-		if tagName = strings.TrimSpace(tagName); tagName == "" {
+		if tagName = clampStr(strings.TrimSpace(tagName)); tagName == "" {
 			continue
 		}
 		tag, err := s.store.UpsertTag(ctx, tagName)

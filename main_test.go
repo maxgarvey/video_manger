@@ -2193,6 +2193,37 @@ func TestSyncDir_SidecarIdempotent(t *testing.T) {
 	}
 }
 
+// TestSyncDir_SidecarFieldsTruncated verifies that sidecar string fields longer
+// than sidecarFieldMaxLen are truncated before being stored.
+func TestSyncDir_SidecarFieldsTruncated(t *testing.T) {
+	tmp := t.TempDir()
+	videoPath := filepath.Join(tmp, "movie.mp4")
+	if err := os.WriteFile(videoPath, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	longStr := strings.Repeat("x", sidecarFieldMaxLen+100)
+	sidecar := fmt.Sprintf(`{"title":%q,"actors":%q}`, longStr, longStr)
+	if err := os.WriteFile(filepath.Join(tmp, "movie.json"), []byte(sidecar), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+	srv.syncDir(d)
+
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) == 0 {
+		t.Fatal("no video found after sync")
+	}
+	v := vids[0]
+	title := v.Title()
+	if len(title) > sidecarFieldMaxLen {
+		t.Errorf("title not truncated: len=%d", len(title))
+	}
+}
+
 // --- Subfolder creation tests ---
 
 func TestHandleCreateSubfolder(t *testing.T) {
