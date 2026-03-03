@@ -19,7 +19,7 @@
     <label style="font-size:0.8rem;color:#888;text-align:left">Relocate to new path:</label>
     <div style="display:flex;gap:0.4rem">
       <input type="text" name="newpath" placeholder="/path/to/video.mp4"
-        style="flex:1;background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.6rem;border-radius:4px;font-size:0.85rem">
+        class="input-dark" style="flex:1;padding:0.4rem 0.6rem;font-size:0.85rem">
       <button type="submit" class="btn-sm btn-success">Relocate</button>
     </div>
   </form>
@@ -149,11 +149,11 @@
     <span id="video-title-{{.Video.ID}}" style="font-weight:bold;font-size:0.95rem;flex-shrink:0">{{.Video.Title}}</span>
     <form hx-put="/videos/{{.Video.ID}}/name" hx-target="#video-title-{{.Video.ID}}" style="display:flex;gap:0.4rem;flex:1">
       <input type="text" name="name" value="{{.Video.DisplayName}}" placeholder="{{.Video.Filename}}"
-        style="flex:1;background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
+        class="input-dark" style="flex:1;padding:0.3rem 0.5rem;font-size:0.85rem">
       <button type="submit" class="btn-sm">Rename</button>
     </form>
   </div>
-  {{if .Video.OriginalFilename}}
+  {{if and .Video.OriginalFilename (ne .Video.OriginalFilename .Video.Filename)}}
   <div style="font-size:0.75rem;color:#666" title="Filename at time of import">Original: {{.Video.OriginalFilename}}</div>
   {{end}}
 
@@ -172,7 +172,7 @@
   <!-- Add tag -->
   <form hx-post="/videos/{{.Video.ID}}/tags" hx-target="#video-tags-{{.Video.ID}}" style="display:flex;gap:0.4rem">
     <input type="text" name="tag" placeholder="Add tag..." list="all-tags"
-      style="flex:1;background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
+      class="input-dark" style="flex:1;padding:0.3rem 0.5rem;font-size:0.85rem">
     <datalist id="all-tags">
       {{range .AllTags}}<option value="{{.Name}}">{{end}}
     </datalist>
@@ -185,9 +185,11 @@
        hx-trigger="load"></div>
 
   <!-- Standardised descriptive fields (genre / season / actors / studio / channel) -->
-  <div hx-get="/videos/{{.Video.ID}}/fields"
+  <div id="video-fields-container-{{.Video.ID}}"
+       hx-get="/videos/{{.Video.ID}}/fields"
        hx-trigger="load"
-       hx-swap="outerHTML"></div>
+       hx-target="#video-fields-container-{{.Video.ID}}"
+       hx-swap="innerHTML"></div>
 
   <!-- Copy to library -->
   {{if .LibraryPath}}
@@ -196,8 +198,10 @@
       hx-post="/videos/{{.Video.ID}}/copy-to-library"
       hx-target="#copy-lib-status-{{.Video.ID}}"
       hx-swap="innerHTML"
+      hx-indicator="#copy-spin-{{.Video.ID}}"
       title="Copy this file to {{.LibraryPath}}"
     >📋 Copy to library</button>
+    <span class="spinner htmx-indicator" id="copy-spin-{{.Video.ID}}"></span>
     <span id="copy-lib-status-{{.Video.ID}}" style="font-size:0.78rem;color:#888"></span>
   </div>
   {{end}}
@@ -212,15 +216,15 @@
       style="display:none;flex-direction:column;gap:0.4rem;margin-top:0.4rem;padding:0.5rem;background:#161e16;border:1px solid #2a4a2a;border-radius:4px">
       <form hx-post="/videos/{{.Video.ID}}/move"
             hx-target="#video-list"
+            hx-indicator="#vl-spin"
             hx-on::after-request="document.getElementById('move-panel-{{.Video.ID}}').style.display='none'"
             style="display:flex;flex-direction:column;gap:0.4rem">
         <label style="font-size:0.72rem;color:#888">Destination directory</label>
-        <select name="dir_id"
-          style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem"
+        <select name="dir_id" class="input-dark" style="padding:0.3rem 0.5rem;font-size:0.82rem"
           hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
         <label style="font-size:0.72rem;color:#888">New sub-folder inside destination (optional)</label>
         <input type="text" name="subdir" placeholder="e.g. Season 2"
-          style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem">
+          class="input-dark" style="padding:0.3rem 0.5rem;font-size:0.82rem">
         <div style="display:flex;gap:0.4rem">
           <button type="submit" class="btn-sm btn-success" style="font-size:0.78rem">Move</button>
           <button type="button" class="btn-sm btn-ghost" style="font-size:0.78rem"
@@ -275,7 +279,9 @@
 
       <!-- Action buttons -->
       <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center">
-        <button class="btn-sm" onclick="startConvert({{.Video.ID}})">🔄 Convert</button>
+        <button class="btn-sm"
+          onclick="document.getElementById('conv-confirm-{{.Video.ID}}').style.display='flex'"
+          title="Convert to the selected format">🔄 Convert…</button>
         <form action="/videos/{{.Video.ID}}/export/usb" method="post"
               style="display:inline"
               onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='⏳ Exporting…'">
@@ -283,6 +289,15 @@
             title="Re-encode as H.264/AAC MP4 with faststart (TV/USB compatible) and download"
           >📀 Export USB</button>
         </form>
+      </div>
+      <!-- Convert inline confirmation (hidden until Convert… is clicked) -->
+      <div id="conv-confirm-{{.Video.ID}}"
+        style="display:none;gap:0.4rem;align-items:center;padding:0.3rem 0.5rem;background:#1a1a2a;border:1px solid #3a3a5a;border-radius:4px;font-size:0.78rem">
+        <span style="color:#aaa;flex:1">Start conversion?</span>
+        <button class="btn-sm btn-success" style="font-size:0.74rem"
+          onclick="document.getElementById('conv-confirm-{{.Video.ID}}').style.display='none';startConvert({{.Video.ID}})">✓ Convert</button>
+        <button class="btn-sm btn-ghost" style="font-size:0.74rem"
+          onclick="document.getElementById('conv-confirm-{{.Video.ID}}').style.display='none'">Cancel</button>
       </div>
 
       <!-- Progress / result area -->
@@ -295,7 +310,13 @@
 function convUpdateQuality(vid) {
   var fmt = document.querySelector('input[name="conv-format-' + vid + '"]:checked');
   var row = document.getElementById('conv-quality-' + vid);
-  if (fmt && row) row.style.display = fmt.value === 'mkv-copy' ? 'none' : '';
+  if (fmt && row) {
+    var isMkv = fmt.value === 'mkv-copy';
+    row.style.display = isMkv ? 'none' : '';
+    row.querySelectorAll('input[type="radio"]').forEach(function(el) {
+      el.disabled = isMkv;
+    });
+  }
 }
 
 function startConvert(vid) {

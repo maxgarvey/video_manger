@@ -1,3 +1,7 @@
+// main.go wires together the application: parses CLI flags, opens the SQLite
+// database, starts background services (session pruning, mDNS), launches the
+// HTTP server, and handles graceful shutdown on SIGTERM/SIGINT.
+// It also hosts small shared helpers: render(), parseIDParam(), reltime(), etc.
 package main
 
 import (
@@ -97,6 +101,7 @@ func parseIDParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
 // render executes the named template, writing a 500 on error.
 func render(w http.ResponseWriter, name string, data any) {
 	if err := templates.ExecuteTemplate(w, name, data); err != nil {
+		slog.Error("render template failed", "template", name, "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

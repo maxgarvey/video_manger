@@ -7,12 +7,25 @@
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <script src="https://unpkg.com/htmx-ext-morph@2.0.1"></script>
   <style>
+    :root {
+      --bg: #000;          /* page background */
+      --input-bg: #222;    /* dark input / select background */
+      --surface: #2a2a2a;  /* panel surface + default button bg */
+      --border: #2a2a2a;   /* dividers and panel borders */
+      --border-btn: #3a3a3a;   /* button border */
+      --border-input: #444;    /* input border */
+      --text: #eee;        /* primary text */
+      --text-muted: #888;  /* secondary / muted text */
+      --text-dim: #555;    /* very faint / placeholder text */
+      --accent: #4a9a4a;   /* green accent */
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: system-ui, sans-serif;
-      background: #000;
-      color: #eee;
+      background: var(--bg);
+      color: var(--text);
       width: 100vw;
       height: 100vh;
       overflow: hidden;
@@ -35,15 +48,14 @@
     .chrome {
       position: fixed;
       z-index: 90;
-      opacity: 0;
-      pointer-events: none;
+      opacity: 0.3;
+      pointer-events: auto;
       transition: opacity 0.2s;
     }
     body:hover .chrome,
     body.lib-open .chrome,
     body.cfg-open .chrome {
       opacity: 1;
-      pointer-events: auto;
     }
     .chrome-btn {
       background: rgba(0, 0, 0, 0.65);
@@ -105,7 +117,7 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      border-bottom: 1px solid #2a2a2a;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
       background: rgba(18, 18, 18, 0.85);
     }
@@ -117,7 +129,7 @@
       gap: 0.3rem;
       flex-wrap: wrap;
       align-items: center;
-      border-bottom: 1px solid #2a2a2a;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
       background: rgba(18, 18, 18, 0.72);
     }
@@ -127,7 +139,7 @@
       display: none;
       padding: 0.75rem;
       gap: 1rem;
-      border-bottom: 1px solid #2a2a2a;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
       background: rgba(18, 18, 18, 0.72);
       flex-wrap: wrap;
@@ -146,7 +158,7 @@
     /* ── Info panel — always-visible strip below the player ──────────── */
     #info-panel {
       background: rgba(20, 20, 20, 0.96);
-      border-top: 1px solid #2a2a2a;
+      border-top: 1px solid var(--border);
       padding: 1rem 1.25rem;
       display: flex;
       flex-direction: column;
@@ -167,17 +179,24 @@
       margin-bottom: 0.6rem;
     }
     input[type=text] {
-      background: #222;
-      border: 1px solid #444;
-      color: #eee;
+      background: var(--input-bg);
+      border: 1px solid var(--border-input);
+      color: var(--text);
       padding: 0.4rem 0.6rem;
       border-radius: 4px;
       font-size: 0.85rem;
       width: 100%;
     }
+    /* Utility class: dark-theme input look for password/select/textarea */
+    .input-dark {
+      background: var(--input-bg);
+      border: 1px solid var(--border-input);
+      color: var(--text);
+      border-radius: 4px;
+    }
     button, .btn {
-      background: #2a2a2a;
-      border: 1px solid #3a3a3a;
+      background: var(--surface);
+      border: 1px solid var(--border-btn);
       color: #ccc;
       padding: 0.35rem 0.7rem;
       border-radius: 4px;
@@ -209,7 +228,7 @@
     .spinner {
       display: inline-block;
       width: 0.65rem; height: 0.65rem;
-      border: 2px solid #444; border-top-color: #888;
+      border: 2px solid var(--border-input); border-top-color: var(--text-muted);
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
       vertical-align: middle;
@@ -232,6 +251,9 @@
       max-width: 70vw;
       overflow-x: auto;
       align-items: center;
+      /* Fade right edge to signal overflow */
+      -webkit-mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent 100%);
+      mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent 100%);
     }
     .tab-btn {
       background: rgba(35, 35, 35, 0.9);
@@ -297,17 +319,20 @@
 
   <!-- Library toggle button — top left -->
   <div class="chrome" id="lib-btn">
-    <button class="chrome-btn" onclick="document.body.classList.toggle('lib-open')">☰ Library</button>
+    <button class="chrome-btn" onclick="toggleLib()"
+      aria-label="Open library (L)" title="Open library (L)">☰ Library</button>
   </div>
 
   <!-- Info button — bottom right; collapses/expands the info panel -->
   <div class="chrome" id="info-btn">
-    <button class="chrome-btn" onclick="document.body.classList.toggle('info-collapsed')" title="Toggle info panel">▾ Info</button>
+    <button class="chrome-btn" onclick="document.body.classList.toggle('info-collapsed')"
+      aria-label="Toggle info panel (I)" title="Toggle info panel (I)">▾ Info</button>
   </div>
 
   <!-- Config toggle button — top right -->
   <div class="chrome" id="cfg-btn">
-    <button class="chrome-btn" onclick="document.body.classList.toggle('cfg-open')">⚙ Settings</button>
+    <button class="chrome-btn" onclick="toggleCfg()"
+      aria-label="Open settings (S)" title="Open settings (S)">⚙ Settings</button>
   </div>
 
   <!-- Library full-pane overlay -->
@@ -343,7 +368,7 @@
         title="Add content">＋ Add content</button>
       <button class="btn-icon" onclick="document.body.classList.remove('lib-open')"
         style="font-size:1.2rem;flex-shrink:0"
-        title="Close library">✕</button>
+        title="Close library" aria-label="Close library">✕</button>
     </div>
 
     <!-- Filter bar -->
@@ -404,6 +429,7 @@
       <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:0.4rem">
         <h2>Download from URL</h2>
         <form hx-post="/ytdlp/download" hx-target="#ytdlp-output" hx-swap="beforeend"
+              hx-on::after-request="this.reset()"
               style="display:flex;flex-direction:column;gap:0.4rem">
           <textarea name="urls" rows="3" placeholder="One URL per line"
             style="background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.5rem;border-radius:4px;font-size:0.85rem;resize:vertical;font-family:inherit"></textarea>
@@ -427,7 +453,7 @@
       <div id="video-list"
            hx-ext="morph"
            hx-get="/videos"
-           hx-trigger="load, every 60s"
+           hx-trigger="load, every 60s, videoRenamed from:body"
            hx-swap="morph:innerHTML"
            hx-include="#video-search,#active-tag,#active-rating"
            hx-indicator="#vl-spin"></div>
@@ -445,12 +471,32 @@
     <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem">
       <button class="btn-icon" onclick="document.body.classList.remove('cfg-open')"
         style="font-size:1.2rem"
-        title="Close settings">✕</button>
+        title="Close settings" aria-label="Close settings">✕</button>
     </div>
     <div id="settings-panel" hx-get="/settings" hx-trigger="load"></div>
   </div>
 
   <script>
+    // ── Panel helpers ───────────────────────────────────────────────
+    function toggleLib() {
+      var opening = !document.body.classList.contains('lib-open');
+      document.body.classList.toggle('lib-open');
+      if (opening) {
+        setTimeout(function() { document.getElementById('video-search').focus(); }, 50);
+      }
+    }
+
+    function toggleCfg() {
+      var opening = !document.body.classList.contains('cfg-open');
+      document.body.classList.toggle('cfg-open');
+      if (opening) {
+        setTimeout(function() {
+          var el = document.querySelector('#settings-panel input, #settings-panel select, #settings-panel button');
+          if (el) el.focus();
+        }, 260);
+      }
+    }
+
     // ── Multi-tab player system ─────────────────────────────────────
     const videoTabs = {}; // videoId → { pane, tabBtn }
 
@@ -508,7 +554,7 @@
       tabBtn.onclick = function() { activateTab(videoId); };
       tabBtn.innerHTML =
         '<span class="tab-label">' + escHtml(title) + '</span>' +
-        '<button class="tab-close" onclick="event.stopPropagation();closeTab(' + videoId + ')">✕</button>';
+        '<button class="tab-close" onclick="event.stopPropagation();closeTab(' + videoId + ')" aria-label="Close tab">✕</button>';
       document.getElementById('tab-strip').appendChild(tabBtn);
 
       videoTabs[videoId] = { pane: pane, tabBtn: tabBtn };
@@ -738,11 +784,11 @@
       if (e.target.matches('input, textarea, select') || e.target.isContentEditable) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.key === 'l' || e.key === 'L') {
-        document.body.classList.toggle('lib-open');
+        toggleLib();
       } else if (e.key === 'i' || e.key === 'I') {
         document.getElementById('info-panel').scrollIntoView({behavior: 'smooth'});
       } else if (e.key === 's' || e.key === 'S') {
-        document.body.classList.toggle('cfg-open');
+        toggleCfg();
       } else if (e.key === 'Escape') {
         document.body.classList.remove('lib-open', 'cfg-open');
       }

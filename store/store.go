@@ -29,6 +29,9 @@ type Video struct {
 	Actors        string
 	Studio        string
 	Channel       string
+	// WatchedAt holds the last watch timestamp (SQLite datetime string, empty if never watched).
+	// Populated by list queries via LEFT JOIN watch_history — do not set manually.
+	WatchedAt string
 }
 
 // VideoFields holds the editable standardised descriptive fields for a video.

@@ -23,7 +23,8 @@
   <div class="card">
     <h1>🎬 Video Manger</h1>
     <form method="POST" action="/login" style="display:flex;flex-direction:column;gap:0.75rem">
-      <input type="password" name="password" placeholder="Password" autofocus>
+      <label for="password" style="font-size:0.85rem;color:#aaa">Password</label>
+      <input type="password" id="password" name="password" placeholder="Password" autofocus>
       {{if .}}<p class="error">{{.}}</p>{{end}}
       <button type="submit">Sign in</button>
     </form>

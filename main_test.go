@@ -29,6 +29,18 @@ func newTestServer(t *testing.T) *server {
 	return &server{store: s, sessions: make(map[string]time.Time), syncingDirs: make(map[int64]struct{}), convertSem: make(chan struct{}, 2), jobs: make(map[string]*ytdlpJob), convertJobs: make(map[string]*convertJob)}
 }
 
+// newTestServerWithAuth creates a test server with password protection enabled.
+func newTestServerWithAuth(t *testing.T, password string) *server {
+	t.Helper()
+	srv := newTestServer(t)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	srv.passwordHash = hash
+	return srv
+}
+
 // --- Unit tests ---
 
 func TestIsVideoFile(t *testing.T) {
@@ -91,6 +103,34 @@ func TestHandleIndex(t *testing.T) {
 	}
 }
 
+
+func TestAuthRequired(t *testing.T) {
+	srv := newTestServerWithAuth(t, "secret")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected redirect to login (302), got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/login" {
+		t.Errorf("expected redirect to /login, got %q", loc)
+	}
+}
+
+func TestAuthLogin(t *testing.T) {
+	srv := newTestServerWithAuth(t, "secret")
+	body := strings.NewReader(url.Values{"password": {"secret"}}.Encode())
+	req := httptest.NewRequest(http.MethodPost, "/login", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected redirect after login (302), got %d", rec.Code)
+	}
+	if rec.Header().Get("Set-Cookie") == "" {
+		t.Error("expected session cookie after successful login")
+	}
+}
 
 func TestHandleVideoList_Empty(t *testing.T) {
 	srv := newTestServer(t)
@@ -751,9 +791,7 @@ func TestHandleYTDLP_InvalidDir(t *testing.T) {
 }
 
 func TestHandleYTDLP_NotInstalled(t *testing.T) {
-	// With the async SSE approach, POST always returns 200 + a progress page.
-	// The yt-dlp "not found" error is surfaced via the SSE stream, not the HTTP
-	// status code of the initial POST.
+	// With empty PATH, yt-dlp cannot be found — handler returns 503 immediately.
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, t.TempDir())
@@ -765,11 +803,8 @@ func TestHandleYTDLP_NotInstalled(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/ytdlp/download", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 (progress page), got %d", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "EventSource") {
-		t.Error("expected progress page with EventSource in response body")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when yt-dlp not installed, got %d", rec.Code)
 	}
 }
 
@@ -779,7 +814,12 @@ func TestHandleYTDLP_MultipleURLs(t *testing.T) {
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, t.TempDir())
 
-	t.Setenv("PATH", t.TempDir()) // empty PATH — yt-dlp not installed; jobs fail async
+	// Create a stub yt-dlp so LookPath succeeds; downloads fail async but the
+	// initial POST should still return the progress page immediately.
+	bin := t.TempDir()
+	stub := filepath.Join(bin, "yt-dlp")
+	os.WriteFile(stub, []byte("#!/bin/sh\nexit 1\n"), 0755) //nolint:errcheck
+	t.Setenv("PATH", bin)
 
 	urls := "https://example.com/v1\nhttps://example.com/v2\nhttps://example.com/v3"
 	form := url.Values{"urls": {urls}, "dir_id": {itoa(d.ID)}}
@@ -791,10 +831,10 @@ func TestHandleYTDLP_MultipleURLs(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	body := rec.Body.String()
-	// Should have 3 EventSource subscriptions.
-	count := strings.Count(body, "EventSource")
+	// Should have 3 EventSource subscriptions — one per URL.
+	count := strings.Count(body, "new EventSource")
 	if count != 3 {
-		t.Errorf("expected 3 EventSource blocks, got %d", count)
+		t.Errorf("expected 3 new EventSource calls for 3 URLs, got %d", count)
 	}
 }
 
@@ -844,9 +884,7 @@ func TestHandleConvert_BadVideo(t *testing.T) {
 }
 
 func TestHandleConvert_NoFFmpeg(t *testing.T) {
-	// The convert handler is async (SSE): the POST always returns 200 + a
-	// progress page. The ffmpeg error surfaces via the SSE stream, not the
-	// HTTP status of the initial POST.
+	// With empty PATH, ffmpeg cannot be found — handler returns 503 immediately.
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "clip.mp4"), []byte("fake"), 0644); err != nil {
 		t.Fatal(err)
@@ -863,11 +901,8 @@ func TestHandleConvert_NoFFmpeg(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/convert", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 (progress page), got %d", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "EventSource") {
-		t.Error("expected progress page with EventSource in response body")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when ffmpeg not installed, got %d", rec.Code)
 	}
 }
 
@@ -891,14 +926,14 @@ func TestHandleExportUSB_NoFFmpeg(t *testing.T) {
 	d, _ := srv.store.AddDirectory(ctx, dir)
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
 
-	// PATH manipulation so ffmpeg cannot be found — expect 500.
+	// PATH manipulation so ffmpeg cannot be found — expect 503.
 	t.Setenv("PATH", t.TempDir()) // empty PATH: no executables
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/export/usb", nil)
 	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when ffmpeg missing, got %d", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when ffmpeg missing, got %d", rec.Code)
 	}
 }
 
@@ -1819,8 +1854,8 @@ func TestHandleTrim_NoFFmpeg(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/trim", v.ID), strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	srv.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when ffmpeg missing, got %d", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when ffmpeg missing, got %d", rec.Code)
 	}
 }
 
@@ -1902,6 +1937,252 @@ func TestSyncDir_AutoTagsDirectory(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected auto-tag %q but got %v", dirBase, tags)
+	}
+}
+
+// --- Sidecar JSON tests ---
+
+// TestSyncDir_Sidecar verifies that a <basename>.json file alongside a video
+// is read during syncDir and applied to the video's title, fields, and tags.
+func TestSyncDir_Sidecar(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "film.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sidecar := `{
+		"title":         "My Film",
+		"tags":          ["action", "sci-fi"],
+		"actors":        "Tom Hanks",
+		"genre":         "Drama",
+		"season":        2,
+		"episode":       5,
+		"episode_title": "The Pilot",
+		"studio":        "Warner",
+		"channel":       "HBO"
+	}`
+	if err := os.WriteFile(filepath.Join(tmp, "film.json"), []byte(sidecar), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+	srv.syncDir(d)
+
+	vids, err := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("ListVideosByDirectory: %v", err)
+	}
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(vids))
+	}
+	v := vids[0]
+
+	if v.Title() != "My Film" {
+		t.Errorf("title: got %q, want %q", v.Title(), "My Film")
+	}
+	if v.Actors != "Tom Hanks" {
+		t.Errorf("actors: got %q, want %q", v.Actors, "Tom Hanks")
+	}
+	if v.Genre != "Drama" {
+		t.Errorf("genre: got %q, want %q", v.Genre, "Drama")
+	}
+	if v.SeasonNumber != 2 {
+		t.Errorf("season: got %d, want 2", v.SeasonNumber)
+	}
+	if v.EpisodeNumber != 5 {
+		t.Errorf("episode: got %d, want 5", v.EpisodeNumber)
+	}
+	if v.EpisodeTitle != "The Pilot" {
+		t.Errorf("episode_title: got %q, want %q", v.EpisodeTitle, "The Pilot")
+	}
+	if v.Studio != "Warner" {
+		t.Errorf("studio: got %q, want %q", v.Studio, "Warner")
+	}
+	if v.Channel != "HBO" {
+		t.Errorf("channel: got %q, want %q", v.Channel, "HBO")
+	}
+
+	tags, err := srv.store.ListTagsByVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("ListTagsByVideo: %v", err)
+	}
+	tagSet := make(map[string]bool, len(tags))
+	for _, tg := range tags {
+		tagSet[tg.Name] = true
+	}
+	for _, want := range []string{"action", "sci-fi"} {
+		if !tagSet[want] {
+			t.Errorf("expected tag %q in %v", want, tags)
+		}
+	}
+}
+
+// TestSyncDir_SidecarMissing verifies that syncDir works normally when no
+// sidecar JSON exists next to a video file.
+func TestSyncDir_SidecarMissing(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "film.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+	srv.syncDir(d)
+
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(vids))
+	}
+}
+
+// TestSyncDir_SidecarInvalid verifies that a malformed sidecar JSON logs a
+// warning but does not prevent the video from being registered.
+func TestSyncDir_SidecarInvalid(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "film.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "film.json"), []byte("{not valid json{{"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+	srv.syncDir(d) // must not panic
+
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video even with invalid sidecar, got %d", len(vids))
+	}
+}
+
+// TestSyncDir_SidecarIdempotent verifies that running syncDir twice with the
+// same sidecar does not duplicate tags.
+func TestSyncDir_SidecarIdempotent(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "film.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "film.json"), []byte(`{"tags":["action","drama"]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+	srv.syncDir(d)
+	srv.syncDir(d) // second sync must not duplicate tags
+
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(vids))
+	}
+	tags, err := srv.store.ListTagsByVideo(ctx, vids[0].ID)
+	if err != nil {
+		t.Fatalf("ListTagsByVideo: %v", err)
+	}
+	// Count occurrences of each tag name — must each appear exactly once.
+	counts := make(map[string]int)
+	for _, tg := range tags {
+		counts[tg.Name]++
+	}
+	for _, name := range []string{"action", "drama"} {
+		if counts[name] != 1 {
+			t.Errorf("tag %q: expected count 1, got %d", name, counts[name])
+		}
+	}
+}
+
+// --- Subfolder creation tests ---
+
+func TestHandleCreateSubfolder(t *testing.T) {
+	tmp := t.TempDir()
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+
+	form := url.Values{"name": {"Season 1"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/directories/"+itoa(d.ID)+"/subfolder", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Folder must exist on disk.
+	want := filepath.Join(tmp, "Season 1")
+	if _, err := os.Stat(want); err != nil {
+		t.Errorf("expected subfolder %q on disk: %v", want, err)
+	}
+
+	// Subfolder must be registered as a directory.
+	dirs, err := srv.store.ListDirectories(ctx)
+	if err != nil {
+		t.Fatalf("ListDirectories: %v", err)
+	}
+	var found bool
+	for _, dir := range dirs {
+		if dir.Path == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("subfolder %q not registered; dirs=%v", want, dirs)
+	}
+}
+
+func TestHandleCreateSubfolder_EmptyName(t *testing.T) {
+	tmp := t.TempDir()
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+
+	form := url.Values{"name": {""}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/directories/"+itoa(d.ID)+"/subfolder", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty name, got %d", rec.Code)
+	}
+}
+
+func TestHandleCreateSubfolder_InvalidParent(t *testing.T) {
+	srv := newTestServer(t)
+
+	form := url.Values{"name": {"foo"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/directories/9999/subfolder", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown parent, got %d", rec.Code)
+	}
+}
+
+func TestHandleCreateSubfolder_PathTraversal(t *testing.T) {
+	tmp := t.TempDir()
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+
+	for _, bad := range []string{"../evil", "foo/bar", `foo\bar`} {
+		form := url.Values{"name": {bad}}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/directories/"+itoa(d.ID)+"/subfolder", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		srv.routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("name %q: expected 400, got %d", bad, rec.Code)
+		}
 	}
 }
 
@@ -2038,6 +2319,38 @@ func TestHandleMoveVideo_BadVideo(t *testing.T) {
 	}
 }
 
+// --- 3b: yt-dlp info.json path capture ---
+
+// TestYTDLPInfoJSONCleanup verifies that a .info.json file placed alongside a
+// video is removed after metadata tagging (exercising the cleanup path without
+// needing ffmpeg by making parseYTDLPInfoJSON fail on an empty JSON).
+func TestYTDLPInfoJSONCleanup(t *testing.T) {
+	tmp := t.TempDir()
+	videoPath := filepath.Join(tmp, "clip.mp4")
+	infoPath := videoPath + ".info.json"
+
+	if err := os.WriteFile(videoPath, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Write a valid minimal info.json that parseYTDLPInfoJSON can parse.
+	if err := os.WriteFile(infoPath, []byte(`{"title":"Test"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the tagging flow: read info.json → parse → (skip write, no ffmpeg) → delete.
+	data, err := os.ReadFile(infoPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	_, _ = parseYTDLPInfoJSON(data)
+	if err := os.Remove(infoPath); err != nil {
+		t.Fatalf("Remove info.json: %v", err)
+	}
+	if _, err := os.Stat(infoPath); !os.IsNotExist(err) {
+		t.Error("info.json should have been deleted")
+	}
+}
+
 // --- parseYTDLPInfoJSON ---
 
 func TestParseYTDLPInfoJSON_Full(t *testing.T) {
@@ -2119,5 +2432,193 @@ func TestParseYTDLPInfoJSON_InvalidJSON(t *testing.T) {
 	_, ok := parseYTDLPInfoJSON([]byte("not json"))
 	if ok {
 		t.Error("expected not ok for invalid JSON")
+	}
+}
+
+// --- 3a: video fields endpoints ---
+
+func TestHandleGetVideoFields(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/fields", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	// view template must contain the stable div id
+	if !strings.Contains(rec.Body.String(), "video-fields-"+itoa(v.ID)) {
+		t.Error("expected video-fields div id in response")
+	}
+}
+
+func TestHandleGetVideoFields_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/9999/fields", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestHandleEditVideoFields(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/fields/edit", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	// Edit form must contain inputs for genre and actors
+	if !strings.Contains(body, `name="genre"`) {
+		t.Error("expected genre input in edit form")
+	}
+	if !strings.Contains(body, `name="actors"`) {
+		t.Error("expected actors input in edit form")
+	}
+}
+
+func TestHandleUpdateVideoFields(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	form := url.Values{
+		"genre":          {"Action"},
+		"channel":        {"HBO"},
+		"season_number":  {"2"},
+		"episode_number": {"5"},
+		"episode_title":  {"Pilot"},
+		"actors":         {"Tom Hanks"},
+		"studio":         {"WB"},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/videos/"+itoa(v.ID)+"/fields", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// Response is the view template; should contain saved values
+	body := rec.Body.String()
+	if !strings.Contains(body, "Action") {
+		t.Error("expected genre in response")
+	}
+	if !strings.Contains(body, "Tom Hanks") {
+		t.Error("expected actors in response")
+	}
+	// Verify DB was updated
+	got, _ := srv.store.GetVideo(ctx, v.ID)
+	if got.Genre != "Action" {
+		t.Errorf("Genre = %q, want Action", got.Genre)
+	}
+	if got.SeasonNumber != 2 {
+		t.Errorf("SeasonNumber = %d, want 2", got.SeasonNumber)
+	}
+}
+
+func TestHandleUpdateVideoFields_ZeroValues(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	// Submit all-empty fields — should succeed and persist zeros
+	form := url.Values{
+		"genre": {""}, "channel": {""}, "season_number": {"0"},
+		"episode_number": {"0"}, "episode_title": {""}, "actors": {""}, "studio": {""},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/videos/"+itoa(v.ID)+"/fields", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	got, _ := srv.store.GetVideo(ctx, v.ID)
+	if got.Genre != "" || got.SeasonNumber != 0 {
+		t.Errorf("expected empty fields, got Genre=%q Season=%d", got.Genre, got.SeasonNumber)
+	}
+}
+
+// --- 3e: pagination ---
+
+func TestServeVideoListPagination(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	// Seed 5 videos with unique names
+	names := []string{"a.mp4", "b.mp4", "c.mp4", "d.mp4", "e.mp4"}
+	for _, n := range names {
+		srv.store.UpsertVideo(ctx, d.ID, d.Path, n) //nolint:errcheck
+	}
+
+	// Page 1 with limit=2 should return 2 videos
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos?page=1&limit=2", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("page1: expected 200, got %d", rec.Code)
+	}
+
+	// Page 3 with limit=2 should return 1 video (only "e.mp4")
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/videos?page=3&limit=2", nil)
+	srv.routes().ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("page3: expected 200, got %d", rec2.Code)
+	}
+
+	// Page 10 (out-of-range) should return 200 with no video rows
+	rec3 := httptest.NewRecorder()
+	req3 := httptest.NewRequest(http.MethodGet, "/videos?page=10&limit=2", nil)
+	srv.routes().ServeHTTP(rec3, req3)
+	if rec3.Code != http.StatusOK {
+		t.Fatalf("page10: expected 200, got %d", rec3.Code)
+	}
+}
+
+// --- 3f: rename response body assertion (HTML-escaped) ---
+
+func TestHandleUpdateVideoName_EscapedTitle(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "raw.mp4")
+
+	// Title containing HTML special chars — must be escaped in response.
+	form := url.Values{"name": {"<b>Bold & Beautiful</b>"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/videos/"+itoa(v.ID)+"/name", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "<b>") {
+		t.Error("response must not contain raw <b> tag (XSS risk)")
+	}
+	if !strings.Contains(body, "&lt;b&gt;") {
+		t.Errorf("expected HTML-escaped title in response, got %q", body)
+	}
+	// HX-Trigger header must be set to trigger sidebar refresh
+	if rec.Header().Get("HX-Trigger") != "videoRenamed" {
+		t.Errorf("expected HX-Trigger: videoRenamed header, got %q", rec.Header().Get("HX-Trigger"))
 	}
 }

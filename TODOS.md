@@ -15,7 +15,6 @@ in the plans folder called "goals implementation status" with current status.
 Before fine-grained planning, read the list and arrange them in the order that
 makes the most sense. With a bias toward ease of complexity and implementation.
 
-1. Add a way to delete a video from the UI of viewing the video
-2. Don't display "Loading..." on first load when there's no videos available
-3. Allow directory creation via the library and moving videos into directories
-4. check test coverage, check why CI build is failing in github, fix tests and CI to be green
+1. can you make it so that downloading via yt-dlp can support a queue of links
+2. can you make it so that progress of that queue is visible in the UI
+3. can you make it so that yt-dlp downloads metadata (be sure to clean up the metadata) and use the metadata to tag the video file at a file level on import? 

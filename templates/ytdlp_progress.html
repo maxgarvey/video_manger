@@ -20,6 +20,11 @@
     msg.innerHTML = '✓ Done';
     msg.style.color = '#4a9a4a';
     htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'morph:innerHTML'});
+    // Auto-remove completed block after 30 seconds.
+    setTimeout(function() {
+      var block = pre.closest('div');
+      if (block) block.remove();
+    }, 30000);
   });
   es.addEventListener('error', function(evt) {
     es.close();
@@ -27,9 +32,12 @@
     msg.style.color = '#c44';
   });
   es.onerror = function() {
+    if (es.readyState === EventSource.CLOSED) {
+      return; // already cleanly closed by done/error handler
+    }
     es.close();
     if (msg.textContent.indexOf('✓') === -1 && msg.textContent.indexOf('✗') === -1) {
-      msg.innerHTML = '<span style="color:#c44">Connection lost</span>';
+      msg.innerHTML = '<span style="color:#c44">Connection lost — download may still be running in background.</span>';
     }
   };
 })();

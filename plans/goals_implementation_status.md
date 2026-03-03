@@ -122,3 +122,31 @@ Ordered by complexity (easiest first).
 |---|---------|---------|--------|
 | 68 | 3 | yt-dlp metadata tagging on import (write-info-json → ffmpeg stream-copy) | ✅ Done |
 | 69 | 1+2 | yt-dlp download queue + queue progress UI (textarea, beforeend, multi-job) | ✅ Done |
+
+## Round 9 — Self-review fixes
+
+Ordered by phase.
+
+| # | Ref | Fix | Status |
+|---|-----|-----|--------|
+| 70 | 1a/5a | XSS: html.EscapeString in handleUpdateVideoName | ✅ Done |
+| 71 | 1b | Cross-device move rollback + os.Remove error check | ✅ Done |
+| 72 | 5b | Relocate: restrict newPath to registered directories | ✅ Done |
+| 73 | 1c | yt-dlp [Merger] line preferred over [download] Destination | ✅ Done |
+| 74 | 1d | Original filename hint only shown when different from current | ✅ Done |
+| 75 | 1f | Log ListWatchHistory error instead of silently discarding | ✅ Done |
+| 76 | 1g | metadata.Write after UpdateVideoFields | ✅ Done |
+| 77 | 4a | Auto-remove completed download blocks after 30s | ✅ Done |
+| 78 | 4c | Stable video-fields container div ID | ✅ Done |
+| 79 | 4e | Clear URL textarea after submit (hx-on::after-request) | ✅ Done |
+| 80 | 4f | Better "Connection lost" SSE copy | ✅ Done |
+| 81 | 4g | Disable quality inputs when mkv-copy selected | ✅ Done |
+| 82 | 4h | Better actors placeholder ("e.g. Tom Hanks, Robin Wright") | ✅ Done |
+| 83 | 1e/4b | HX-Trigger: videoRenamed refreshes library sidebar | ✅ Done |
+| 84 | 3a | Tests: GET/GET-edit/PUT video fields + zero values | ✅ Done |
+| 85 | 3b | Test: info.json read + cleanup path | ✅ Done |
+| 86 | 3f | Test: HTML-escaped title in rename response + HX-Trigger header | ✅ Done |
+| 87 | 3e | Tests: pagination page=1/3/10 with limit=2 | ✅ Done |
+| 88 | 2b | SQL LEFT JOIN watch_history in all list queries (remove ListWatchHistory) | ✅ Done |
+| 89 | 2c | SQL ORDER BY directory_path (remove Go-level slices.SortFunc) | ✅ Done |
+| 90 | 2a | SQL LIMIT/OFFSET pagination | ⏸ Deferred (requires store interface refactor) |

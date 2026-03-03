@@ -82,9 +82,9 @@ Items: 2b, 2c, 2a (2d and 2e deferred — low priority / hard)
 
 | Phase | Status |
 |-------|--------|
-| 1 — Security & high bugs | ⬜ Pending |
-| 2 — Medium bugs | ⬜ Pending |
-| 3 — UX easy wins | ⬜ Pending |
-| 4 — Rename sidebar refresh | ⬜ Pending |
-| 5 — Tests | ⬜ Pending |
-| 6 — Performance | ⬜ Pending |
+| 1 — Security & high bugs | ✅ Done |
+| 2 — Medium bugs | ✅ Done |
+| 3 — UX easy wins | ✅ Done |
+| 4 — Rename sidebar refresh | ✅ Done |
+| 5 — Tests | ✅ Done |
+| 6 — Performance | ✅ Done (2b+2c; 2a deferred — requires store interface refactor) |

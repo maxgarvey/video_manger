@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -50,6 +52,8 @@ func (s *server) syncDir(d store.Directory) {
 		} else if err := s.store.TagVideo(context.Background(), v.ID, dirTag.ID); err != nil {
 			slog.Warn("tag video with dir tag failed", "videoID", v.ID, "err", err)
 		}
+		// Apply optional JSON sidecar (same basename, .json extension).
+		s.applySidecar(context.Background(), v)
 		return nil
 	}); err != nil {
 		slog.Error("syncDir walk failed", "path", d.Path, "err", err)
@@ -171,6 +175,99 @@ func splitChunk(s string) (rest, chunk string) {
 		i++
 	}
 	return s[i:], s[:i]
+}
+
+// ── Sidecar JSON ──────────────────────────────────────────────────────────────
+
+// sidecarData holds optional metadata loaded from a JSON file that sits next
+// to a video file (same basename, .json extension).
+// Example: "film.mp4" → "film.json"
+//
+// Only fields that are present and non-zero in the JSON are applied; absent
+// fields leave the existing DB values untouched.
+type sidecarData struct {
+	Title         string   `json:"title"`
+	Tags          []string `json:"tags"`
+	Actors        string   `json:"actors"`
+	Genre         string   `json:"genre"`
+	SeasonNumber  int      `json:"season"`
+	EpisodeNumber int      `json:"episode"`
+	EpisodeTitle  string   `json:"episode_title"`
+	Studio        string   `json:"studio"`
+	Channel       string   `json:"channel"`
+}
+
+// readSidecar looks for a <basename>.json file alongside videoPath.
+// Returns (data, true, nil) when found and valid, (_, false, nil) when absent,
+// and (_, false, err) when present but malformed.
+func readSidecar(videoPath string) (sidecarData, bool, error) {
+	ext := filepath.Ext(videoPath)
+	sidecarPath := videoPath[:len(videoPath)-len(ext)] + ".json"
+	raw, err := os.ReadFile(sidecarPath)
+	if os.IsNotExist(err) {
+		return sidecarData{}, false, nil
+	}
+	if err != nil {
+		return sidecarData{}, false, err
+	}
+	var sc sidecarData
+	if err := json.Unmarshal(raw, &sc); err != nil {
+		return sidecarData{}, false, fmt.Errorf("parse sidecar %s: %w", sidecarPath, err)
+	}
+	return sc, true, nil
+}
+
+// applySidecar reads the JSON sidecar for v.FilePath() (if present) and
+// updates the video's title, fields, and tags in the store.
+// Fields absent from the sidecar are left unchanged.
+func (s *server) applySidecar(ctx context.Context, v store.Video) {
+	sc, ok, err := readSidecar(v.FilePath())
+	if err != nil {
+		slog.Warn("sidecar parse failed", "path", v.FilePath(), "err", err)
+		return
+	}
+	if !ok {
+		return
+	}
+
+	if sc.Title != "" {
+		if err := s.store.UpdateVideoName(ctx, v.ID, sc.Title); err != nil {
+			slog.Warn("sidecar: update title failed", "videoID", v.ID, "err", err)
+		}
+	}
+
+	// Only write video fields when the sidecar supplies at least one value,
+	// so that an empty sidecar never clears fields set through the UI.
+	if sc.Actors != "" || sc.Genre != "" || sc.SeasonNumber > 0 ||
+		sc.EpisodeNumber > 0 || sc.EpisodeTitle != "" ||
+		sc.Studio != "" || sc.Channel != "" {
+		f := store.VideoFields{
+			Genre:         sc.Genre,
+			SeasonNumber:  sc.SeasonNumber,
+			EpisodeNumber: sc.EpisodeNumber,
+			EpisodeTitle:  sc.EpisodeTitle,
+			Actors:        sc.Actors,
+			Studio:        sc.Studio,
+			Channel:       sc.Channel,
+		}
+		if err := s.store.UpdateVideoFields(ctx, v.ID, f); err != nil {
+			slog.Warn("sidecar: update fields failed", "videoID", v.ID, "err", err)
+		}
+	}
+
+	for _, tagName := range sc.Tags {
+		if tagName = strings.TrimSpace(tagName); tagName == "" {
+			continue
+		}
+		tag, err := s.store.UpsertTag(ctx, tagName)
+		if err != nil {
+			slog.Warn("sidecar: upsert tag failed", "tag", tagName, "err", err)
+			continue
+		}
+		if err := s.store.TagVideo(ctx, v.ID, tag.ID); err != nil {
+			slog.Warn("sidecar: tag video failed", "tag", tagName, "videoID", v.ID, "err", err)
+		}
+	}
 }
 
 // isVideoFile reports whether name has a video file extension.

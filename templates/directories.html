@@ -5,25 +5,42 @@
 <ul style="list-style:none;display:flex;flex-direction:column;gap:0.3rem"
   {{if $anySyncing}}hx-get="/directories" hx-trigger="every 2s" hx-target="this" hx-swap="outerHTML"{{end}}>
   {{range .Dirs}}
-  <li style="display:flex;align-items:center;gap:0.4rem">
-    <span style="flex:1;font-size:0.8rem;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Path}}">{{.Path}}</span>
-    {{if index $syncing .ID}}
-    <span class="spinner" style="flex-shrink:0" title="Scanning…"></span>
-    {{else}}
-    <button class="btn-icon"
-      hx-post="/directories/{{.ID}}/sync"
-      hx-target="#directories"
-      hx-swap="innerHTML"
-      style="flex-shrink:0"
-      title="Rescan">↺</button>
-    {{end}}
-    <button class="btn-icon"
-      hx-get="/directories/{{.ID}}/delete-confirm"
-      hx-target="closest li"
-      hx-swap="outerHTML"
-      style="flex-shrink:0"
-      title="Delete"
-    >✕</button>
+  <li>
+    <div style="display:flex;align-items:center;gap:0.4rem">
+      <span style="flex:1;font-size:0.8rem;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Path}}">{{.Path}}</span>
+      {{if index $syncing .ID}}
+      <span class="spinner" style="flex-shrink:0" title="Scanning…"></span>
+      {{else}}
+      <button class="btn-icon"
+        hx-post="/directories/{{.ID}}/sync"
+        hx-target="#directories"
+        hx-swap="innerHTML"
+        style="flex-shrink:0"
+        title="Rescan">↺</button>
+      {{end}}
+      <button class="btn-icon" style="flex-shrink:0" title="New subfolder"
+        onclick="var f=this.closest('li').querySelector('.subfolder-form');var open=f.style.display==='none';f.style.display=open?'flex':'none';if(open)f.querySelector('input').focus()"
+      >📁＋</button>
+      <button class="btn-icon"
+        hx-get="/directories/{{.ID}}/delete-confirm"
+        hx-target="closest li"
+        hx-swap="outerHTML"
+        style="flex-shrink:0"
+        title="Delete"
+      >✕</button>
+    </div>
+    <!-- Inline new-subfolder form (hidden until 📁＋ is clicked) -->
+    <form class="subfolder-form"
+          hx-post="/directories/{{.ID}}/subfolder"
+          hx-target="#directories"
+          hx-swap="innerHTML"
+          style="display:none;gap:0.3rem;padding:0.3rem 0 0 1rem;align-items:center">
+      <input type="text" name="name" placeholder="Folder name"
+        class="input-dark" style="flex:1;min-width:0;padding:0.25rem 0.4rem;font-size:0.8rem">
+      <button type="submit" class="btn-sm" style="font-size:0.75rem;flex-shrink:0">Create</button>
+      <button type="button" class="btn-sm btn-ghost" style="font-size:0.75rem;flex-shrink:0"
+        onclick="var f=this.closest('.subfolder-form');f.style.display='none';f.reset()">✕</button>
+    </form>
   </li>
   {{end}}
 </ul>

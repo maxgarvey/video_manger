@@ -1,3 +1,5 @@
+// server.go defines the server struct (which holds all shared state) and the
+// routes() method that registers every HTTP route via chi.
 package main
 
 import (
@@ -233,6 +235,7 @@ func (s *server) routes() http.Handler {
 	r.Post("/directories/{id}/sync", s.handleSyncDirectory)
 	r.Delete("/directories/{id}", s.handleDeleteDirectory)
 	r.Delete("/directories/{id}/files", s.handleDeleteDirectoryAndFiles)
+	r.Post("/directories/{id}/subfolder", s.handleCreateSubfolder)
 
 	// Duplicate detection
 	r.Get("/duplicates", s.handleListDuplicates)
