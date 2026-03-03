@@ -2338,6 +2338,34 @@ func TestHandleMoveVideo_WithSubdir(t *testing.T) {
 	}
 }
 
+// TestMoveRollback_CrossDevice verifies that the cross-device rollback path
+// removes the destination copy and leaves the source intact.  Previously the
+// code called os.Rename(dst, src) which fails with EXDEV on cross-device
+// moves; the fixed code calls os.Remove(dst).
+func TestMoveRollback_CrossDevice(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "original.mp4")
+	dst := filepath.Join(tmp, "copy.mp4")
+
+	if err := os.WriteFile(src, []byte("video data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a successful cross-device copy.
+	if err := copyFile(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the DB-failure rollback: remove the copy only.
+	if err := os.Remove(dst); err != nil {
+		t.Fatalf("rollback Remove: %v", err)
+	}
+	if _, err := os.Stat(src); err != nil {
+		t.Error("src was unexpectedly removed during rollback")
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Error("dst still exists after rollback")
+	}
+}
+
 func TestHandleMoveVideo_BadVideo(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()

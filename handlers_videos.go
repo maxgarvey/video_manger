@@ -502,14 +502,14 @@ func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
 		// DB update failed after the file has already been copied/moved.
 		// Attempt to roll back the filesystem change so nothing is left inconsistent.
 		if crossDevice {
-			if rb := os.Rename(dst, src); rb != nil {
-				slog.Error("move rollback failed: file is at dst but DB was not updated",
+			// For cross-device copies the source is still intact; just remove
+			// the copy at dst.  os.Rename would fail with EXDEV here too.
+			if rb := os.Remove(dst); rb != nil {
+				slog.Error("move rollback failed: copy is at dst but DB was not updated",
 					"src", src, "dst", dst, "dbErr", err, "rbErr", rb)
-			} else {
-				os.Remove(dst) //nolint:errcheck
 			}
 		} else {
-			// Rename was atomic; move it back.
+			// Same-device rename was atomic; move it back.
 			if rb := os.Rename(dst, src); rb != nil {
 				slog.Error("move rollback failed", "src", src, "dst", dst, "dbErr", err, "rbErr", rb)
 			}
