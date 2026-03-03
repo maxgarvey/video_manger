@@ -113,6 +113,7 @@ func main() {
 	dir := flag.String("dir", "", "video directory to register on startup (optional)")
 	port := flag.String("port", "8080", "port to listen on")
 	password := flag.String("password", "", "optional password to protect the UI (leave empty for no auth)")
+	httpsOnly := flag.Bool("https-only", false, "set Secure flag on session cookie (use when serving over HTTPS via a reverse proxy)")
 	flag.Parse()
 
 	s, err := store.NewSQLite(*dbPath)
@@ -121,14 +122,15 @@ func main() {
 	}
 
 	srv := &server{
-		store:       s,
-		port:        *port,
-		mdnsName:    "video-manger.local",
-		sessions:    make(map[string]time.Time),
-		syncingDirs: make(map[int64]struct{}),
-		convertSem:  make(chan struct{}, convertConcurrent),
-		jobs:        make(map[string]*ytdlpJob),
-		convertJobs: make(map[string]*convertJob),
+		store:         s,
+		port:          *port,
+		mdnsName:      "video-manger.local",
+		secureCookies: *httpsOnly,
+		sessions:      make(map[string]time.Time),
+		syncingDirs:   make(map[int64]struct{}),
+		convertSem:    make(chan struct{}, convertConcurrent),
+		jobs:          make(map[string]*ytdlpJob),
+		convertJobs:   make(map[string]*convertJob),
 	}
 	if *password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)

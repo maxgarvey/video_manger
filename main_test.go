@@ -1657,6 +1657,32 @@ func TestAuth_WithSessionCookie_PassesThrough(t *testing.T) {
 	}
 }
 
+// TestAuth_SecureCookieFlag verifies that when secureCookies is true the
+// Set-Cookie header includes the Secure attribute, and that it is absent
+// when secureCookies is false.
+func TestAuth_SecureCookieFlag(t *testing.T) {
+	login := func(srv *server) string {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("password=secret"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		srv.routes().ServeHTTP(rec, req)
+		return rec.Header().Get("Set-Cookie")
+	}
+
+	// With secureCookies=false (default), Secure must NOT appear.
+	srvPlain := newProtectedServer(t, "secret")
+	if setCookie := login(srvPlain); strings.Contains(setCookie, "Secure") {
+		t.Errorf("secureCookies=false: unexpected Secure attribute in %q", setCookie)
+	}
+
+	// With secureCookies=true, Secure must appear.
+	srvSecure := newProtectedServer(t, "secret")
+	srvSecure.secureCookies = true
+	if setCookie := login(srvSecure); !strings.Contains(setCookie, "Secure") {
+		t.Errorf("secureCookies=true: expected Secure attribute in %q", setCookie)
+	}
+}
+
 // E7: reltime edge cases
 func TestReltime(t *testing.T) {
 	cases := []struct {
