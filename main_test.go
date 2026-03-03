@@ -43,6 +43,32 @@ func newTestServerWithAuth(t *testing.T, password string) *server {
 
 // --- Unit tests ---
 
+// TestRenderErrorDoesNotLeakInternals verifies that a template execution error
+// (e.g. nil pointer, missing field) returns a generic "internal server error"
+// body to the client rather than Go type/path details.
+func TestRenderErrorDoesNotLeakInternals(t *testing.T) {
+	rec := httptest.NewRecorder()
+	// Pass an incompatible data type (string instead of the expected struct) to
+	// force a template execution error.  "directories.html" expects .Dirs and
+	// .Syncing; passing a plain string will cause an execution failure.
+	render(rec, "directories.html", "this-is-not-the-right-type")
+	// The response must be 500.
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	// The body must NOT contain Go-internal details.
+	for _, leak := range []string{"template:", "reflect.", "interface", ".Dirs", ".Syncing"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("response body leaks internal detail %q: %s", leak, body)
+		}
+	}
+	// It must contain the generic message.
+	if !strings.Contains(body, "internal server error") {
+		t.Errorf("expected generic error message, got: %s", body)
+	}
+}
+
 func TestIsVideoFile(t *testing.T) {
 	cases := []struct {
 		name string

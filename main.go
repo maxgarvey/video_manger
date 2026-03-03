@@ -99,10 +99,12 @@ func parseIDParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
 }
 
 // render executes the named template, writing a 500 on error.
+// The raw template error is only logged server-side; the client receives a
+// generic message so that internal paths and Go type details are not leaked.
 func render(w http.ResponseWriter, name string, data any) {
 	if err := templates.ExecuteTemplate(w, name, data); err != nil {
 		slog.Error("render template failed", "template", name, "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
 }
 
