@@ -390,7 +390,10 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 	for _, rawURL := range urls {
 		jobID := newToken()
 
-		job := &ytdlpJob{ch: make(chan string, 2048)}
+		// 4096 lines: yt-dlp output is typically low-volume, but playlists
+		// or verbose modes can produce many lines.  The non-blocking send
+		// drops lines when the buffer fills rather than blocking the goroutine.
+		job := &ytdlpJob{ch: make(chan string, 4096)}
 		s.jobsMu.Lock()
 		s.jobs[jobID] = job
 		s.jobsMu.Unlock()

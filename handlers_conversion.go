@@ -70,7 +70,12 @@ func (s *server) handleConvertStart(w http.ResponseWriter, r *http.Request) {
 	dst := filepath.Join(dir, outName)
 
 	jobID := newToken()
-	job := &convertJob{ch: make(chan string, 2048)}
+	// 65536 lines: ffmpeg emits roughly one progress line per frame; a 2-hour
+	// film at 24 fps produces ~170 000 lines.  When the buffer is full the
+	// non-blocking send silently drops lines so the conversion still completes,
+	// but the SSE client may see gaps.  65536 covers most single-pass converts
+	// at no more than ~6 MB of heap (a few hundred bytes per string).
+	job := &convertJob{ch: make(chan string, 65536)}
 	s.convertJobsMu.Lock()
 	s.convertJobs[jobID] = job
 	s.convertJobsMu.Unlock()
