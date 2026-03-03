@@ -270,11 +270,18 @@ func (s *server) handleCreateSubfolder(w http.ResponseWriter, r *http.Request) {
 // handleBrowseFS lists the immediate visible subdirectories of a path.
 // It is used by the folder-picker UI in the library sidebar.
 // The path defaults to the user's home directory when not supplied.
-// Browsing is restricted to the home-directory subtree to limit filesystem exposure.
+// Browsing is restricted to the home-directory subtree to limit filesystem
+// exposure.  Symlinks are resolved via filepath.EvalSymlinks before the
+// boundary check so that a symlink inside home pointing outside cannot be
+// used to escape the restriction.
 func (s *server) handleBrowseFS(w http.ResponseWriter, r *http.Request) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "/"
+	}
+	// Resolve symlinks in home itself (rare but possible on macOS with /private).
+	if realHome, err2 := filepath.EvalSymlinks(home); err2 == nil {
+		home = realHome
 	}
 
 	path := r.URL.Query().Get("path")
@@ -283,14 +290,22 @@ func (s *server) handleBrowseFS(w http.ResponseWriter, r *http.Request) {
 	}
 	path = filepath.Clean(path)
 
+	// Resolve symlinks so a symlink inside home pointing outside cannot be
+	// used to read arbitrary directories.
+	realPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		http.Error(w, "cannot resolve path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// Reject paths outside the home directory.
-	rel, err := filepath.Rel(home, path)
+	rel, err := filepath.Rel(home, realPath)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		http.Error(w, "path is outside the allowed directory", http.StatusForbidden)
 		return
 	}
 
-	entries, err := os.ReadDir(path)
+	entries, err := os.ReadDir(realPath)
 	if err != nil {
 		http.Error(w, "cannot read directory: "+err.Error(), http.StatusBadRequest)
 		return
@@ -301,11 +316,11 @@ func (s *server) handleBrowseFS(w http.ResponseWriter, r *http.Request) {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		dirs = append(dirs, filepath.Join(path, e.Name()))
+		dirs = append(dirs, filepath.Join(realPath, e.Name()))
 	}
 
-	parent := filepath.Dir(path)
-	if parent == path || parent == home { // already at root or at home boundary
+	parent := filepath.Dir(realPath)
+	if parent == realPath || parent == home { // already at root or at home boundary
 		parent = ""
 	}
 
@@ -313,7 +328,7 @@ func (s *server) handleBrowseFS(w http.ResponseWriter, r *http.Request) {
 		Path    string
 		Parent  string
 		Entries []string
-	}{path, parent, dirs}
+	}{realPath, parent, dirs}
 
 	render(w, "dir_browser.html", data)
 }

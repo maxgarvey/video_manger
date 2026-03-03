@@ -1685,6 +1685,43 @@ func TestHandleBrowseFS(t *testing.T) {
 	}
 }
 
+// TestHandleBrowseFS_SymlinkEscape verifies that a symlink inside the home
+// directory pointing outside is blocked by filepath.EvalSymlinks.
+func TestHandleBrowseFS_SymlinkEscape(t *testing.T) {
+	home, _ := os.UserHomeDir()
+
+	// Create a temp dir inside home to hold the symlink.
+	linkParent, err := os.MkdirTemp(home, "vm-test-symlink-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(linkParent) })
+
+	// Create a symlink inside home that points to /tmp (outside home on most systems).
+	linkPath := filepath.Join(linkParent, "escape")
+	target := "/tmp"
+	if err := os.Symlink(target, linkPath); err != nil {
+		t.Skipf("could not create symlink (skipping): %v", err)
+	}
+
+	// Determine whether /tmp is actually outside home after symlink resolution.
+	realTarget, _ := filepath.EvalSymlinks(target)
+	realHome, _ := filepath.EvalSymlinks(home)
+	rel, _ := filepath.Rel(realHome, realTarget)
+	if !strings.HasPrefix(rel, "..") {
+		t.Skipf("skipping: /tmp resolves inside home on this system (%s)", rel)
+	}
+
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/fs?path="+url.QueryEscape(linkPath), nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden && rec.Code != http.StatusBadRequest {
+		t.Errorf("symlink escape: expected 403 or 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // E6: handleNextUnwatched
 func TestHandleNextUnwatched(t *testing.T) {
 	srv := newTestServer(t)
