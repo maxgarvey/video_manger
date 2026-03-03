@@ -108,11 +108,12 @@ func formPtr(r *http.Request, key string) *string {
 // strPtr is a tiny helper used by parseYTDLPInfoJSON.
 func strPtr(s string) *string { return &s }
 
-// newToken returns a cryptographically random 16-hex-char token string.
+// newToken returns a cryptographically random 32-hex-char (128-bit) token
+// string suitable for use as a session or job identifier.
 // It panics only if the system entropy source is exhausted, which is never
 // expected in practice.
 func newToken() string {
-	raw := make([]byte, 8)
+	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
 		panic("crypto/rand unavailable: " + err.Error())
 	}

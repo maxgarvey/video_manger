@@ -43,6 +43,19 @@ func newTestServerWithAuth(t *testing.T, password string) *server {
 
 // --- Unit tests ---
 
+// TestNewToken_Entropy verifies that newToken returns a 32-char hex string
+// (16 bytes / 128 bits of entropy) and that two successive calls differ.
+func TestNewToken_Entropy(t *testing.T) {
+	t1 := newToken()
+	t2 := newToken()
+	if len(t1) != 32 {
+		t.Errorf("expected 32-char hex token, got %d chars: %q", len(t1), t1)
+	}
+	if t1 == t2 {
+		t.Error("newToken returned identical tokens on successive calls")
+	}
+}
+
 // TestRenderErrorDoesNotLeakInternals verifies that a template execution error
 // (e.g. nil pointer, missing field) returns a generic "internal server error"
 // body to the client rather than Go type/path details.
