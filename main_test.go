@@ -453,7 +453,13 @@ func TestHandleDirectories(t *testing.T) {
 }
 
 func TestHandleCreateDirectory_Success(t *testing.T) {
-	parent := t.TempDir()
+	// Create the new dir inside home so it passes the home-dir restriction.
+	home, _ := os.UserHomeDir()
+	parent, err := os.MkdirTemp(home, "vm-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(parent) })
 	newDir := filepath.Join(parent, "new_folder")
 
 	srv := newTestServer(t)
@@ -464,7 +470,7 @@ func TestHandleCreateDirectory_Success(t *testing.T) {
 	srv.routes().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	// Dir created on disk.
 	if _, err := os.Stat(newDir); os.IsNotExist(err) {
@@ -479,7 +485,14 @@ func TestHandleCreateDirectory_Success(t *testing.T) {
 }
 
 func TestHandleCreateDirectory_AlreadyExists(t *testing.T) {
-	existing := t.TempDir() // already exists
+	// Existing dir must also be under home for the restriction check.
+	home, _ := os.UserHomeDir()
+	existing, err := os.MkdirTemp(home, "vm-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(existing) })
+
 	srv := newTestServer(t)
 	form := url.Values{"path": {existing}}
 	rec := httptest.NewRecorder()
@@ -487,7 +500,28 @@ func TestHandleCreateDirectory_AlreadyExists(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	srv.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("existing dir: expected 200, got %d", rec.Code)
+		t.Fatalf("existing dir: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandleCreateDirectory_OutsideHome verifies that creating a directory
+// outside the user's home is rejected with 403.
+func TestHandleCreateDirectory_OutsideHome(t *testing.T) {
+	srv := newTestServer(t)
+	// /tmp is outside the home directory on most systems.
+	form := url.Values{"path": {"/tmp/vm-security-test-dir"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/directories/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	// Should be 403 unless /tmp happens to be under home (extremely unlikely).
+	home, _ := os.UserHomeDir()
+	rel, _ := filepath.Rel(home, "/tmp/vm-security-test-dir")
+	if !strings.HasPrefix(rel, "..") {
+		t.Skip("skipping: /tmp is under home on this system")
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

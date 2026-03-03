@@ -188,18 +188,31 @@ func (s *server) addAndSyncDir(w http.ResponseWriter, r *http.Request, path stri
 }
 
 // handleCreateDirectory creates the directory on disk (MkdirAll) then registers
-// and syncs it.
+// and syncs it.  Creation is restricted to the user's home-directory subtree
+// to prevent an authenticated client from creating directories anywhere on the
+// filesystem (e.g. /etc/cron.d/).
 func (s *server) handleCreateDirectory(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSpace(r.FormValue("path"))
 	if path == "" {
 		http.Error(w, "path required", http.StatusBadRequest)
 		return
 	}
-	if err := os.MkdirAll(path, 0755); err != nil {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "cannot determine home directory", http.StatusInternalServerError)
+		return
+	}
+	cleaned := filepath.Clean(path)
+	rel, relErr := filepath.Rel(home, cleaned)
+	if relErr != nil || strings.HasPrefix(rel, "..") {
+		http.Error(w, "path must be inside your home directory", http.StatusForbidden)
+		return
+	}
+	if err := os.MkdirAll(cleaned, 0755); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.addAndSyncDir(w, r, path)
+	s.addAndSyncDir(w, r, cleaned)
 }
 
 func (s *server) handleAddDirectory(w http.ResponseWriter, r *http.Request) {
