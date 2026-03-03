@@ -336,10 +336,8 @@ func (s *server) handleBrowseFS(w http.ResponseWriter, r *http.Request) {
 // ── yt-dlp download ───────────────────────────────────────────────────────────
 
 func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		http.Error(w, "yt-dlp is not installed — downloading is unavailable", http.StatusServiceUnavailable)
-		return
-	}
+	// Validate all inputs before checking binary availability so that bad
+	// requests get proper 4xx responses even when yt-dlp is not installed.
 	rawURLs := strings.TrimSpace(r.FormValue("urls"))
 	if rawURLs == "" {
 		http.Error(w, "urls required", http.StatusBadRequest)
@@ -378,6 +376,11 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 	dir, err := s.store.GetDirectory(r.Context(), dirID)
 	if err != nil {
 		http.Error(w, "directory not found", http.StatusNotFound)
+		return
+	}
+
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		http.Error(w, "yt-dlp is not installed — downloading is unavailable", http.StatusServiceUnavailable)
 		return
 	}
 

@@ -38,10 +38,8 @@ func freeOutputName(dir, stem, suffix, ext string) string {
 // ── Convert ───────────────────────────────────────────────────────────────────
 
 func (s *server) handleConvertStart(w http.ResponseWriter, r *http.Request) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		http.Error(w, "ffmpeg is not installed — conversion is unavailable", http.StatusServiceUnavailable)
-		return
-	}
+	// Validate inputs first so bad requests get proper 4xx responses even
+	// when ffmpeg is not installed on the current system.
 	video, ok := s.videoOrError(w, r)
 	if !ok {
 		return
@@ -63,6 +61,11 @@ func (s *server) handleConvertStart(w http.ResponseWriter, r *http.Request) {
 	// Reject if the output name would collide with the source (e.g. mkv→mkv).
 	if stem+f.Ext == filepath.Base(src) {
 		http.Error(w, "output would overwrite source — choose a different format", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		http.Error(w, "ffmpeg is not installed — conversion is unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -156,12 +159,13 @@ func (s *server) handleConvertEvents(w http.ResponseWriter, r *http.Request) {
 // playback. The output is written to the same directory as the source with a
 // "_usb" suffix. The handler blocks until the transcode completes.
 func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		http.Error(w, "ffmpeg is not installed — export is unavailable", http.StatusServiceUnavailable)
-		return
-	}
+	// Validate video ID before binary check so unknown IDs get 404, not 503.
 	video, ok := s.videoOrError(w, r)
 	if !ok {
+		return
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		http.Error(w, "ffmpeg is not installed — export is unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -193,12 +197,13 @@ func (s *server) handleTrimPanel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		http.Error(w, "ffmpeg is not installed — trimming is unavailable", http.StatusServiceUnavailable)
-		return
-	}
+	// Validate video ID before binary check so unknown IDs get 404, not 503.
 	video, ok := s.videoOrError(w, r)
 	if !ok {
+		return
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		http.Error(w, "ffmpeg is not installed — trimming is unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
