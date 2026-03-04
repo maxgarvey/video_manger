@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/maxgarvey/video_manger/metadata"
 	"github.com/maxgarvey/video_manger/store"
+	"github.com/maxgarvey/video_manger/transcode"
 )
 
 // syncDir walks a directory tree recursively and upserts all video files into
@@ -54,6 +56,28 @@ func (s *server) syncDir(d store.Directory) {
 		}
 		// Apply optional JSON sidecar (same basename, .json extension).
 		s.applySidecar(context.Background(), v)
+
+		// Generate thumbnail if it doesn't exist and ffmpeg is available
+		if v.ThumbnailPath == "" {
+			thumbPath := filepath.Join(dir, strings.TrimSuffix(de.Name(), filepath.Ext(de.Name()))+"_thumb.jpg")
+			if _, err := os.Stat(thumbPath); os.IsNotExist(err) {
+				// Generate at random position
+				position := 0.1 + rand.Float64()*0.8
+				if err := transcode.GenerateThumbnail(path, thumbPath, position); err != nil {
+					slog.Debug("auto thumbnail generation failed", "path", path, "err", err)
+				} else {
+					if err := s.store.UpdateVideoThumbnail(context.Background(), v.ID, thumbPath); err != nil {
+						slog.Warn("update thumbnail path failed", "videoID", v.ID, "err", err)
+					}
+				}
+			} else if err == nil {
+				// Thumbnail exists, update DB
+				if err := s.store.UpdateVideoThumbnail(context.Background(), v.ID, thumbPath); err != nil {
+					slog.Warn("update existing thumbnail path failed", "videoID", v.ID, "err", err)
+				}
+			}
+		}
+
 		return nil
 	}); err != nil {
 		slog.Error("syncDir walk failed", "path", d.Path, "err", err)

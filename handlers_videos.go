@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -689,11 +690,21 @@ func (s *server) handleGenerateThumbnail(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+
+	// Use random position between 10% and 90% if not specified
+	position := 0.1 + rand.Float64()*0.8 // 0.1 to 0.9
+
+	if posStr := r.URL.Query().Get("position"); posStr != "" {
+		if p, err := strconv.ParseFloat(posStr, 64); err == nil && p >= 0 && p <= 1 {
+			position = p
+		}
+	}
+
 	thumbPath := filepath.Join(
 		filepath.Dir(video.FilePath()),
 		strings.TrimSuffix(video.Filename, filepath.Ext(video.Filename))+"_thumb.jpg",
 	)
-	if err := transcode.GenerateThumbnail(video.FilePath(), thumbPath, 0.1); err != nil {
+	if err := transcode.GenerateThumbnail(video.FilePath(), thumbPath, position); err != nil {
 		slog.Warn("generate thumbnail failed", "path", video.FilePath(), "err", err)
 		http.Error(w, "failed to generate thumbnail", http.StatusInternalServerError)
 		return

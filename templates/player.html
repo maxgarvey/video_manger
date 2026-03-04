@@ -189,6 +189,29 @@
        hx-get="/videos/{{.Video.ID}}/metadata"
        hx-trigger="load"></div>
 
+  <!-- Thumbnail -->
+  <div style="padding-top:0.25rem">
+    {{if .Video.ThumbnailPath}}
+    <div style="display:flex;gap:0.4rem;align-items:flex-start">
+      <img src="/videos/{{.Video.ID}}/thumbnail" alt="Thumbnail" style="width:80px;height:auto;border:1px solid #444;border-radius:4px">
+      <button class="btn-sm" style="font-size:0.78rem"
+        hx-post="/videos/{{.Video.ID}}/thumbnail"
+        hx-target="#thumb-status-{{.Video.ID}}"
+        hx-swap="innerHTML"
+        title="Generate new thumbnail at random position"
+      >🔄 Regenerate</button>
+    </div>
+    {{else}}
+    <button class="btn-sm" style="font-size:0.78rem"
+      hx-post="/videos/{{.Video.ID}}/thumbnail"
+      hx-target="#thumb-status-{{.Video.ID}}"
+      hx-swap="innerHTML"
+      title="Generate thumbnail"
+    >🖼️ Generate thumbnail</button>
+    {{end}}
+    <div id="thumb-status-{{.Video.ID}}" style="font-size:0.78rem;color:#888;margin-top:0.2rem"></div>
+  </div>
+
   <!-- Standardised descriptive fields (genre / season / actors / studio / channel) -->
   <div id="video-fields-container-{{.Video.ID}}"
        hx-get="/videos/{{.Video.ID}}/fields"
