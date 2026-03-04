@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -226,4 +227,9 @@ func openFreeFile(dir, stem, ext string) (*os.File, string, error) {
 			return nil, "", err
 		}
 	}
+}
+
+func parseInt(s string) int {
+	i, _ := strconv.Atoi(s)
+	return i
 }

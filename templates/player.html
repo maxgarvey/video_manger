@@ -152,6 +152,11 @@
         class="input-dark" style="flex:1;padding:0.3rem 0.5rem;font-size:0.85rem">
       <button type="submit" class="btn-sm">Rename</button>
     </form>
+    <button class="btn-sm"
+      hx-get="/videos/{{.Video.ID}}/quick-label"
+      hx-target="#quick-label-modal-{{.Video.ID}}"
+      title="Quick label video with title, genre, season, etc."
+    >🏷 Quick label</button>
   </div>
   {{if and .Video.OriginalFilename (ne .Video.OriginalFilename .Video.Filename)}}
   <div style="font-size:0.75rem;color:#666" title="Filename at time of import">Original: {{.Video.OriginalFilename}}</div>
@@ -366,5 +371,7 @@ function startConvert(vid) {
   <div id="lookup-modal-{{.Video.ID}}"></div>
   <div id="share-modal-{{.Video.ID}}"></div>
   <div id="trim-modal-{{.Video.ID}}"></div>
+
+  <div id="quick-label-modal-{{.Video.ID}}"></div>
 
 </div>

@@ -643,3 +643,43 @@ func (s *server) handleRandomVideoID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"id": video.ID, "title": video.Title()}) //nolint:errcheck
 }
+
+func (s *server) handleQuickLabelModal(w http.ResponseWriter, r *http.Request) {
+	video, ok := s.videoOrError(w, r)
+	if !ok {
+		return
+	}
+	render(w, "quick_label_modal.html", video)
+}
+
+func (s *server) handleQuickLabelSubmit(w http.ResponseWriter, r *http.Request) {
+	video, ok := s.videoOrError(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := r.FormValue("name")
+	if name != "" {
+		if err := s.store.UpdateVideoName(r.Context(), video.ID, name); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	fields := store.VideoFields{
+		Genre:         r.FormValue("genre"),
+		SeasonNumber:  parseInt(r.FormValue("season")),
+		EpisodeNumber: parseInt(r.FormValue("episode")),
+		EpisodeTitle:  r.FormValue("episode_title"),
+		Actors:        r.FormValue("actors"),
+		Studio:        r.FormValue("studio"),
+		Channel:       r.FormValue("channel"),
+	}
+	if err := s.store.UpdateVideoFields(r.Context(), video.ID, fields); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}

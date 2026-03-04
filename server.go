@@ -37,20 +37,20 @@ type convertJob struct {
 }
 
 type server struct {
-	store          store.Store
-	port           string
-	mdnsName       string // e.g. "video-manger.local"
-	passwordHash   []byte // nil means no authentication required
-	secureCookies  bool   // set Secure flag on session cookie (requires HTTPS)
-	sessions       map[string]time.Time // token → expiry (7-day TTL)
-	sessionsMu     sync.RWMutex
-	syncingDirs    map[int64]struct{}
-	syncingMu      sync.Mutex
-	convertSem     chan struct{}          // limits concurrent ffmpeg/yt-dlp processes
-	jobs           map[string]*ytdlpJob  // active yt-dlp download jobs
-	jobsMu         sync.Mutex
-	convertJobs    map[string]*convertJob // active ffmpeg convert jobs
-	convertJobsMu  sync.Mutex
+	store         store.Store
+	port          string
+	mdnsName      string               // e.g. "video-manger.local"
+	passwordHash  []byte               // nil means no authentication required
+	secureCookies bool                 // set Secure flag on session cookie (requires HTTPS)
+	sessions      map[string]time.Time // token → expiry (7-day TTL)
+	sessionsMu    sync.RWMutex
+	syncingDirs   map[int64]struct{}
+	syncingMu     sync.Mutex
+	convertSem    chan struct{}        // limits concurrent ffmpeg/yt-dlp processes
+	jobs          map[string]*ytdlpJob // active yt-dlp download jobs
+	jobsMu        sync.Mutex
+	convertJobs   map[string]*convertJob // active ffmpeg convert jobs
+	convertJobsMu sync.Mutex
 }
 
 // videoGroup is a view-layer grouping of videos sharing the same directory.
@@ -201,6 +201,10 @@ func (s *server) routes() http.Handler {
 	r.Get("/videos/{id}/lookup", s.handleLookupModal)
 	r.Post("/videos/{id}/lookup/search", s.handleLookupSearch)
 	r.Post("/videos/{id}/lookup/apply", s.handleLookupApply)
+
+	// Quick label
+	r.Get("/videos/{id}/quick-label", s.handleQuickLabelModal)
+	r.Post("/videos/{id}/quick-label", s.handleQuickLabelSubmit)
 
 	// P2P share
 	r.Get("/videos/{id}/share", s.handleSharePanel)
