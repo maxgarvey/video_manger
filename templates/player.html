@@ -359,7 +359,7 @@ function startConvert(vid) {
       hx-get="/videos/{{.Video.ID}}/trim"
       hx-target="#trim-modal-{{.Video.ID}}"
       hx-swap="innerHTML"
-      hx-on::htmx:after-request="let vid = document.getElementById('vid-{{.Video.ID}}'); if (vid && vid.currentTime / vid.duration > 0.7) { let endInput = document.querySelector('#trim-modal-{{.Video.ID}} input[name=\'end\']'); if (endInput) endInput.value = Math.floor(vid.currentTime); }"
+      hx-on::htmx:after-request="let vid = document.getElementById('vid-{{.Video.ID}}'); if (vid) { if (!vid.paused) { vid.pause(); let startInput = document.querySelector('#trim-modal-{{.Video.ID}} input[name=\'start\']'); if (startInput) startInput.value = Math.floor(vid.currentTime); } if (vid.currentTime / vid.duration > 0.7) { let endInput = document.querySelector('#trim-modal-{{.Video.ID}} input[name=\'end\']'); if (endInput) endInput.value = Math.floor(vid.currentTime); } }"
       title="Trim video by start/end time"
     >✂ Trim</button>
   </div>
