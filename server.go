@@ -229,6 +229,10 @@ func (s *server) routes() http.Handler {
 	r.Get("/settings", s.handleGetSettings)
 	r.Post("/settings", s.handleSaveSettings)
 
+	// Thumbnails
+	r.Post("/videos/{id}/thumbnail", s.handleGenerateThumbnail)
+	r.Get("/videos/{id}/thumbnail", s.handleServeThumbnail)
+
 	// Filesystem browser (used by folder picker in sidebar)
 	r.Get("/fs", s.handleBrowseFS)
 

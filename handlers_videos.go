@@ -683,3 +683,36 @@ func (s *server) handleQuickLabelSubmit(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(http.StatusOK)
 }
+
+func (s *server) handleGenerateThumbnail(w http.ResponseWriter, r *http.Request) {
+	video, ok := s.videoOrError(w, r)
+	if !ok {
+		return
+	}
+	thumbPath := filepath.Join(
+		filepath.Dir(video.FilePath()),
+		strings.TrimSuffix(video.Filename, filepath.Ext(video.Filename))+"_thumb.jpg",
+	)
+	if err := transcode.GenerateThumbnail(video.FilePath(), thumbPath, 0.1); err != nil {
+		slog.Warn("generate thumbnail failed", "path", video.FilePath(), "err", err)
+		http.Error(w, "failed to generate thumbnail", http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.UpdateVideoThumbnail(r.Context(), video.ID, thumbPath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *server) handleServeThumbnail(w http.ResponseWriter, r *http.Request) {
+	video, ok := s.videoOrError(w, r)
+	if !ok {
+		return
+	}
+	if video.ThumbnailPath == "" {
+		http.Error(w, "no thumbnail", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, video.ThumbnailPath)
+}

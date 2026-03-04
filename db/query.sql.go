@@ -142,6 +142,7 @@ func (q *Queries) UntagVideo(ctx context.Context, arg UntagVideoParams) error {
 }
 
 const updateVideoName = `-- name: UpdateVideoName :exec
+
 UPDATE videos SET display_name = ? WHERE id = ?
 `
 
@@ -150,8 +151,24 @@ type UpdateVideoNameParams struct {
 	ID          int64
 }
 
+// Video queries are implemented as raw SQL in store/sqlite.go
+// because directory_id is nullable (orphaned videos must remain visible).
 func (q *Queries) UpdateVideoName(ctx context.Context, arg UpdateVideoNameParams) error {
 	_, err := q.db.ExecContext(ctx, updateVideoName, arg.DisplayName, arg.ID)
+	return err
+}
+
+const updateVideoThumbnail = `-- name: UpdateVideoThumbnail :exec
+UPDATE videos SET thumbnail_path = ? WHERE id = ?
+`
+
+type UpdateVideoThumbnailParams struct {
+	ThumbnailPath string
+	ID            int64
+}
+
+func (q *Queries) UpdateVideoThumbnail(ctx context.Context, arg UpdateVideoThumbnailParams) error {
+	_, err := q.db.ExecContext(ctx, updateVideoThumbnail, arg.ThumbnailPath, arg.ID)
 	return err
 }
 

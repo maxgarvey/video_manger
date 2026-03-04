@@ -277,6 +277,11 @@ func (s *SQLiteStore) UpdateVideoName(ctx context.Context, id int64, name string
 	return err
 }
 
+func (s *SQLiteStore) UpdateVideoThumbnail(ctx context.Context, videoID int64, thumbnailPath string) error {
+	_, err := s.conn.ExecContext(ctx, `UPDATE videos SET thumbnail_path = ? WHERE id = ?`, thumbnailPath, videoID)
+	return err
+}
+
 func (s *SQLiteStore) DeleteVideo(ctx context.Context, id int64) error {
 	_, err := s.conn.ExecContext(ctx, "DELETE FROM videos WHERE id = ?", id)
 	return err

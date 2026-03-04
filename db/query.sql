@@ -32,3 +32,6 @@ SELECT t.* FROM tags t
 JOIN video_tags vt ON t.id = vt.tag_id
 WHERE vt.video_id = ?
 ORDER BY t.name;
+
+-- name: UpdateVideoThumbnail :exec
+UPDATE videos SET thumbnail_path = ? WHERE id = ?;

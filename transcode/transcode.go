@@ -202,6 +202,27 @@ func Trim(bgCtx context.Context, sem chan struct{}, src, dst, start, end string)
 	return run(bgCtx, args...)
 }
 
+// GenerateThumbnail extracts a frame from the video at the given position (0-1 relative to duration)
+// and saves it as a JPEG thumbnail.
+func GenerateThumbnail(src, dst string, position float64) error {
+	// Clamp position to 0-1 range
+	if position < 0 {
+		position = 0
+	} else if position > 1 {
+		position = 1
+	}
+	args := []string{
+		"-i", src,
+		"-ss", fmt.Sprintf("%.2f%%", position*100), // Seek to percentage of duration
+		"-vf", "scale=320:-1", // Scale to 320px wide, maintain aspect
+		"-vframes", "1", // Extract only 1 frame
+		"-q:v", "2", // Quality (1-31, lower is better)
+		"-y", // Overwrite output
+		dst,
+	}
+	return run(context.Background(), args...)
+}
+
 // run executes ffmpeg with the given arguments and returns a combined
 // stderr message on failure.
 func run(ctx context.Context, args ...string) error {

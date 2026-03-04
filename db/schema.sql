@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS videos (
     directory_id   INTEGER REFERENCES directories(id) ON DELETE SET NULL,
     directory_path TEXT    NOT NULL DEFAULT '',
     display_name   TEXT    NOT NULL DEFAULT '',
+    thumbnail_path TEXT    NOT NULL DEFAULT '',
     UNIQUE(filename, directory_path)
 );
 

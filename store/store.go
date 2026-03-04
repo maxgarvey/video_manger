@@ -29,6 +29,7 @@ type Video struct {
 	Actors        string
 	Studio        string
 	Channel       string
+	ThumbnailPath string // relative or absolute path to thumbnail image
 	// WatchedAt holds the last watch timestamp (SQLite datetime string, empty if never watched).
 	// Populated by list queries via LEFT JOIN watch_history — do not set manually.
 	WatchedAt string
@@ -133,4 +134,7 @@ type Store interface {
 	ListTagsByVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	// PruneOrphanTags removes tags that are no longer associated with any video.
 	PruneOrphanTags(ctx context.Context) error
+
+	// Thumbnail management
+	UpdateVideoThumbnail(ctx context.Context, videoID int64, thumbnailPath string) error
 }

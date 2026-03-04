@@ -4,6 +4,10 @@
 
 package db
 
+import (
+	"database/sql"
+)
+
 type Directory struct {
 	ID   int64
 	Path string
@@ -15,10 +19,12 @@ type Tag struct {
 }
 
 type Video struct {
-	ID          int64
-	Filename    string
-	DirectoryID int64
-	DisplayName string
+	ID            int64
+	Filename      string
+	DirectoryID   sql.NullInt64
+	DirectoryPath string
+	DisplayName   string
+	ThumbnailPath string
 }
 
 type VideoTag struct {
