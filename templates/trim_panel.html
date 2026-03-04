@@ -17,7 +17,7 @@
       Accepts <code style="color:#777">HH:MM:SS</code>, <code style="color:#777">MM:SS</code>, or seconds.
       Output saved as <code style="color:#777">filename_trim.ext</code> in the same directory.
     </div>
-    <button type="submit" class="btn-success btn-sm" style="align-self:flex-start">✂ Trim</button>
+    <button type="submit" class="btn-success btn-sm" style="align-self:flex-start" hx-confirm="Are you sure you want to trim the video to the selected start/end times? This will create a new file and cannot be undone easily.">✂ Trim</button>
   </form>
   <div id="trim-status-{{.}}" class="htmx-indicator" style="font-size:0.78rem;color:#888;margin-top:0.4rem">
     <span class="spinner"></span> Trimming…
