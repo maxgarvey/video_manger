@@ -155,15 +155,15 @@ Ordered by phase.
 
 Ordered by ease of implementation (simplest first).
 
-| #   | TODOS # | Feature                                                                                                              | Status         |
-| --- | ------- | -------------------------------------------------------------------------------------------------------------------- | -------------- |
-| 91  | 3       | Add clear labeling during trim mode that you're selecting the region to keep                                         | ✅ Done        |
-| 92  | 4       | Make a confirmation after the user has highlighted a region or entered video times                                   | ✅ Done        |
-| 93  | 9       | If video played to 70% or more, assume delete end by selecting front region to keep when trim clicked                | ✅ Done        |
-| 94  | 2       | If crop button hit while playing, stop playback and highlight region from current spot to end                        | ✅ Done        |
-| 95  | 1       | Improve trim UI with draggable bar underneath progress bar for region to keep, fine-tune with inputs, seek on update | ✅ Done        |
-| 96  | 10      | Add "Quick label" button to info pane with modal for Title, Movie/TV, Season, Episode, Genre, etc.                   | ✅ Done        |
-| 97  | 7       | Support thumbnails in the UI for videos                                                                              | ✅ Done        |
-| 98  | 8       | Automatically generate thumbnail image from video, with regenerate button                                            | 🔄 In Progress |
-| 99  | 5       | Organize season and episodes under specific shows                                                                    | ⏳ Planned     |
-| 100 | 6       | Add UI indicators on videos for type (TV show, movie, concert, vlog, blog, YouTube)                                  | ⏳ Planned     |
+| #   | TODOS # | Feature                                                                                                              | Status     |
+| --- | ------- | -------------------------------------------------------------------------------------------------------------------- | ---------- |
+| 91  | 3       | Add clear labeling during trim mode that you're selecting the region to keep                                         | ✅ Done    |
+| 92  | 4       | Make a confirmation after the user has highlighted a region or entered video times                                   | ✅ Done    |
+| 93  | 9       | If video played to 70% or more, assume delete end by selecting front region to keep when trim clicked                | ✅ Done    |
+| 94  | 2       | If crop button hit while playing, stop playback and highlight region from current spot to end                        | ✅ Done    |
+| 95  | 1       | Improve trim UI with draggable bar underneath progress bar for region to keep, fine-tune with inputs, seek on update | ✅ Done    |
+| 96  | 10      | Add "Quick label" button to info pane with modal for Title, Movie/TV, Season, Episode, Genre, etc.                   | ✅ Done    |
+| 97  | 7       | Support thumbnails in the UI for videos                                                                              | ✅ Done    |
+| 98  | 8       | Automatically generate thumbnail image from video, with regenerate button                                            | ✅ Done    |
+| 99  | 5       | Organize season and episodes under specific shows                                                                    | ✅ Done    |
+| 100 | 6       | Add UI indicators on videos for type (TV show, movie, concert, vlog, blog, YouTube)                                  | ⏳ Planned |

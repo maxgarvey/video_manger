@@ -19,6 +19,7 @@ type Video struct {
 	DirectoryID      int64
 	DirectoryPath    string
 	DisplayName      string
+	ShowName         string
 	Rating           int    // 0=neutral, 1=liked, 2=double-liked
 	OriginalFilename string // filename at first import; never changed on rename/move
 	// Standardised descriptive fields (see VideoFields).
@@ -100,12 +101,14 @@ type Store interface {
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	UpdateVideoName(ctx context.Context, id int64, name string) error
 	SetVideoRating(ctx context.Context, id int64, rating int) error
+	UpdateVideoShowName(ctx context.Context, id int64, showName string) error
 	DeleteVideo(ctx context.Context, id int64) error
 	UpdateVideoPath(ctx context.Context, id, dirID int64, dirPath, filename string) error
 	UpdateVideoFields(ctx context.Context, id int64, f VideoFields) error
 	ListVideosByMinRating(ctx context.Context, minRating int) ([]Video, error)
 	SearchVideos(ctx context.Context, query string) ([]Video, error)
 	ListVideosByRating(ctx context.Context) ([]Video, error)
+	ListVideosByShow(ctx context.Context, showName string) ([]Video, error)
 	GetRandomVideo(ctx context.Context) (Video, error)
 	GetNextUnwatched(ctx context.Context, tagID int64) (Video, error)
 

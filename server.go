@@ -53,28 +53,50 @@ type server struct {
 	convertJobsMu sync.Mutex
 }
 
-// videoGroup is a view-layer grouping of videos sharing the same directory.
-type videoGroup struct {
-	Label  string // last path component of DirectoryPath
+// seasonGroup holds videos belonging to a particular season within a show.
+type seasonGroup struct {
+	Number int
 	Videos []store.Video
 }
 
-// groupVideosByDir groups a flat video slice by DirectoryPath, preserving
-// the order videos appear in the input.
-func groupVideosByDir(videos []store.Video) []videoGroup {
+// videoGroup is a view-layer grouping of videos by show/series. Standalone
+// videos (no show_name) are grouped by their directory base name.
+type videoGroup struct {
+	Show    string
+	Seasons []seasonGroup
+}
+
+// groupVideosByShowSeason groups a flat video slice first by show name (or
+// directory name when show is absent), then by season number. Order of videos
+// is preserved from the input slice.
+func groupVideosByShowSeason(videos []store.Video) []videoGroup {
 	var groups []videoGroup
-	idx := map[string]int{} // dirPath → slice index
+	idx := map[string]int{} // show key → groups index
 	for _, v := range videos {
-		p := v.DirectoryPath
-		if i, ok := idx[p]; ok {
-			groups[i].Videos = append(groups[i].Videos, v)
-		} else {
-			idx[p] = len(groups)
-			groups = append(groups, videoGroup{
-				Label:  filepath.Base(p),
-				Videos: []store.Video{v},
-			})
+		key := v.ShowName
+		if key == "" {
+			key = filepath.Base(v.DirectoryPath)
 		}
+		gi, ok := idx[key]
+		if !ok {
+			gi = len(groups)
+			idx[key] = gi
+			groups = append(groups, videoGroup{Show: key})
+		}
+		// find or create season group
+		sn := v.SeasonNumber
+		si := -1
+		for i, sg := range groups[gi].Seasons {
+			if sg.Number == sn {
+				si = i
+				break
+			}
+		}
+		if si == -1 {
+			si = len(groups[gi].Seasons)
+			groups[gi].Seasons = append(groups[gi].Seasons, seasonGroup{Number: sn})
+		}
+		groups[gi].Seasons[si].Videos = append(groups[gi].Seasons[si].Videos, v)
 	}
 	return groups
 }

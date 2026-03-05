@@ -24,6 +24,7 @@ type Video struct {
 	DirectoryID   sql.NullInt64
 	DirectoryPath string
 	DisplayName   string
+	ShowName      string
 	ThumbnailPath string
 }
 

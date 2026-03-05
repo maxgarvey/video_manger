@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -18,6 +19,51 @@ import (
 	"github.com/maxgarvey/video_manger/store"
 	"github.com/maxgarvey/video_manger/transcode"
 )
+
+// cleanShowName normalises a raw show string by replacing punctuation with
+// spaces, collapsing whitespace, and trimming.
+func cleanShowName(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, ".", " ")
+	s = strings.ReplaceAll(s, "_", " ")
+	s = strings.ReplaceAll(s, "-", " ")
+	// collapse multiple spaces
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// extractShowFromFilename attempts to parse a show name from a filename by
+// looking for common season/episode patterns. The returned name is cleaned or
+// empty if no pattern is recognised.
+func extractShowFromFilename(filename string) string {
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	// patterns capture the portion before the season/episode indicator
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)^(.+?)[. _\-]+S\d{1,2}E\d{1,2}`),
+		regexp.MustCompile(`(?i)^(.+?)[. _\-]+Season[ ._\-]*\d{1,2}`),
+	}
+	for _, re := range patterns {
+		if m := re.FindStringSubmatch(base); m != nil {
+			return cleanShowName(m[1])
+		}
+	}
+	return ""
+}
+
+// inferShow attempts to determine a show/series name for a video based on
+// its location within the registered root directory or from its filename.
+// If the file lives inside a subdirectory of the root, the first path
+// component is treated as the show name. Otherwise we fall back to parsing
+// common season/episode patterns from the filename.
+func inferShow(root, dir, filename string) string {
+	rel, err := filepath.Rel(root, dir)
+	if err == nil && rel != "." {
+		parts := strings.Split(rel, string(os.PathSeparator))
+		if len(parts) > 0 && parts[0] != "" {
+			return cleanShowName(parts[0])
+		}
+	}
+	return extractShowFromFilename(filename)
+}
 
 // syncDir walks a directory tree recursively and upserts all video files into
 // the store. Subdirectories are not registered as separate directory entries;
@@ -39,6 +85,17 @@ func (s *server) syncDir(d store.Directory) {
 		if err != nil {
 			slog.Warn("upsert video failed", "path", path, "err", err)
 			return nil
+		}
+		// infer show name if not already set
+		if v.ShowName == "" {
+			show := inferShow(d.Path, dir, de.Name())
+			if show != "" {
+				if err := s.store.UpdateVideoShowName(context.Background(), v.ID, show); err != nil {
+					slog.Warn("set show name failed", "path", path, "err", err)
+				}
+				// update our local copy for later checks (e.g. thumbnail)
+				v.ShowName = show
+			}
 		}
 		if v.DisplayName == "" {
 			if meta, err := metadata.Read(path); err == nil && meta.Title != "" {

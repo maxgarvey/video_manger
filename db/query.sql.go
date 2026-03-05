@@ -158,6 +158,20 @@ func (q *Queries) UpdateVideoName(ctx context.Context, arg UpdateVideoNameParams
 	return err
 }
 
+const updateVideoShowName = `-- name: UpdateVideoShowName :exec
+UPDATE videos SET show_name = ? WHERE id = ?
+`
+
+type UpdateVideoShowNameParams struct {
+	ShowName string
+	ID       int64
+}
+
+func (q *Queries) UpdateVideoShowName(ctx context.Context, arg UpdateVideoShowNameParams) error {
+	_, err := q.db.ExecContext(ctx, updateVideoShowName, arg.ShowName, arg.ID)
+	return err
+}
+
 const updateVideoThumbnail = `-- name: UpdateVideoThumbnail :exec
 UPDATE videos SET thumbnail_path = ? WHERE id = ?
 `

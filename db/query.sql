@@ -13,6 +13,9 @@ DELETE FROM directories WHERE id = ?;
 -- name: UpdateVideoName :exec
 UPDATE videos SET display_name = ? WHERE id = ?;
 
+-- name: UpdateVideoShowName :exec
+UPDATE videos SET show_name = ? WHERE id = ?;
+
 -- name: UpsertTag :one
 INSERT INTO tags (name) VALUES (?)
 ON CONFLICT (name) DO UPDATE SET name = excluded.name

@@ -142,7 +142,6 @@ func TestHandleIndex(t *testing.T) {
 	}
 }
 
-
 func TestAuthRequired(t *testing.T) {
 	srv := newTestServerWithAuth(t, "secret")
 	rec := httptest.NewRecorder()
@@ -190,8 +189,10 @@ func TestHandleVideoList_WithVideos(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	srv.store.UpsertVideo(ctx, d.ID, d.Path, "alpha.mp4")
+	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "alpha.mp4")
 	srv.store.UpsertVideo(ctx, d.ID, d.Path, "beta.mkv")
+	// assign a show name to one video to verify grouping header
+	srv.store.UpdateVideoShowName(ctx, v1.ID, "MyShow")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
@@ -203,6 +204,39 @@ func TestHandleVideoList_WithVideos(t *testing.T) {
 	}
 	if !strings.Contains(body, "beta.mkv") {
 		t.Error("expected beta.mkv in response")
+	}
+	if !strings.Contains(body, "MyShow") {
+		t.Error("expected show header MyShow in response")
+	}
+}
+
+func TestHandleVideoList_GroupedByShowAndSeason(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "a.mp4")
+	v2, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "b.mp4")
+	v3, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "c.mp4")
+	// assign shows and seasons
+	srv.store.UpdateVideoShowName(ctx, v1.ID, "Foo")
+	srv.store.UpdateVideoShowName(ctx, v2.ID, "Foo")
+	srv.store.UpdateVideoShowName(ctx, v3.ID, "Bar")
+	srv.store.UpdateVideoFields(ctx, v1.ID, store.VideoFields{SeasonNumber: 1})
+	srv.store.UpdateVideoFields(ctx, v2.ID, store.VideoFields{SeasonNumber: 2})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Foo") {
+		t.Error("expected show group Foo")
+	}
+	if !strings.Contains(body, "Season 1") || !strings.Contains(body, "Season 2") {
+		t.Error("expected season headers for Foo")
+	}
+	if !strings.Contains(body, "Bar") {
+		t.Error("expected show group Bar")
 	}
 }
 
@@ -461,7 +495,6 @@ func TestHandleSettings(t *testing.T) {
 		t.Errorf("expected autoplay_random=true, got %q", val)
 	}
 }
-
 
 func TestHandleDirectories(t *testing.T) {
 	srv := newTestServer(t)
@@ -1847,7 +1880,7 @@ func TestHandleListDuplicates(t *testing.T) {
 
 	d1, _ := srv.store.AddDirectory(ctx, tmp)
 	d2, _ := srv.store.AddDirectory(ctx, filepath.Dir(f2))
-	srv.store.UpsertVideo(ctx, d1.ID, tmp, "movie.mp4")               //nolint:errcheck
+	srv.store.UpsertVideo(ctx, d1.ID, tmp, "movie.mp4")              //nolint:errcheck
 	srv.store.UpsertVideo(ctx, d2.ID, filepath.Dir(f2), "movie.mp4") //nolint:errcheck
 
 	rec := httptest.NewRecorder()
@@ -2073,6 +2106,71 @@ func TestSyncDir_AutoTagsDirectory(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected auto-tag %q but got %v", dirBase, tags)
+	}
+}
+
+// New show inference tests
+func TestSyncDir_InferShowFromDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	showDir := filepath.Join(tmp, "MyShow")
+	if err := os.MkdirAll(showDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(showDir, "ep1.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+	srv.syncDir(d)
+
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(vids))
+	}
+	if vids[0].ShowName != "MyShow" {
+		t.Errorf("show name = %q; want MyShow", vids[0].ShowName)
+	}
+}
+
+func TestSyncDir_InferShowFromFilename(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "Cool.Show.S02E03.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+	srv.syncDir(d)
+
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(vids))
+	}
+	if vids[0].ShowName != "Cool Show" {
+		t.Errorf("show name = %q; want Cool Show", vids[0].ShowName)
+	}
+}
+
+func TestSyncDir_ShowNameStandalone(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "Some Movie.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, tmp)
+	srv.syncDir(d)
+
+	vids, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(vids) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(vids))
+	}
+	if vids[0].ShowName != "" {
+		t.Errorf("expected empty show name, got %q", vids[0].ShowName)
 	}
 }
 

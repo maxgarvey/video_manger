@@ -324,7 +324,7 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 		Page     int
 		PageSize int
 		Total    int
-	}{groupVideosByDir(pageVideos), page, limit, total}
+	}{groupVideosByShowSeason(pageVideos), page, limit, total}
 	render(w, "video_list.html", data)
 }
 
