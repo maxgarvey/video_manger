@@ -67,6 +67,66 @@
 })();
 </script>
 
+<!-- Color controls bar (collapsed by default) -->
+<div id="color-bar-{{.Video.ID}}" style="display:none;background:#111;padding:0.4rem 0.6rem;gap:0.6rem;flex-wrap:wrap;align-items:center;font-size:0.76rem;color:#888;border-top:1px solid #222">
+  <style>
+    .cc-slider { accent-color:#2563eb; width:80px; vertical-align:middle; cursor:pointer; }
+    .cc-val { color:#ccc; font-family:monospace; font-size:0.72rem; min-width:2.5rem; display:inline-block; text-align:right; }
+  </style>
+  <span style="color:#555;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em">Color</span>
+  <label title="Brightness">☀ <input type="range" class="cc-slider" id="cc-brightness-{{.Video.ID}}" min="0" max="200" value="100" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-brightness-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-brightness-{{.Video.ID}}">100%</span></label>
+  <label title="Contrast">◑ <input type="range" class="cc-slider" id="cc-contrast-{{.Video.ID}}" min="0" max="200" value="100" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-contrast-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-contrast-{{.Video.ID}}">100%</span></label>
+  <label title="Saturation">🎨 <input type="range" class="cc-slider" id="cc-saturate-{{.Video.ID}}" min="0" max="300" value="100" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-saturate-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-saturate-{{.Video.ID}}">100%</span></label>
+  <label title="Hue Rotate">〇 <input type="range" class="cc-slider" id="cc-hue-{{.Video.ID}}" min="0" max="360" value="0" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-hue-{{.Video.ID}}').textContent=this.value+'°'"><span class="cc-val" id="ccv-hue-{{.Video.ID}}">0°</span></label>
+  <label title="Sepia (Tint)">🟤 <input type="range" class="cc-slider" id="cc-sepia-{{.Video.ID}}" min="0" max="100" value="0" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-sepia-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-sepia-{{.Video.ID}}">0%</span></label>
+  <button class="btn-sm btn-ghost" style="font-size:0.7rem;padding:0.15rem 0.4rem" onclick="resetVideoFilter('{{.Video.ID}}')">Reset</button>
+</div>
+<script>
+function applyVideoFilter(id) {
+  var v = document.getElementById('vid-'+id);
+  if (!v) return;
+  var b = document.getElementById('cc-brightness-'+id).value;
+  var c = document.getElementById('cc-contrast-'+id).value;
+  var s = document.getElementById('cc-saturate-'+id).value;
+  var h = document.getElementById('cc-hue-'+id).value;
+  var p = document.getElementById('cc-sepia-'+id).value;
+  v.style.filter = 'brightness('+b+'%) contrast('+c+'%) saturate('+s+'%) hue-rotate('+h+'deg) sepia('+p+'%)';
+  try { localStorage.setItem('vf-'+id, JSON.stringify({b:b,c:c,s:s,h:h,p:p})); } catch(e){}
+}
+function resetVideoFilter(id) {
+  ['brightness','contrast','saturate','hue','sepia'].forEach(function(k,i){
+    var def = [100,100,100,0,0][i];
+    var el = document.getElementById('cc-'+k+'-'+id);
+    if (el) el.value = def;
+  });
+  document.getElementById('ccv-brightness-'+id).textContent='100%';
+  document.getElementById('ccv-contrast-'+id).textContent='100%';
+  document.getElementById('ccv-saturate-'+id).textContent='100%';
+  document.getElementById('ccv-hue-'+id).textContent='0°';
+  document.getElementById('ccv-sepia-'+id).textContent='0%';
+  var v = document.getElementById('vid-'+id);
+  if (v) v.style.filter = '';
+  try { localStorage.removeItem('vf-'+id); } catch(e){}
+}
+(function(){
+  var id = '{{.Video.ID}}';
+  try {
+    var stored = JSON.parse(localStorage.getItem('vf-'+id) || 'null');
+    if (stored) {
+      var map = {brightness:stored.b, contrast:stored.c, saturate:stored.s, hue:stored.h, sepia:stored.p};
+      var labels = {brightness:'%', contrast:'%', saturate:'%', hue:'°', sepia:'%'};
+      Object.keys(map).forEach(function(k){
+        var el = document.getElementById('cc-'+k+'-'+id);
+        if (el) el.value = map[k];
+        var lbl = document.getElementById('ccv-'+k+'-'+id);
+        if (lbl) lbl.textContent = map[k]+labels[k];
+      });
+      applyVideoFilter(id);
+    }
+  } catch(e){}
+})();
+</script>
+
 <!-- Title overlay — fades in when hovering the player -->
 <div id="player-overlay">
   <div style="font-size:1.05rem;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.9)">
@@ -384,7 +444,7 @@ function startConvert(vid) {
 }
 </script>
 
-  <!-- TMDB Lookup, Share & Trim -->
+  <!-- TMDB Lookup, Share, Trim & Color -->
   <div style="display:flex;gap:0.4rem;padding-top:0.25rem;flex-wrap:wrap">
     <button class="btn-sm"
       hx-get="/videos/{{.Video.ID}}/lookup"
@@ -405,6 +465,10 @@ function startConvert(vid) {
       hx-on::htmx:after-request="(function(){ var vid=document.getElementById('vid-{{.Video.ID}}'); if(!vid) return; var modal='#trim-modal-{{.Video.ID}}'; if(!vid.paused){ vid.pause(); var s=document.querySelector(modal+' input[name=\'start\']'); if(s) s.value=Math.floor(vid.currentTime); } else if(vid.duration>0 && vid.currentTime/vid.duration>0.7){ var e=document.querySelector(modal+' input[name=\'end\']'); if(e) e.value=Math.floor(vid.currentTime); } })()"
       title="Trim video by start/end time"
     >✂ Trim</button>
+    <button class="btn-sm btn-ghost" id="color-btn-{{.Video.ID}}"
+      onclick="(function(){ var bar=document.getElementById('color-bar-{{.Video.ID}}'); var vis=bar.style.display!=='flex'; bar.style.display=vis?'flex':'none'; document.getElementById('color-btn-{{.Video.ID}}').style.opacity=vis?'1':'0.5'; })()"
+      title="Adjust brightness, contrast, saturation, hue"
+    >🎨 Color</button>
   </div>
   <div id="lookup-modal-{{.Video.ID}}"></div>
   <div id="share-modal-{{.Video.ID}}"></div>
