@@ -142,8 +142,18 @@ func (s *server) handleConvertEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for line := range job.ch {
-		sse.Data(line)
+	ctx := r.Context()
+loop:
+	for {
+		select {
+		case line, open := <-job.ch:
+			if !open {
+				break loop
+			}
+			sse.Data(line)
+		case <-ctx.Done():
+			return
+		}
 	}
 
 	if job.err != nil {
