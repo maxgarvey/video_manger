@@ -166,4 +166,20 @@ Ordered by ease of implementation (simplest first).
 | 97  | 7       | Support thumbnails in the UI for videos                                                                              | ✅ Done    |
 | 98  | 8       | Automatically generate thumbnail image from video, with regenerate button                                            | ✅ Done    |
 | 99  | 5       | Organize season and episodes under specific shows                                                                    | ✅ Done    |
-| 100 | 6       | Add UI indicators on videos for type (TV show, movie, concert, vlog, blog, YouTube)                                  | ⏳ Planned |
+| 100 | 6       | Add UI indicators on videos for type (TV show, movie, concert, vlog, blog, YouTube)                                  | ✅ Done    |
+
+## Review + Fixes (items 1–10 re-examination) + New Items 11–14
+
+Bugs and gaps found in prior implementation, plus new features.
+
+| #   | TODOS # | Feature / Fix                                                                                   | Status  |
+| --- | ------- | ----------------------------------------------------------------------------------------------- | ------- |
+| 101 | (fix)   | Trim #2/#9 conflict: playing-at-70%+ gave start==end; made conditions mutually exclusive        | ✅ Done |
+| 102 | (fix)   | Trim seek MM:SS conversion: parseFloat("1:30".replace(/:/g,'')) = 130 not 90; fixed parser      | ✅ Done |
+| 103 | (fix)   | Trim item #1: draggable dual-handle range bar actually added (was only text inputs before)      | ✅ Done |
+| 104 | (fix)   | Feature 6: type badge missing from video list rows and player info panel; added                 | ✅ Done |
+| 105 | (fix)   | Feature 6: hx-include missing #active-type so type filter lost on auto-refresh; fixed           | ✅ Done |
+| 106 | 11      | Fix streaming/seeking: exempt /video/{id} and thumbnails from Compress middleware               | ✅ Done |
+| 107 | 12      | Video color controls: brightness, contrast, saturation, hue-rotate, sepia sliders               | ✅ Done |
+| 108 | 13      | Delete video from player — already implemented (closeTab on delete)                             | ✅ Done |
+| 109 | 14      | Memory leaks: SSE goroutines now exit on client disconnect; removed unused naturalCmp dead code  | ✅ Done |
