@@ -252,8 +252,8 @@
       overflow-x: auto;
       align-items: center;
       /* Fade right edge to signal overflow */
-      -webkit-mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent 100%);
-      mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent 100%);
+      -webkit-mask-image: linear-gradient(to right, black calc(100% - 4rem), rgba(0,0,0,0.7) calc(100% - 2rem), transparent 100%);
+      mask-image: linear-gradient(to right, black calc(100% - 4rem), rgba(0,0,0,0.7) calc(100% - 2rem), transparent 100%);
     }
     .tab-btn {
       background: rgba(35, 35, 35, 0.9);
@@ -269,7 +269,7 @@
     }
     .tab-btn.active { background: rgba(60, 60, 60, 0.95); color: #ddd; border-color: rgba(255,255,255,0.22); }
     .tab-label { overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
-    .tab-close { background: none; border: none; color: #555; cursor: pointer; font-size: 0.62rem; padding: 0; line-height: 1; flex-shrink: 0; }
+    .tab-close { background: none; border: none; color: #888; cursor: pointer; font-size: 0.62rem; padding: 0; line-height: 1; flex-shrink: 0; }
     .tab-close:hover { color: #f08080; }
 
     /* ── Player hover overlay ──────────────────────────────────────── */
@@ -375,11 +375,18 @@
     <div id="lib-filters">
       <input type="hidden" id="active-rating" name="rating" value="">
       <input type="hidden" id="active-tag" name="tag_id" value="">
+      <input type="hidden" id="active-type" name="type" value="">
       <button class="btn-sm" id="rating-btn-1" onclick="toggleRatingFilter(1)" style="border-radius:12px">👍 Liked</button>
       <button class="btn-sm" id="rating-btn-2" onclick="toggleRatingFilter(2)" style="border-radius:12px">⭐ Favs</button>
+      <select id="type-filter" class="btn-sm" onchange="toggleTypeFilter(this.value)" style="border-radius:12px;font-size:0.82rem">
+        <option value="">Type: All</option>
+        {{range $type := sort (ValidVideoTypes)}}
+        <option value="{{$type}}">{{$type}}</option>
+        {{end}}
+      </select>
       <div id="tag-filters" hx-get="/tags" hx-trigger="load" style="display:contents"></div>
       <button class="btn-sm" hx-get="/videos" hx-target="#video-list"
-        onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value='';document.getElementById('active-rating').value='';updateRatingBtns();updateTagBtns()"
+        onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value='';document.getElementById('active-rating').value='';document.getElementById('active-type').value='';document.getElementById('type-filter').value='';updateRatingBtns();updateTagBtns()"
         style="border-radius:12px;margin-left:auto">Show all</button>
     </div>
 
@@ -455,7 +462,7 @@
            hx-get="/videos"
            hx-trigger="load, every 60s, videoRenamed from:body"
            hx-swap="morph:innerHTML"
-           hx-include="#video-search,#active-tag,#active-rating"
+           hx-include="#video-search,#active-tag,#active-rating,#active-type"
            hx-indicator="#vl-spin"></div>
     </div>
 
@@ -777,6 +784,28 @@
         var btn = document.getElementById('rating-btn-' + r);
         if (btn) btn.classList.toggle('btn-active-filter', String(r) === String(ar));
       });
+    }
+
+    function toggleTypeFilter(type) {
+      var at = document.getElementById('active-type');
+      if (at.value === type) {
+        at.value = '';
+      } else {
+        at.value = type;
+      }
+      // build query string preserving other filters
+      var params = [];
+      var searchVal = document.getElementById('video-search').value;
+      if (searchVal) params.push('q=' + encodeURIComponent(searchVal));
+      var tagVal = document.getElementById('active-tag').value;
+      if (tagVal) params.push('tag_id=' + encodeURIComponent(tagVal));
+      var ratingVal = document.getElementById('active-rating').value;
+      if (ratingVal) params.push('rating=' + encodeURIComponent(ratingVal));
+      if (at.value) params.push('type=' + encodeURIComponent(at.value));
+      var url = '/videos' + (params.length ? '?' + params.join('&') : '');
+      htmx.ajax('GET', url, {target: '#video-list', swap: 'innerHTML'});
+      updateRatingBtns();
+      updateTagBtns();
     }
 
     // Keyboard shortcuts: L=library  I=scroll-to-info  S=settings  Esc=close all

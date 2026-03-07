@@ -1,45 +1,51 @@
-<div style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:1rem;margin-top:0.5rem">
-  <h3 style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#888;margin:0 0 0.75rem">Quick Label</h3>
-  <form hx-post="/videos/{{.ID}}/quick-label"
-        hx-on::after-request="this.closest('div').innerHTML=''"
-        style="display:grid;grid-template-columns:auto 1fr;gap:0.35rem 0.6rem;align-items:center;font-size:0.8rem">
+<!-- Quick Label Overlay -->
+<div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:1000;display:flex;align-items:center;justify-content:center" onclick="this.innerHTML=''">
+  <div style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:1.5rem;max-width:500px;width:90%;max-height:90vh;overflow-y:auto;position:relative" onclick="event.stopPropagation()">
+    <button type="button" style="position:absolute;top:0.5rem;right:0.5rem;background:none;border:none;color:#888;font-size:1.2rem;cursor:pointer;padding:0.2rem;border-radius:50%;width:2rem;height:2rem;display:flex;align-items:center;justify-content:center" onclick="this.closest('div').parentElement.innerHTML=''" title="Close">✕</button>
 
-    <label style="color:#666;white-space:nowrap">Title</label>
-    <input type="text" name="name" value="{{.DisplayName}}"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+    <h3 style="font-size:0.9rem;text-transform:uppercase;letter-spacing:0.1em;color:#ccc;margin:0 0 1rem 0;padding-right:2.5rem">Quick Label</h3>
 
-    <label style="color:#666;white-space:nowrap">Genre</label>
-    <input type="text" name="genre" value="{{.Genre}}"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+    <form hx-post="/videos/{{.ID}}/quick-label"
+          hx-on::after-request="this.closest('[style*=\"position:fixed\"]').innerHTML=''"
+          style="display:grid;grid-template-columns:auto 1fr;gap:0.4rem 0.8rem;align-items:center;font-size:0.85rem">
 
-    <label style="color:#666;white-space:nowrap">Season #</label>
-    <input type="number" name="season" value="{{.SeasonNumber}}" min="0"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem;width:6rem">
+      <label style="color:#999;white-space:nowrap">Title</label>
+      <input type="text" name="name" value="{{.DisplayName}}"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
 
-    <label style="color:#666;white-space:nowrap">Episode #</label>
-    <input type="number" name="episode" value="{{.EpisodeNumber}}" min="0"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem;width:6rem">
+      <label style="color:#999;white-space:nowrap">Genre</label>
+      <input type="text" name="genre" value="{{.Genre}}"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
 
-    <label style="color:#666;white-space:nowrap">Episode title</label>
-    <input type="text" name="episode_title" value="{{.EpisodeTitle}}"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+      <label style="color:#999;white-space:nowrap">Season #</label>
+      <input type="number" name="season" value="{{.SeasonNumber}}" min="0"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem;width:6rem">
 
-    <label style="color:#666;white-space:nowrap">Actors</label>
-    <input type="text" name="actors" value="{{.Actors}}" placeholder="e.g. Tom Hanks, Robin Wright"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+      <label style="color:#999;white-space:nowrap">Episode #</label>
+      <input type="number" name="episode" value="{{.EpisodeNumber}}" min="0"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem;width:6rem">
 
-    <label style="color:#666;white-space:nowrap">Studio</label>
-    <input type="text" name="studio" value="{{.Studio}}"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+      <label style="color:#999;white-space:nowrap">Episode title</label>
+      <input type="text" name="episode_title" value="{{.EpisodeTitle}}"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
 
-    <label style="color:#666;white-space:nowrap">Channel</label>
-    <input type="text" name="channel" value="{{.Channel}}"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+      <label style="color:#999;white-space:nowrap">Actors</label>
+      <input type="text" name="actors" value="{{.Actors}}" placeholder="e.g. Tom Hanks, Robin Wright"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
 
-    <div style="grid-column:1/-1;display:flex;gap:0.4rem;margin-top:0.1rem">
-      <button type="submit" class="btn-sm btn-success" style="font-size:0.78rem">Save</button>
-      <button type="button" class="btn-sm btn-ghost" style="font-size:0.78rem"
-        onclick="this.closest('div').innerHTML=''">Cancel</button>
-    </div>
-  </form>
+      <label style="color:#999;white-space:nowrap">Studio</label>
+      <input type="text" name="studio" value="{{.Studio}}"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
+
+      <label style="color:#999;white-space:nowrap">Channel</label>
+      <input type="text" name="channel" value="{{.Channel}}"
+        style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.85rem">
+
+      <div style="grid-column:1/-1;display:flex;gap:0.5rem;margin-top:0.3rem;justify-content:flex-end">
+        <button type="button" class="btn-sm btn-ghost" style="font-size:0.82rem"
+          onclick="this.closest('[style*=\"position:fixed\"]').innerHTML=''">Cancel</button>
+        <button type="submit" class="btn-sm btn-success" style="font-size:0.82rem">Save Changes</button>
+      </div>
+    </form>
+  </div>
 </div>

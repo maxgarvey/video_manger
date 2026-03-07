@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"syscall"
 	"time"
@@ -33,8 +34,19 @@ var templateFS embed.FS
 var templates = template.Must(template.New("").Funcs(template.FuncMap{
 	"base":    filepath.Base,
 	"reltime": reltime,
-	"add":     func(a, b int) int { return a + b },
-	"mul":     func(a, b int) int { return a * b },
+	"typeColor": func(videoType string) string {
+		if videoType == "" {
+			return "#d1d5db" // gray for unset
+		}
+		if c, ok := store.VideoTypes[videoType]; ok {
+			return c
+		}
+		// Unknown type is an error
+		slog.Warn("unknown video type in template", "type", videoType)
+		return "#ef4444" // red for error/unknown
+	},
+	"add": func(a, b int) int { return a + b },
+	"mul": func(a, b int) int { return a * b },
 	"ext": func(filename string) string {
 		e := filepath.Ext(filename)
 		if len(e) > 1 {
@@ -42,14 +54,30 @@ var templates = template.Must(template.New("").Funcs(template.FuncMap{
 		}
 		return e
 	},
+	"sort": func(vals []string) []string {
+		// simple in-place sort for template use
+		sorted := make([]string, len(vals))
+		copy(sorted, vals)
+		sort.Strings(sorted)
+		return sorted
+	},
+	"ValidVideoTypes": func() []string {
+		vals := make([]string, 0, len(store.VideoTypes))
+		for k := range store.VideoTypes {
+			vals = append(vals, k)
+		}
+		sort.Strings(vals)
+		return vals
+	},
+	"IsValidVideoType": store.IsValidVideoType,
 }).ParseFS(templateFS, "templates/*.html"))
 
 // Server tunables – change these to adjust behaviour without recompiling.
 const (
 	sessionTTL        = 7 * 24 * time.Hour // session cookie lifetime
-	sessionPruneEvery = time.Hour           // how often to run the session pruner
-	libraryPollEvery  = 60 * time.Second    // how often to re-scan directories
-	convertConcurrent = 2                   // max concurrent ffmpeg/yt-dlp processes
+	sessionPruneEvery = time.Hour          // how often to run the session pruner
+	libraryPollEvery  = 60 * time.Second   // how often to re-scan directories
+	convertConcurrent = 2                  // max concurrent ffmpeg/yt-dlp processes
 )
 
 // reltime formats a SQLite datetime string (UTC, "2006-01-02 15:04:05") as a

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS videos (
     display_name   TEXT    NOT NULL DEFAULT '',
     show_name      TEXT    NOT NULL DEFAULT '',
     thumbnail_path TEXT    NOT NULL DEFAULT '',
+    video_type     TEXT    NOT NULL DEFAULT '',
     UNIQUE(filename, directory_path)
 );
 

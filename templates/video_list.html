@@ -35,6 +35,7 @@
               </span>
               <span style="flex-shrink:0;color:#444;font-size:0.68rem;font-family:monospace">{{ext .Filename}}</span>
               {{if .WatchedAt}}<span style="flex-shrink:0;color:#3a5a3a;font-size:0.68rem">{{reltime .WatchedAt}}</span>{{end}}
+              {{if .VideoType}}<span style="flex-shrink:0;background:{{typeColor .VideoType}};color:#fff;font-size:0.6rem;padding:0.08rem 0.3rem;border-radius:3px;letter-spacing:0.03em" title="{{.VideoType}}">{{.VideoType}}</span>{{end}}
             </button>
             <button class="btn-icon"
               hx-get="/videos/{{.ID}}/delete-confirm"
@@ -67,6 +68,7 @@
             </span>
             <span style="flex-shrink:0;color:#444;font-size:0.68rem;font-family:monospace">{{ext .Filename}}</span>
             {{if .WatchedAt}}<span style="flex-shrink:0;color:#3a5a3a;font-size:0.68rem">{{reltime .WatchedAt}}</span>{{end}}
+            {{if .VideoType}}<span style="flex-shrink:0;background:{{typeColor .VideoType}};color:#fff;font-size:0.6rem;padding:0.08rem 0.3rem;border-radius:3px;letter-spacing:0.03em" title="{{.VideoType}}">{{.VideoType}}</span>{{end}}
           </button>
           <button class="btn-icon"
             hx-get="/videos/{{.ID}}/delete-confirm"

@@ -275,22 +275,44 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	sortOrder, _ := s.store.GetSetting(r.Context(), "video_sort")
 	isSearch := q.Get("q") != ""
-	switch {
-	case isSearch:
+	if isSearch {
 		videos, err = s.store.SearchVideos(r.Context(), q.Get("q"))
-	case q.Get("tag_id") != "":
-		tagID, _ := strconv.ParseInt(q.Get("tag_id"), 10, 64)
-		videos, err = s.store.ListVideosByTag(r.Context(), tagID)
-	case q.Get("rating") != "":
-		minRating, _ := strconv.Atoi(q.Get("rating"))
-		if minRating < 1 {
-			minRating = 1
+	} else {
+		// start with either all videos or those matching a tag or rating sort
+		if q.Get("tag_id") != "" {
+			tagID, _ := strconv.ParseInt(q.Get("tag_id"), 10, 64)
+			videos, err = s.store.ListVideosByTag(r.Context(), tagID)
+		} else if sortOrder == "rating" {
+			videos, err = s.store.ListVideosByRating(r.Context())
+		} else {
+			videos, err = s.store.ListVideos(r.Context())
 		}
-		videos, err = s.store.ListVideosByMinRating(r.Context(), minRating)
-	case sortOrder == "rating":
-		videos, err = s.store.ListVideosByRating(r.Context())
-	default:
-		videos, err = s.store.ListVideos(r.Context())
+		if err == nil {
+			// apply additional attr filters: type first, then rating threshold
+			typeVal := q.Get("type")
+			if typeVal != "" {
+				filtered := videos[:0]
+				for _, v := range videos {
+					if v.VideoType == typeVal {
+						filtered = append(filtered, v)
+					}
+				}
+				videos = filtered
+			}
+			if q.Get("rating") != "" {
+				minRating, _ := strconv.Atoi(q.Get("rating"))
+				if minRating < 1 {
+					minRating = 1
+				}
+				filtered := videos[:0]
+				for _, v := range videos {
+					if v.Rating >= minRating {
+						filtered = append(filtered, v)
+					}
+				}
+				videos = filtered
+			}
+		}
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -558,6 +580,30 @@ func (s *server) handleSetRating(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	render(w, "rating_buttons.html", updated)
+}
+
+// ── Video Type ────────────────────────────────────────────────────────────────
+
+func (s *server) handleSetVideoType(w http.ResponseWriter, r *http.Request) {
+	video, ok := s.videoOrError(w, r)
+	if !ok {
+		return
+	}
+	videoType := strings.TrimSpace(r.FormValue("type"))
+	if !store.IsValidVideoType(videoType) {
+		http.Error(w, "invalid type", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.UpdateVideoType(r.Context(), video.ID, videoType); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	updated, err := s.store.GetVideo(r.Context(), video.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	render(w, "video_type_badge.html", updated)
 }
 
 // ── Share panel ───────────────────────────────────────────────────────────────

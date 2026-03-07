@@ -124,24 +124,38 @@
     >Cancel</button>
   </div>
 
-  <!-- Rating buttons -->
-  <div id="rating-{{.Video.ID}}" style="display:flex;gap:0.4rem;align-items:center">
-    <button class="btn-sm"
-      hx-post="/videos/{{.Video.ID}}/rating"
-      hx-vals='{"rating": "{{if eq .Video.Rating 1}}0{{else}}1{{end}}"}'
-      hx-target="#rating-{{.Video.ID}}"
-      hx-swap="outerHTML"
-      title="Like"
-      {{if ge .Video.Rating 1}}style="background:#2a4a2a;border-color:#4a9a4a;color:#8f8"{{end}}
-    >👍{{if ge .Video.Rating 1}} Liked{{end}}</button>
-    <button class="btn-sm"
-      hx-post="/videos/{{.Video.ID}}/rating"
-      hx-vals='{"rating": "{{if eq .Video.Rating 2}}0{{else}}2{{end}}"}'
-      hx-target="#rating-{{.Video.ID}}"
-      hx-swap="outerHTML"
-      title="Favourite"
-      {{if eq .Video.Rating 2}}style="background:#4a3a00;border-color:#c8a000;color:#fc0"{{end}}
-    >⭐{{if eq .Video.Rating 2}} Fav{{end}}</button>
+  <!-- Rating + type row -->
+  <div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
+    <div id="rating-{{.Video.ID}}" style="display:flex;gap:0.4rem;align-items:center">
+      <button class="btn-sm"
+        hx-post="/videos/{{.Video.ID}}/rating"
+        hx-vals='{"rating": "{{if eq .Video.Rating 1}}0{{else}}1{{end}}"}'
+        hx-target="#rating-{{.Video.ID}}"
+        hx-swap="outerHTML"
+        title="Like"
+        {{if ge .Video.Rating 1}}style="background:#2a4a2a;border-color:#4a9a4a;color:#8f8"{{end}}
+      >👍{{if ge .Video.Rating 1}} Liked{{end}}</button>
+      <button class="btn-sm"
+        hx-post="/videos/{{.Video.ID}}/rating"
+        hx-vals='{"rating": "{{if eq .Video.Rating 2}}0{{else}}2{{end}}"}'
+        hx-target="#rating-{{.Video.ID}}"
+        hx-swap="outerHTML"
+        title="Favourite"
+        {{if eq .Video.Rating 2}}style="background:#4a3a00;border-color:#c8a000;color:#fc0"{{end}}
+      >⭐{{if eq .Video.Rating 2}} Fav{{end}}</button>
+    </div>
+    <!-- Video type selector -->
+    <div id="video-type-{{.Video.ID}}" style="display:flex;align-items:center;gap:0.3rem">
+      <form hx-post="/videos/{{.Video.ID}}/type" hx-target="#video-type-{{.Video.ID}}" hx-swap="outerHTML">
+        <select name="type" onchange="this.form.submit()" style="font-size:0.82rem;background:#222;border:1px solid #444;color:#eee;padding:0.2rem 0.4rem;border-radius:4px">
+          <option value="">Type…</option>
+          {{range ValidVideoTypes}}
+            <option value="{{.}}" {{if eq $.Video.VideoType .}}selected{{end}}>{{.}}</option>
+          {{end}}
+        </select>
+      </form>
+      {{if .Video.VideoType}}<span style="background:{{typeColor .Video.VideoType}};color:#fff;font-size:0.75rem;padding:0.15rem 0.5rem;border-radius:4px">{{.Video.VideoType}}</span>{{end}}
+    </div>
   </div>
 
   <!-- Name editor -->
@@ -154,7 +168,8 @@
     </form>
     <button class="btn-sm"
       hx-get="/videos/{{.Video.ID}}/quick-label"
-      hx-target="#quick-label-modal-{{.Video.ID}}"
+      hx-target="body"
+      hx-swap="beforeend"
       title="Quick label video with title, genre, season, etc."
     >🏷 Quick label</button>
   </div>
@@ -394,7 +409,5 @@ function startConvert(vid) {
   <div id="lookup-modal-{{.Video.ID}}"></div>
   <div id="share-modal-{{.Video.ID}}"></div>
   <div id="trim-modal-{{.Video.ID}}"></div>
-
-  <div id="quick-label-modal-{{.Video.ID}}"></div>
 
 </div>

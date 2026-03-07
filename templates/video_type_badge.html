@@ -1,0 +1,10 @@
+<div id="video-type-{{.ID}}" style="display:flex;align-items:center;gap:0.3rem">
+  <form hx-post="/videos/{{.ID}}/type" hx-target="#video-type-{{.ID}}" hx-swap="outerHTML">
+    <select name="type" onchange="this.form.submit()" style="font-size:0.82rem">
+      <option value="">Type…</option>
+      {{range ValidVideoTypes}}
+        <option value="{{.}}" {{if eq $.VideoType .}}selected{{end}}>{{.}}</option>
+      {{end}}
+    </select>
+  </form>
+</div>

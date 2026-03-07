@@ -240,6 +240,25 @@ func TestHandleVideoList_GroupedByShowAndSeason(t *testing.T) {
 	}
 }
 
+func TestInferVideoType(t *testing.T) {
+	// season/episode -> TV
+	if got := inferVideoType("foo.mp4", 1, 0, nil); got != "TV" {
+		t.Errorf("expected TV, got %s", got)
+	}
+	// YouTube tag
+	if got := inferVideoType("whatever.mp4", 0, 0, []string{"my_youtube_channel"}); got != "YouTube" {
+		t.Errorf("expected YouTube, got %s", got)
+	}
+	// concert filename
+	if got := inferVideoType("live_concert.mp4", 0, 0, nil); got != "Concert" {
+		t.Errorf("expected Concert, got %s", got)
+	}
+	// default movie
+	if got := inferVideoType("random.mp4", 0, 0, nil); got != "Movie" {
+		t.Errorf("expected Movie, got %s", got)
+	}
+}
+
 func TestHandleVideoList_FilterByTag(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
@@ -259,6 +278,90 @@ func TestHandleVideoList_FilterByTag(t *testing.T) {
 	}
 	if strings.Contains(body, "untagged.mp4") {
 		t.Error("untagged.mp4 should not appear in filtered results")
+	}
+}
+
+func TestListVideosByType(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "a.mp4")
+	v2, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "b.mp4")
+	srv.store.UpdateVideoType(ctx, v1.ID, "TV")
+	srv.store.UpdateVideoType(ctx, v2.ID, "Movie")
+
+	list, err := srv.store.ListVideosByType(ctx, "TV")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ID != v1.ID {
+		t.Errorf("expected only v1, got %v", list)
+	}
+}
+
+func TestHandleSetVideoType(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "x.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/type", strings.NewReader("type=TV"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	updated, _ := srv.store.GetVideo(ctx, v.ID)
+	if updated.VideoType != "TV" {
+		t.Errorf("expected type TV, got %q", updated.VideoType)
+	}
+
+	// invalid type should 400
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/type", strings.NewReader("type=foo"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid type, got %d", rec.Code)
+	}
+}
+
+func TestHandleVideoList_FilterByType(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "t1.mp4")
+	v2, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "t2.mp4")
+	srv.store.UpdateVideoType(ctx, v1.ID, "TV")
+	srv.store.UpdateVideoType(ctx, v2.ID, "Movie")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos?type=TV", nil)
+	srv.routes().ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, "t1.mp4") || strings.Contains(body, "t2.mp4") {
+		t.Errorf("unexpected body %s", body)
+	}
+}
+
+func TestHandleVideoList_FilterCombination(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "combo1.mp4")
+	srv.store.UpdateVideoType(ctx, v1.ID, "TV")
+	srv.store.SetVideoRating(ctx, v1.ID, 1)
+	v2, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "combo2.mp4")
+	srv.store.UpdateVideoType(ctx, v2.ID, "TV")
+	srv.store.SetVideoRating(ctx, v2.ID, 0)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos?type=TV&rating=1", nil)
+	srv.routes().ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, "combo1.mp4") || strings.Contains(body, "combo2.mp4") {
+		t.Errorf("unexpected body %s", body)
 	}
 }
 

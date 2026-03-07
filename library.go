@@ -65,6 +65,47 @@ func inferShow(root, dir, filename string) string {
 	return extractShowFromFilename(filename)
 }
 
+// containsWord checks if a string contains a word (whole word, case-insensitive).
+// Words are sequences of letters/digits separated by non-alphanumeric chars.
+func containsWord(s, word string) bool {
+	lower := strings.ToLower(s)
+	lowerWord := strings.ToLower(word)
+	words := strings.FieldsFunc(lower, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	})
+	for _, w := range words {
+		if w == lowerWord {
+			return true
+		}
+	}
+	return false
+}
+
+// inferVideoType attempts to determine the type of video (TV, Movie, Concert, etc)
+// based on metadata available at sync time.  Priority: explicit metadata via
+// season/episode > tags > filename patterns.
+func inferVideoType(filename string, seasonNum, episodeNum int, tags []string) string {
+	if seasonNum > 0 {
+		return "TV"
+	}
+	for _, tag := range tags {
+		if containsWord(tag, "youtube") || containsWord(tag, "channel") {
+			return "YouTube"
+		}
+	}
+	base := strings.ToLower(strings.TrimSuffix(filename, filepath.Ext(filename)))
+	if strings.Contains(base, "concert") || strings.Contains(base, "live performance") {
+		return "Concert"
+	}
+	if strings.Contains(base, "vlog") || strings.Contains(base, "vlogging") {
+		return "Vlog"
+	}
+	if strings.Contains(base, "blog") || strings.Contains(base, "blogging") {
+		return "Blog"
+	}
+	return "Movie"
+}
+
 // syncDir walks a directory tree recursively and upserts all video files into
 // the store. Subdirectories are not registered as separate directory entries;
 // all videos under the tree share the same directory_id but store their actual
@@ -102,6 +143,21 @@ func (s *server) syncDir(d store.Directory) {
 				if err := s.store.UpdateVideoName(context.Background(), v.ID, meta.Title); err != nil {
 					slog.Warn("set native title failed", "path", path, "err", err)
 				}
+			}
+		}
+		// Infer video type if not already set
+		if v.VideoType == "" {
+			tags, err := s.store.ListTagsByVideo(context.Background(), v.ID)
+			if err != nil {
+				slog.Warn("list tags for inference failed", "videoID", v.ID, "err", err)
+			}
+			var names []string
+			for _, t := range tags {
+				names = append(names, t.Name)
+			}
+			inferred := inferVideoType(de.Name(), v.SeasonNumber, v.EpisodeNumber, names)
+			if err := s.store.UpdateVideoType(context.Background(), v.ID, inferred); err != nil {
+				slog.Warn("set video type failed", "path", path, "err", err)
 			}
 		}
 		// Auto-tag with the registered directory's base name.

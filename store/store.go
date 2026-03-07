@@ -20,6 +20,7 @@ type Video struct {
 	DirectoryPath    string
 	DisplayName      string
 	ShowName         string
+	VideoType        string // classification: TV, Movie, Concert, Vlog, Blog, YouTube
 	Rating           int    // 0=neutral, 1=liked, 2=double-liked
 	OriginalFilename string // filename at first import; never changed on rename/move
 	// Standardised descriptive fields (see VideoFields).
@@ -45,6 +46,38 @@ type VideoFields struct {
 	Actors        string
 	Studio        string
 	Channel       string
+}
+
+// VideoTypes maps the canonical type string to a display color (used by UI).
+// To add a new type you only need to update this map; handlers and templates
+// derive their valid set from its keys.
+var VideoTypes = map[string]string{
+	"TV":      "#2563eb",
+	"Movie":   "#16a34a",
+	"Concert": "#9333ea",
+	"Vlog":    "#dc2626",
+	"Blog":    "#ea580c",
+	"YouTube": "#ee2938",
+}
+
+// ValidVideoTypes returns a slice of known type names in iteration order.
+// Note: map iteration order is random, but consumers (templates) may sort if
+// needed.
+func ValidVideoTypes() []string {
+	list := make([]string, 0, len(VideoTypes))
+	for t := range VideoTypes {
+		list = append(list, t)
+	}
+	return list
+}
+
+// IsValidVideoType reports whether the provided type string is known.
+func IsValidVideoType(t string) bool {
+	if t == "" {
+		return true // empty means unset
+	}
+	_, ok := VideoTypes[t]
+	return ok
 }
 
 // HasFields reports whether any standardised field is populated.
@@ -102,11 +135,14 @@ type Store interface {
 	UpdateVideoName(ctx context.Context, id int64, name string) error
 	SetVideoRating(ctx context.Context, id int64, rating int) error
 	UpdateVideoShowName(ctx context.Context, id int64, showName string) error
+	// UpdateVideoType sets the classification string; empty clears it.
+	UpdateVideoType(ctx context.Context, id int64, videoType string) error
 	DeleteVideo(ctx context.Context, id int64) error
 	UpdateVideoPath(ctx context.Context, id, dirID int64, dirPath, filename string) error
 	UpdateVideoFields(ctx context.Context, id int64, f VideoFields) error
 	ListVideosByMinRating(ctx context.Context, minRating int) ([]Video, error)
 	SearchVideos(ctx context.Context, query string) ([]Video, error)
+	ListVideosByType(ctx context.Context, videoType string) ([]Video, error)
 	ListVideosByRating(ctx context.Context) ([]Video, error)
 	ListVideosByShow(ctx context.Context, showName string) ([]Video, error)
 	GetRandomVideo(ctx context.Context) (Video, error)

@@ -209,6 +209,8 @@ func (s *server) routes() http.Handler {
 
 	// Rating
 	r.Post("/videos/{id}/rating", s.handleSetRating)
+	// Video Type
+	r.Post("/videos/{id}/type", s.handleSetVideoType)
 
 	// Export / convert
 	r.Post("/videos/{id}/export/usb", s.handleExportUSB)

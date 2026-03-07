@@ -136,7 +136,7 @@ func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, dirPath stri
 		ON CONFLICT (filename, directory_path)
 			DO UPDATE SET directory_id = excluded.directory_id
 		RETURNING id, filename, directory_id, directory_path, show_name, display_name, rating, original_filename,
-		          genre, season_number, episode_number, episode_title, actors, studio, channel,
+		          genre, season_number, episode_number, episode_title, actors, studio, channel, video_type,
 		          NULL -- watched_at: new/upserted videos have no watch history yet
 	`, filename, dirID, dirPath, filename)
 	return scanVideoRow(row)
@@ -145,7 +145,7 @@ func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, dirPath stri
 func (s *SQLiteStore) ListVideos(ctx context.Context) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -166,7 +166,7 @@ func (s *SQLiteStore) CountVideos(ctx context.Context) (int, error) {
 func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 		       wh.watched_at
 		FROM videos v
 		JOIN video_tags vt ON v.id = vt.video_id
@@ -183,7 +183,7 @@ func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video
 func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -199,7 +199,7 @@ func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([
 func (s *SQLiteStore) GetVideo(ctx context.Context, id int64) (Video, error) {
 	row := s.conn.QueryRowContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -216,7 +216,7 @@ func (s *SQLiteStore) SetVideoRating(ctx context.Context, id int64, rating int) 
 func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -231,7 +231,7 @@ func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
 func (s *SQLiteStore) ListVideosByShow(ctx context.Context, showName string) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -251,7 +251,7 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 	if tagID > 0 {
 		row = s.conn.QueryRowContext(ctx, `
 			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-			       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+			       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 			       wh.watched_at
 			FROM videos v
 			JOIN video_tags vt ON v.id = vt.video_id
@@ -263,7 +263,7 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 	} else {
 		row = s.conn.QueryRowContext(ctx, `
 			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-			       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+			       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 			       wh.watched_at
 			FROM videos v
 			LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -281,7 +281,7 @@ func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
 	// still returns no rows because there are none to offset into.
 	row := s.conn.QueryRowContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -298,6 +298,27 @@ func (s *SQLiteStore) UpdateVideoName(ctx context.Context, id int64, name string
 func (s *SQLiteStore) UpdateVideoShowName(ctx context.Context, id int64, showName string) error {
 	_, err := s.conn.ExecContext(ctx, `UPDATE videos SET show_name = ? WHERE id = ?`, showName, id)
 	return err
+}
+
+func (s *SQLiteStore) UpdateVideoType(ctx context.Context, id int64, videoType string) error {
+	_, err := s.conn.ExecContext(ctx, `UPDATE videos SET video_type = ? WHERE id = ?`, videoType, id)
+	return err
+}
+
+func (s *SQLiteStore) ListVideosByType(ctx context.Context, videoType string) ([]Video, error) {
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		       wh.watched_at
+		FROM videos v
+		LEFT JOIN watch_history wh ON v.id = wh.video_id
+		WHERE v.video_type = ?
+		ORDER BY v.directory_path ASC, COALESCE(NULLIF(v.display_name, ''), v.filename) ASC
+	`, videoType)
+	if err != nil {
+		return nil, err
+	}
+	return scanVideos(rows)
 }
 
 func (s *SQLiteStore) UpdateVideoThumbnail(ctx context.Context, videoID int64, thumbnailPath string) error {
@@ -331,7 +352,7 @@ func (s *SQLiteStore) UpdateVideoFields(ctx context.Context, id int64, f VideoFi
 func (s *SQLiteStore) ListVideosByMinRating(ctx context.Context, minRating int) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -353,7 +374,7 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 		ftsQuery := `"` + strings.ReplaceAll(query, `"`, `""`) + `"`
 		rows, err := s.conn.QueryContext(ctx, `
 			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-			       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+			       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 			       wh.watched_at
 			FROM videos v
 			JOIN videos_fts ON videos_fts.rowid = v.id
@@ -370,7 +391,7 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.conn.QueryContext(ctx, `
 		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel,
+		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -457,7 +478,7 @@ func scanVideoRow(row *sql.Row) (Video, error) {
 	var watchedAt sql.NullString
 	if err := row.Scan(
 		&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &v.ShowName, &v.Rating, &v.OriginalFilename,
-		&v.Genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &v.Actors, &v.Studio, &v.Channel,
+		&v.Genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &v.Actors, &v.Studio, &v.Channel, &v.VideoType,
 		&watchedAt,
 	); err != nil {
 		return Video{}, err
@@ -480,7 +501,7 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 		var watchedAt sql.NullString
 		if err := rows.Scan(
 			&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &v.ShowName, &v.Rating, &v.OriginalFilename,
-			&v.Genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &v.Actors, &v.Studio, &v.Channel,
+			&v.Genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &v.Actors, &v.Studio, &v.Channel, &v.VideoType,
 			&watchedAt,
 		); err != nil {
 			return nil, err
