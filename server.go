@@ -178,111 +178,122 @@ func (s *server) routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Compress(5))
 	r.Use(s.authMiddleware)
 
 	r.Get("/login", s.handleLoginPage)
 	r.Post("/login", s.handleLoginSubmit)
 	r.Get("/logout", s.handleLogout)
 
-	r.Get("/", s.handleIndex)
-	r.Get("/info", s.handleInfo)
-
-	// Videos
-	r.Get("/videos", s.serveVideoList)
-	r.Get("/play/{id}", s.handlePlayer)
+	// Video file streaming and thumbnails must NOT be wrapped by Compress.
+	// The browser sends HTTP Range requests when seeking; gzip wrapping of
+	// the ResponseWriter can interfere with the 206 Partial Content response
+	// that http.ServeFile sends, causing the seek to stall and breaking
+	// the ability to stream after a seek.  Thumbnail images are already
+	// compressed JPEGs and gain nothing from an extra gzip pass.
 	r.Get("/video/{id}", s.handleVideoFile)
-	r.Put("/videos/{id}/name", s.handleUpdateVideoName)
-	r.Get("/videos/{id}/delete-confirm", s.handleVideoDeleteConfirm)
-	r.Delete("/videos/{id}", s.handleDeleteVideo)
-	r.Delete("/videos/{id}/file", s.handleDeleteVideoAndFile)
-	r.Post("/videos/{id}/relocate", s.handleRelocateVideo)
-
-	// Watch history
-	r.Post("/videos/{id}/progress", s.handlePostProgress)
-	r.Get("/videos/{id}/progress", s.handleGetProgress)
-	r.Post("/videos/{id}/watched", s.handleMarkWatched)
-	r.Delete("/videos/{id}/progress", s.handleClearProgress)
-	r.Post("/videos/{id}/copy-to-library", s.handleCopyToLibrary)
-	r.Post("/videos/{id}/move", s.handleMoveVideo)
-	r.Post("/import/upload", s.handleImportUpload)
-
-	// Rating
-	r.Post("/videos/{id}/rating", s.handleSetRating)
-	// Video Type
-	r.Post("/videos/{id}/type", s.handleSetVideoType)
-
-	// Export / convert
-	r.Post("/videos/{id}/export/usb", s.handleExportUSB)
-	r.Post("/videos/{id}/convert", s.handleConvertStart)
-	r.Get("/videos/{id}/convert/events/{jobID}", s.handleConvertEvents)
-
-	// yt-dlp download
-	r.Post("/ytdlp/download", s.handleYTDLPDownload)
-	r.Get("/ytdlp/job/{jobID}/events", s.handleYTDLPJobEvents)
-
-	// Metadata lookup (TMDB)
-	r.Get("/videos/{id}/lookup", s.handleLookupModal)
-	r.Post("/videos/{id}/lookup/search", s.handleLookupSearch)
-	r.Post("/videos/{id}/lookup/apply", s.handleLookupApply)
-
-	// Quick label
-	r.Get("/videos/{id}/quick-label", s.handleQuickLabelModal)
-	r.Post("/videos/{id}/quick-label", s.handleQuickLabelSubmit)
-
-	// P2P share
-	r.Get("/videos/{id}/share", s.handleSharePanel)
-
-	// File metadata (ffprobe/ffmpeg)
-	r.Get("/videos/{id}/metadata", s.handleGetMetadata)
-	r.Get("/videos/{id}/metadata/edit", s.handleEditMetadata)
-	r.Put("/videos/{id}/metadata", s.handleUpdateMetadata)
-
-	// Standardised descriptive fields (genre, season/episode, actors, studio, channel)
-	r.Get("/videos/{id}/fields", s.handleGetVideoFields)
-	r.Get("/videos/{id}/fields/edit", s.handleEditVideoFields)
-	r.Put("/videos/{id}/fields", s.handleUpdateVideoFields)
-
-	// Tags
-	r.Get("/videos/{id}/tags", s.handleVideoTags)
-	r.Post("/videos/{id}/tags", s.handleAddVideoTag)
-	r.Delete("/videos/{id}/tags/{tagID}", s.handleRemoveVideoTag)
-	r.Get("/tags", s.handleListTags)
-
-	// Settings
-	r.Get("/settings", s.handleGetSettings)
-	r.Post("/settings", s.handleSaveSettings)
-
-	// Thumbnails
-	r.Post("/videos/{id}/thumbnail", s.handleGenerateThumbnail)
 	r.Get("/videos/{id}/thumbnail", s.handleServeThumbnail)
 
-	// Filesystem browser (used by folder picker in sidebar)
-	r.Get("/fs", s.handleBrowseFS)
+	// All remaining routes use gzip compression (HTML/JSON responses).
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Compress(5))
 
-	// Directories
-	r.Get("/directories", s.serveDirList)
-	r.Get("/directories/options", s.handleDirectoryOptions)
-	r.Post("/directories", s.handleAddDirectory)
-	r.Post("/directories/create", s.handleCreateDirectory)
-	r.Get("/directories/{id}/delete-confirm", s.handleDirectoryDeleteConfirm)
-	r.Post("/directories/{id}/sync", s.handleSyncDirectory)
-	r.Delete("/directories/{id}", s.handleDeleteDirectory)
-	r.Delete("/directories/{id}/files", s.handleDeleteDirectoryAndFiles)
-	r.Post("/directories/{id}/subfolder", s.handleCreateSubfolder)
+		r.Get("/", s.handleIndex)
+		r.Get("/info", s.handleInfo)
 
-	// Duplicate detection
-	r.Get("/duplicates", s.handleListDuplicates)
+		// Videos
+		r.Get("/videos", s.serveVideoList)
+		r.Get("/play/{id}", s.handlePlayer)
+		r.Put("/videos/{id}/name", s.handleUpdateVideoName)
+		r.Get("/videos/{id}/delete-confirm", s.handleVideoDeleteConfirm)
+		r.Delete("/videos/{id}", s.handleDeleteVideo)
+		r.Delete("/videos/{id}/file", s.handleDeleteVideoAndFile)
+		r.Post("/videos/{id}/relocate", s.handleRelocateVideo)
 
-	// Video trimming (temporal crop)
-	r.Get("/videos/{id}/trim", s.handleTrimPanel)
-	r.Post("/videos/{id}/trim", s.handleTrim)
+		// Watch history
+		r.Post("/videos/{id}/progress", s.handlePostProgress)
+		r.Get("/videos/{id}/progress", s.handleGetProgress)
+		r.Post("/videos/{id}/watched", s.handleMarkWatched)
+		r.Delete("/videos/{id}/progress", s.handleClearProgress)
+		r.Post("/videos/{id}/copy-to-library", s.handleCopyToLibrary)
+		r.Post("/videos/{id}/move", s.handleMoveVideo)
+		r.Post("/import/upload", s.handleImportUpload)
 
-	// Random video ID (for initial tab load)
-	r.Get("/random-video", s.handleRandomVideoID)
+		// Rating
+		r.Post("/videos/{id}/rating", s.handleSetRating)
+		// Video Type
+		r.Post("/videos/{id}/type", s.handleSetVideoType)
 
-	// Next unwatched video
-	r.Get("/videos/next-unwatched", s.handleNextUnwatched)
+		// Export / convert
+		r.Post("/videos/{id}/export/usb", s.handleExportUSB)
+		r.Post("/videos/{id}/convert", s.handleConvertStart)
+		r.Get("/videos/{id}/convert/events/{jobID}", s.handleConvertEvents)
+
+		// yt-dlp download
+		r.Post("/ytdlp/download", s.handleYTDLPDownload)
+		r.Get("/ytdlp/job/{jobID}/events", s.handleYTDLPJobEvents)
+
+		// Metadata lookup (TMDB)
+		r.Get("/videos/{id}/lookup", s.handleLookupModal)
+		r.Post("/videos/{id}/lookup/search", s.handleLookupSearch)
+		r.Post("/videos/{id}/lookup/apply", s.handleLookupApply)
+
+		// Quick label
+		r.Get("/videos/{id}/quick-label", s.handleQuickLabelModal)
+		r.Post("/videos/{id}/quick-label", s.handleQuickLabelSubmit)
+
+		// P2P share
+		r.Get("/videos/{id}/share", s.handleSharePanel)
+
+		// File metadata (ffprobe/ffmpeg)
+		r.Get("/videos/{id}/metadata", s.handleGetMetadata)
+		r.Get("/videos/{id}/metadata/edit", s.handleEditMetadata)
+		r.Put("/videos/{id}/metadata", s.handleUpdateMetadata)
+
+		// Standardised descriptive fields (genre, season/episode, actors, studio, channel)
+		r.Get("/videos/{id}/fields", s.handleGetVideoFields)
+		r.Get("/videos/{id}/fields/edit", s.handleEditVideoFields)
+		r.Put("/videos/{id}/fields", s.handleUpdateVideoFields)
+
+		// Tags
+		r.Get("/videos/{id}/tags", s.handleVideoTags)
+		r.Post("/videos/{id}/tags", s.handleAddVideoTag)
+		r.Delete("/videos/{id}/tags/{tagID}", s.handleRemoveVideoTag)
+		r.Get("/tags", s.handleListTags)
+
+		// Settings
+		r.Get("/settings", s.handleGetSettings)
+		r.Post("/settings", s.handleSaveSettings)
+
+		// Thumbnail generation (serving is outside this group — see above)
+		r.Post("/videos/{id}/thumbnail", s.handleGenerateThumbnail)
+
+		// Filesystem browser (used by folder picker in sidebar)
+		r.Get("/fs", s.handleBrowseFS)
+
+		// Directories
+		r.Get("/directories", s.serveDirList)
+		r.Get("/directories/options", s.handleDirectoryOptions)
+		r.Post("/directories", s.handleAddDirectory)
+		r.Post("/directories/create", s.handleCreateDirectory)
+		r.Get("/directories/{id}/delete-confirm", s.handleDirectoryDeleteConfirm)
+		r.Post("/directories/{id}/sync", s.handleSyncDirectory)
+		r.Delete("/directories/{id}", s.handleDeleteDirectory)
+		r.Delete("/directories/{id}/files", s.handleDeleteDirectoryAndFiles)
+		r.Post("/directories/{id}/subfolder", s.handleCreateSubfolder)
+
+		// Duplicate detection
+		r.Get("/duplicates", s.handleListDuplicates)
+
+		// Video trimming (temporal crop)
+		r.Get("/videos/{id}/trim", s.handleTrimPanel)
+		r.Post("/videos/{id}/trim", s.handleTrim)
+
+		// Random video ID (for initial tab load)
+		r.Get("/random-video", s.handleRandomVideoID)
+
+		// Next unwatched video
+		r.Get("/videos/next-unwatched", s.handleNextUnwatched)
+	})
 
 	return r
 }
