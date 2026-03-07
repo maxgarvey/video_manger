@@ -8,11 +8,11 @@
       <label style="color:#888;white-space:nowrap">Start</label>
       <input type="text" name="start" placeholder="0:00 or 0 (default: start)" value="0"
         style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem;font-family:monospace"
-        oninput="let vid = document.getElementById('vid-{{.}}'); if (vid) vid.currentTime = parseFloat(this.value.replace(/:/g, '')) || 0;">
+        oninput="(function(v){ var vid=document.getElementById('vid-{{.}}'); if(!vid) return; var p=v.trim().split(':'); var s=p.length===3?(+p[0])*3600+(+p[1])*60+(+p[2]):p.length===2?(+p[0])*60+(+p[1]):(+p[0]); if(isFinite(s)) vid.currentTime=s; })(this.value)">
       <label style="color:#888;white-space:nowrap">End</label>
       <input type="text" name="end" placeholder="1:30 or 90.5 (default: end)"
         style="background:#222;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.82rem;font-family:monospace"
-        oninput="let vid = document.getElementById('vid-{{.}}'); if (vid) vid.currentTime = parseFloat(this.value.replace(/:/g, '')) || 0;">
+        oninput="(function(v){ var vid=document.getElementById('vid-{{.}}'); if(!vid) return; var p=v.trim().split(':'); var s=p.length===3?(+p[0])*3600+(+p[1])*60+(+p[2]):p.length===2?(+p[0])*60+(+p[1]):(+p[0]); if(isFinite(s)) vid.currentTime=s; })(this.value)">
     </div>
     <div style="font-size:0.75rem;color:#555">
       Specify the start and end times of the region you want to keep. The rest will be trimmed.<br>
