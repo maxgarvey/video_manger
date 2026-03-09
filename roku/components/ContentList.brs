@@ -1,22 +1,19 @@
 ' components/ContentList.brs
 '
-' Logic for the ContentList component.  Handles all list modes, data loading,
-' selection, and back-key navigation.
+' All HTTP calls run via HttpTask (a Task node) on a background thread so the
+' UI render thread is never blocked.
 
 Sub init()
-    ' m.items holds the raw API payload for each displayed row so we can pass
-    ' the full object to the Player without re-fetching.
-    m.items = []
+    m.items       = []
+    m.pendingMode = ""
+    m.fetchTask   = Invalid
+    m.randomTask  = Invalid
 
-    m.list = m.top.FindNode("list")
-    m.titleLabel = m.top.FindNode("titleLabel")
+    m.list        = m.top.FindNode("list")
+    m.titleLabel  = m.top.FindNode("titleLabel")
     m.statusLabel = m.top.FindNode("statusLabel")
 
-    ' Observe list selection.
     m.list.ObserveField("itemSelected", "onItemSelected")
-
-    ' NOTE: key events are handled via onKeyEvent() below.  There is no need
-    ' to explicitly observe focusedChild for that purpose.
 End Sub
 
 ' Called by MainScene after AppendChild — safe to call SetFocus here.
@@ -24,59 +21,107 @@ Sub onActivated()
     m.list.SetFocus(True)
 End Sub
 
-' ── Field change handlers ────────────────────────────────────────────────────
+' ── Field change handlers ─────────────────────────────────────────────────────
 
 Sub onServerURLChange()
-    ' Re-load whenever the server URL is (re-)set, but only if mode is also set.
     If m.top.mode <> "" And m.top.serverURL <> ""
         loadContent()
     End If
 End Sub
 
 Sub onModeChange()
-    ' Re-load whenever the mode changes, but only if we have a server URL.
     If m.top.serverURL <> ""
         loadContent()
     End If
 End Sub
 
-' ── Content loading ──────────────────────────────────────────────────────────
+' ── Content loading ───────────────────────────────────────────────────────────
 
-' loadContent() dispatches to the appropriate loader based on the current mode.
-'
-' NOTE ON THREADING: These HTTP calls are made synchronously on the component's
-' render thread.  For a personal LAN server with fast local network responses
-' this is acceptable.  A production channel serving content over the internet
-' would move the fetch into a Task node and return results via a field observer.
 Sub loadContent()
     mode = m.top.mode
     m.statusLabel.text = "Loading…"
     m.items = []
 
     If mode = "menu"
+        ' Menu is static — no HTTP needed.
         loadMenu()
-    Else If mode = "shows"
-        loadShows()
-    Else If mode = "seasons"
-        loadSeasons()
-    Else If mode = "episodes"
-        loadEpisodes()
-    Else If mode = "videos"
-        loadVideos()
-    Else If mode = "recent"
-        loadRecent()
-    Else
+        Return
+    End If
+
+    url = buildURL(mode)
+    If url = ""
         m.statusLabel.text = "Unknown mode: " + mode
+        Return
+    End If
+
+    startFetch(url, mode)
+End Sub
+
+Function buildURL(mode As String) As String
+    s = m.top.serverURL
+    If mode = "shows"
+        Return s + "/api/shows"
+    Else If mode = "seasons"
+        Return s + "/api/shows/" + urlEncode(m.top.showName) + "/seasons"
+    Else If mode = "episodes"
+        Return s + "/api/shows/" + urlEncode(m.top.showName) + "/seasons/" + m.top.seasonNumber.ToStr() + "/episodes"
+    Else If mode = "videos"
+        t = m.top.videoType
+        If t <> "" And t <> Invalid
+            Return s + "/api/videos?type=" + urlEncode(t)
+        End If
+        Return s + "/api/videos"
+    Else If mode = "recent"
+        Return s + "/api/recently-watched"
+    End If
+    Return ""
+End Function
+
+Sub startFetch(url As String, mode As String)
+    ' Stop any in-flight request for a previous mode.
+    If m.fetchTask <> Invalid
+        m.fetchTask.control = "STOP"
+        m.fetchTask = Invalid
+    End If
+
+    m.pendingMode = mode
+
+    m.fetchTask = CreateObject("roSGNode", "HttpTask")
+    m.fetchTask.url = url
+    m.fetchTask.ObserveField("result", "onFetchDone")
+    m.fetchTask.ObserveField("errMsg", "onFetchError")
+    m.fetchTask.control = "RUN"
+End Sub
+
+Sub onFetchDone()
+    data = m.fetchTask.result
+    mode = m.pendingMode
+
+    If mode = "shows"
+        processShows(data)
+    Else If mode = "seasons"
+        processSeasons(data)
+    Else If mode = "episodes"
+        processEpisodes(data)
+    Else If mode = "videos"
+        processVideos(data)
+    Else If mode = "recent"
+        processRecent(data)
     End If
 End Sub
 
-' ── Menu mode ────────────────────────────────────────────────────────────────
+Sub onFetchError()
+    msg = m.fetchTask.errMsg
+    Print "ContentList fetch error: "; msg
+    m.statusLabel.text = "Connection error — check server address"
+End Sub
+
+' ── Menu mode ─────────────────────────────────────────────────────────────────
 
 Sub loadMenu()
     m.titleLabel.text = "Video Manger"
     m.statusLabel.text = ""
 
-    ' Static menu items; m.items stores routing metadata for each.
     labels = ["Recently Watched", "TV Shows", "Movies", "All Videos", "Random", "Change Server"]
     m.items = [
         {menuAction: "recent"},
@@ -90,14 +135,10 @@ Sub loadMenu()
     populateList(labels)
 End Sub
 
-' ── Shows mode ───────────────────────────────────────────────────────────────
+' ── Data processors (called from onFetchDone on the render thread) ────────────
 
-Sub loadShows()
+Sub processShows(data As Dynamic)
     m.titleLabel.text = "TV Shows"
-
-    url = m.top.serverURL + "/api/shows"
-    data = httpGetJSON(url)
-
     If data = Invalid Or data.Count() = 0
         m.statusLabel.text = "No shows found."
         populateList([])
@@ -123,15 +164,8 @@ Sub loadShows()
     populateList(labels)
 End Sub
 
-' ── Seasons mode ─────────────────────────────────────────────────────────────
-
-Sub loadSeasons()
-    showName = m.top.showName
-    m.titleLabel.text = showName + " – Seasons"
-
-    url = m.top.serverURL + "/api/shows/" + urlEncode(showName) + "/seasons"
-    data = httpGetJSON(url)
-
+Sub processSeasons(data As Dynamic)
+    m.titleLabel.text = m.top.showName + " – Seasons"
     If data = Invalid Or data.Count() = 0
         m.statusLabel.text = "No seasons found."
         populateList([])
@@ -155,16 +189,8 @@ Sub loadSeasons()
     populateList(labels)
 End Sub
 
-' ── Episodes mode ────────────────────────────────────────────────────────────
-
-Sub loadEpisodes()
-    showName = m.top.showName
-    seasonNum = m.top.seasonNumber
-    m.titleLabel.text = showName + " – Season " + seasonNum.ToStr()
-
-    url = m.top.serverURL + "/api/shows/" + urlEncode(showName) + "/seasons/" + seasonNum.ToStr() + "/episodes"
-    data = httpGetJSON(url)
-
+Sub processEpisodes(data As Dynamic)
+    m.titleLabel.text = m.top.showName + " – Season " + m.top.seasonNumber.ToStr()
     If data = Invalid Or data.Count() = 0
         m.statusLabel.text = "No episodes found."
         populateList([])
@@ -174,7 +200,6 @@ Sub loadEpisodes()
     labels = []
     m.items = []
     For Each ep In data
-        ' Format: "E01 – Episode Title (45:00)"
         label = "E" + Right("0" + ep.episode.ToStr(), 2)
         If ep.episode_title <> "" And ep.episode_title <> Invalid
             label = label + " – " + ep.episode_title
@@ -192,19 +217,13 @@ Sub loadEpisodes()
     populateList(labels)
 End Sub
 
-' ── Videos mode ──────────────────────────────────────────────────────────────
-
-Sub loadVideos()
+Sub processVideos(data As Dynamic)
     videoType = m.top.videoType
     If videoType <> "" And videoType <> Invalid
         m.titleLabel.text = videoType + "s"
-        url = m.top.serverURL + "/api/videos?type=" + urlEncode(videoType)
     Else
         m.titleLabel.text = "All Videos"
-        url = m.top.serverURL + "/api/videos"
     End If
-
-    data = httpGetJSON(url)
 
     If data = Invalid Or data.Count() = 0
         m.statusLabel.text = "No videos found."
@@ -227,14 +246,8 @@ Sub loadVideos()
     populateList(labels)
 End Sub
 
-' ── Recently-watched mode ────────────────────────────────────────────────────
-
-Sub loadRecent()
+Sub processRecent(data As Dynamic)
     m.titleLabel.text = "Recently Watched"
-
-    url = m.top.serverURL + "/api/recently-watched"
-    data = httpGetJSON(url)
-
     If data = Invalid Or data.Count() = 0
         m.statusLabel.text = "Nothing watched yet."
         populateList([])
@@ -245,12 +258,9 @@ Sub loadRecent()
     m.items = []
     For Each entry In data
         label = entry.title
-
-        ' Show resume position if it exists and is meaningful (> 30 s).
         If entry.position_s <> Invalid And entry.position_s > 30
             label = label + " [at " + formatDuration(entry.position_s) + "]"
         End If
-
         labels.Push(label)
         m.items.Push(entry)
     End For
@@ -259,26 +269,19 @@ Sub loadRecent()
     populateList(labels)
 End Sub
 
-' ── List helpers ─────────────────────────────────────────────────────────────
+' ── List helpers ──────────────────────────────────────────────────────────────
 
-' populateList builds a ContentNode tree from a string array and assigns it
-' to the LabelList.  Roku's LabelList requires a ContentNode with one child
-' ContentNode per item, each with a "title" field set.
 Sub populateList(labels As Object)
     root = CreateObject("roSGNode", "ContentNode")
-
     For Each label In labels
         item = root.CreateChild("ContentNode")
         item.title = label
     End For
-
     m.list.content = root
-
-    ' Restore focus to the list after content loads.
     m.list.SetFocus(True)
 End Sub
 
-' ── Selection handler ────────────────────────────────────────────────────────
+' ── Selection handler ─────────────────────────────────────────────────────────
 
 Sub onItemSelected()
     idx = m.list.itemSelected
@@ -292,7 +295,6 @@ Sub onItemSelected()
     If mode = "menu"
         handleMenuSelect(item)
     Else If mode = "shows"
-        ' Drill into the seasons for this show.
         m.top.navAction = {
             type: "push",
             comp: "ContentList",
@@ -303,7 +305,6 @@ Sub onItemSelected()
             }
         }
     Else If mode = "seasons"
-        ' Drill into episodes for this season.
         m.top.navAction = {
             type: "push",
             comp: "ContentList",
@@ -314,29 +315,26 @@ Sub onItemSelected()
                 serverURL: m.top.serverURL
             }
         }
-    Else If mode = "episodes" Or mode = "videos"
-        ' Play the selected video.
-        m.top.navAction = {type: "play", videoData: item}
-    Else If mode = "recent"
-        ' Play with resume position already embedded in item as position_s.
+    Else If mode = "episodes" Or mode = "videos" Or mode = "recent"
         m.top.navAction = {type: "play", videoData: item}
     End If
 End Sub
 
 Sub handleMenuSelect(item As Object)
     action = item.menuAction
+    serverURL = m.top.serverURL
 
     If action = "recent"
         m.top.navAction = {
             type: "push",
             comp: "ContentList",
-            params: {mode: "recent", serverURL: m.top.serverURL}
+            params: {mode: "recent", serverURL: serverURL}
         }
     Else If action = "shows"
         m.top.navAction = {
             type: "push",
             comp: "ContentList",
-            params: {mode: "shows", serverURL: m.top.serverURL}
+            params: {mode: "shows", serverURL: serverURL}
         }
     Else If action = "videos"
         m.top.navAction = {
@@ -345,31 +343,42 @@ Sub handleMenuSelect(item As Object)
             params: {
                 mode: "videos",
                 videoType: item.videoType,
-                serverURL: m.top.serverURL
+                serverURL: serverURL
             }
         }
     Else If action = "random"
-        ' Fetch a random video and play it immediately.
-        url = m.top.serverURL + "/api/random"
-        video = httpGetJSON(url)
-        If video = Invalid
-            m.statusLabel.text = "Could not fetch random video."
-            Return
-        End If
-        m.top.navAction = {type: "play", videoData: video}
+        ' Fetch a random video asynchronously then play it.
+        m.statusLabel.text = "Picking a random video…"
+        m.randomTask = CreateObject("roSGNode", "HttpTask")
+        m.randomTask.url = serverURL + "/api/random"
+        m.randomTask.ObserveField("result", "onRandomResult")
+        m.randomTask.ObserveField("errMsg",  "onRandomError")
+        m.randomTask.control = "RUN"
     Else If action = "changeServer"
         m.top.navAction = {type: "push", comp: "ServerSetup", params: {}}
     End If
 End Sub
 
-' ── Key handling ─────────────────────────────────────────────────────────────
+Sub onRandomResult()
+    video = m.randomTask.result
+    m.statusLabel.text = ""
+    If video = Invalid
+        m.statusLabel.text = "Could not fetch random video."
+        Return
+    End If
+    m.top.navAction = {type: "play", videoData: video}
+End Sub
 
-' onKeyEvent is the standard way to intercept remote-control key presses in a
-' SceneGraph component.
+Sub onRandomError()
+    m.statusLabel.text = "Connection error — check server address"
+End Sub
+
+' ── Key handling ──────────────────────────────────────────────────────────────
+
 Function onKeyEvent(key As String, press As Boolean) As Boolean
     If press And key = "back"
         m.top.navAction = {type: "back"}
-        Return True  ' consume the event so Roku doesn't exit the channel
+        Return True
     End If
     Return False
 End Function

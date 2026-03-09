@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  HttpTask.xml
+  A Task node that performs a single HTTP request on a background thread so it
+  never blocks the UI render thread.
+
+  Interface fields (set before control="RUN"):
+    url     – full request URL
+    method  – "GET" (default) or "POST"
+    body    – request body for POST (url-encoded string)
+
+  Result fields (observe these; they are set when the task finishes):
+    result  – parsed JSON value (assocarray or array) for GET; Invalid on error
+    status  – HTTP status code (integer) for POST; 0 if not a POST
+    errMsg  – non-empty string if the request failed
+-->
+<component name="HttpTask" extends="Task">
+    <interface>
+        <field id="url"    type="string"  value="" />
+        <field id="method" type="string"  value="GET" />
+        <field id="body"   type="string"  value="" />
+
+        <field id="result" type="dynamic" />
+        <field id="status" type="integer" value="0" />
+        <field id="errMsg" type="string"  value="" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/components/HttpTask.brs" />
+</component>
