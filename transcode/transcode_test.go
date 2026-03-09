@@ -1,6 +1,9 @@
 package transcode
 
 import (
+	"context"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -160,4 +163,141 @@ func assertContainsSequence(t *testing.T, args []string, a, b string) {
 		}
 	}
 	t.Errorf("args %v: expected consecutive pair %q %q", args, a, b)
+}
+
+// --- ffmpeg integration tests (skipped when ffmpeg absent) ---
+
+func skipIfNoFFmpeg(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed; skipping")
+	}
+}
+
+func makeTestVideo(t *testing.T, duration string) string {
+	t.Helper()
+	skipIfNoFFmpeg(t)
+	dir := t.TempDir()
+	out := filepath.Join(dir, "test.mp4")
+	cmd := exec.Command("ffmpeg",
+		"-f", "lavfi", "-i", "nullsrc=s=64x64:d="+duration,
+		"-c:v", "libx264", "-y", out)
+	if err := cmd.Run(); err != nil {
+		t.Skipf("could not generate test video: %v", err)
+	}
+	return out
+}
+
+// --- Trim ---
+
+func TestTrim_ProducesOutputFile(t *testing.T) {
+	src := makeTestVideo(t, "5")
+	dst := filepath.Join(filepath.Dir(src), "trimmed.mp4")
+
+	sem := make(chan struct{}, 1)
+	if err := Trim(context.Background(), sem, src, dst, "00:00:01", "00:00:03"); err != nil {
+		t.Fatalf("Trim: %v", err)
+	}
+
+	// Output file must exist and ffprobe must be able to open it.
+	if err := exec.Command("ffprobe", "-v", "quiet", dst).Run(); err != nil {
+		t.Errorf("ffprobe on trimmed output failed: %v", err)
+	}
+}
+
+func TestTrim_NoEndTime(t *testing.T) {
+	src := makeTestVideo(t, "3")
+	dst := filepath.Join(filepath.Dir(src), "trimmed_noend.mp4")
+
+	sem := make(chan struct{}, 1)
+	// end="" means trim from start to EOF
+	if err := Trim(context.Background(), sem, src, dst, "00:00:01", ""); err != nil {
+		t.Fatalf("Trim with no end: %v", err)
+	}
+}
+
+func TestTrim_CancelledContext(t *testing.T) {
+	skipIfNoFFmpeg(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+
+	sem := make(chan struct{}, 1)
+	err := Trim(ctx, sem, "/nonexistent.mp4", "/dev/null", "0", "1")
+	if err == nil {
+		t.Error("expected error for cancelled context, got nil")
+	}
+}
+
+// --- GenerateThumbnail ---
+
+func TestGenerateThumbnail_ProducesJPEG(t *testing.T) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed; skipping")
+	}
+	src := makeTestVideo(t, "3")
+	dst := filepath.Join(filepath.Dir(src), "thumb.jpg")
+
+	if err := GenerateThumbnail(src, dst, 0.5); err != nil {
+		t.Fatalf("GenerateThumbnail: %v", err)
+	}
+
+	// Verify the thumbnail exists and ffprobe can read it.
+	cmd := exec.Command("ffprobe", "-v", "quiet", dst)
+	if err := cmd.Run(); err != nil {
+		t.Errorf("ffprobe on thumbnail failed: %v", err)
+	}
+}
+
+func TestGenerateThumbnail_ClampsBelowZero(t *testing.T) {
+	src := makeTestVideo(t, "2")
+	dst := filepath.Join(filepath.Dir(src), "thumb_clamp.jpg")
+	// position -0.5 should be clamped to 0 — must not error
+	if err := GenerateThumbnail(src, dst, -0.5); err != nil {
+		t.Fatalf("GenerateThumbnail(position=-0.5): %v", err)
+	}
+}
+
+func TestGenerateThumbnail_ClampsAboveOne(t *testing.T) {
+	src := makeTestVideo(t, "2")
+	dst := filepath.Join(filepath.Dir(src), "thumb_clamp2.jpg")
+	// position 1.5 should be clamped to 1 — must not error
+	if err := GenerateThumbnail(src, dst, 1.5); err != nil {
+		t.Fatalf("GenerateThumbnail(position=1.5): %v", err)
+	}
+}
+
+// --- ConvertProgress ---
+
+func TestConvertProgress_ProducesOutput(t *testing.T) {
+	src := makeTestVideo(t, "2")
+	dst := filepath.Join(filepath.Dir(src), "converted.mp4")
+
+	var lines []string
+	err := ConvertProgress(context.Background(), src, dst,
+		Formats["mp4-h264"], "fast", 2.0,
+		func(s string) { lines = append(lines, s) })
+	if err != nil {
+		t.Fatalf("ConvertProgress: %v", err)
+	}
+	// At minimum we expect the "Done" line.
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "Done") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected Done line in progress output, got: %v", lines)
+	}
+}
+
+func TestConvertProgress_UnknownSrcErrors(t *testing.T) {
+	skipIfNoFFmpeg(t)
+	dst := filepath.Join(t.TempDir(), "out.mp4")
+	err := ConvertProgress(context.Background(), "/nonexistent.mp4", dst,
+		Formats["mp4-h264"], "fast", 0,
+		func(string) {})
+	if err == nil {
+		t.Error("expected error for non-existent source, got nil")
+	}
 }

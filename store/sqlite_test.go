@@ -1044,3 +1044,282 @@ func TestUpdateVideoDuration_ZeroIsIdempotent(t *testing.T) {
 		t.Errorf("expected DurationS=0 after reset, got %f", got.DurationS)
 	}
 }
+
+// --- ListVideosByShow ---
+
+func TestListVideosByShow_ReturnsOnlyMatchingShow(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v1, _ := s.UpsertVideo(ctx, d.ID, d.Path, "bb_s01e01.mp4")
+	v2, _ := s.UpsertVideo(ctx, d.ID, d.Path, "bb_s01e02.mp4")
+	v3, _ := s.UpsertVideo(ctx, d.ID, d.Path, "other_show.mp4")
+
+	s.UpdateVideoShowName(ctx, v1.ID, "Breaking Bad") //nolint:errcheck
+	s.UpdateVideoShowName(ctx, v2.ID, "Breaking Bad") //nolint:errcheck
+	s.UpdateVideoShowName(ctx, v3.ID, "The Wire")     //nolint:errcheck
+
+	vids, err := s.ListVideosByShow(ctx, "Breaking Bad")
+	if err != nil {
+		t.Fatalf("ListVideosByShow: %v", err)
+	}
+	if len(vids) != 2 {
+		t.Fatalf("expected 2 videos for Breaking Bad, got %d", len(vids))
+	}
+	for _, v := range vids {
+		if v.ShowName != "Breaking Bad" {
+			t.Errorf("expected ShowName=Breaking Bad, got %q", v.ShowName)
+		}
+	}
+}
+
+func TestListVideosByShow_EmptyWhenNoMatch(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep.mp4")
+	s.UpdateVideoShowName(ctx, v.ID, "Seinfeld") //nolint:errcheck
+
+	vids, err := s.ListVideosByShow(ctx, "NoSuchShow")
+	if err != nil {
+		t.Fatalf("ListVideosByShow: %v", err)
+	}
+	if len(vids) != 0 {
+		t.Errorf("expected 0 videos for unknown show, got %d", len(vids))
+	}
+}
+
+// --- ListVideosByType ---
+
+func TestListVideosByType_ReturnsOnlyMatchingType(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v1, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+	v2, _ := s.UpsertVideo(ctx, d.ID, d.Path, "episode.mp4")
+	v3, _ := s.UpsertVideo(ctx, d.ID, d.Path, "another_film.mp4")
+
+	s.UpdateVideoType(ctx, v1.ID, "Movie")  //nolint:errcheck
+	s.UpdateVideoType(ctx, v2.ID, "TV")     //nolint:errcheck
+	s.UpdateVideoType(ctx, v3.ID, "Movie")  //nolint:errcheck
+
+	movies, err := s.ListVideosByType(ctx, "Movie")
+	if err != nil {
+		t.Fatalf("ListVideosByType: %v", err)
+	}
+	if len(movies) != 2 {
+		t.Fatalf("expected 2 Movie videos, got %d", len(movies))
+	}
+	for _, v := range movies {
+		if v.VideoType != "Movie" {
+			t.Errorf("expected VideoType=Movie, got %q", v.VideoType)
+		}
+	}
+}
+
+func TestListVideosByType_EmptyWhenNone(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep.mp4")
+	s.UpdateVideoType(ctx, v.ID, "TV") //nolint:errcheck
+
+	vids, err := s.ListVideosByType(ctx, "Concert")
+	if err != nil {
+		t.Fatalf("ListVideosByType: %v", err)
+	}
+	if len(vids) != 0 {
+		t.Errorf("expected 0 Concert videos, got %d", len(vids))
+	}
+}
+
+// --- UpdateVideoType ---
+
+func TestUpdateVideoType_PersistsAndIsReturnedByGet(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	if err := s.UpdateVideoType(ctx, v.ID, "Movie"); err != nil {
+		t.Fatalf("UpdateVideoType: %v", err)
+	}
+	got, _ := s.GetVideo(ctx, v.ID)
+	if got.VideoType != "Movie" {
+		t.Errorf("VideoType = %q, want Movie", got.VideoType)
+	}
+
+	// Can be cleared with empty string.
+	if err := s.UpdateVideoType(ctx, v.ID, ""); err != nil {
+		t.Fatalf("UpdateVideoType clear: %v", err)
+	}
+	got, _ = s.GetVideo(ctx, v.ID)
+	if got.VideoType != "" {
+		t.Errorf("VideoType = %q, want empty after clear", got.VideoType)
+	}
+}
+
+// --- ListVideosByMinRating ---
+
+func TestListVideosByMinRating_FiltersCorrectly(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v0, _ := s.UpsertVideo(ctx, d.ID, d.Path, "neutral.mp4")
+	v1, _ := s.UpsertVideo(ctx, d.ID, d.Path, "liked.mp4")
+	v2, _ := s.UpsertVideo(ctx, d.ID, d.Path, "fav.mp4")
+
+	s.SetVideoRating(ctx, v0.ID, 0) //nolint:errcheck
+	s.SetVideoRating(ctx, v1.ID, 1) //nolint:errcheck
+	s.SetVideoRating(ctx, v2.ID, 2) //nolint:errcheck
+
+	// minRating=1 should return rated ≥1
+	vids, err := s.ListVideosByMinRating(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListVideosByMinRating(1): %v", err)
+	}
+	if len(vids) != 2 {
+		t.Fatalf("expected 2 videos with rating ≥1, got %d", len(vids))
+	}
+
+	// minRating=2 should return only double-liked
+	vids, err = s.ListVideosByMinRating(ctx, 2)
+	if err != nil {
+		t.Fatalf("ListVideosByMinRating(2): %v", err)
+	}
+	if len(vids) != 1 || vids[0].ID != v2.ID {
+		t.Errorf("expected only fav.mp4 at minRating=2, got %+v", vids)
+	}
+
+	// minRating=0 returns everything
+	vids, err = s.ListVideosByMinRating(ctx, 0)
+	if err != nil {
+		t.Fatalf("ListVideosByMinRating(0): %v", err)
+	}
+	if len(vids) != 3 {
+		t.Errorf("expected 3 videos at minRating=0, got %d", len(vids))
+	}
+}
+
+// --- ClearWatch ---
+
+func TestClearWatch_RemovesRecord(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep.mp4")
+
+	s.RecordWatch(ctx, v.ID, 42.0) //nolint:errcheck
+
+	if err := s.ClearWatch(ctx, v.ID); err != nil {
+		t.Fatalf("ClearWatch: %v", err)
+	}
+
+	if _, err := s.GetWatch(ctx, v.ID); err == nil {
+		t.Error("expected error getting watch after ClearWatch, got nil")
+	}
+}
+
+func TestClearWatch_NoOpOnUnwatched(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep.mp4")
+
+	// ClearWatch on a never-watched video should not error.
+	if err := s.ClearWatch(ctx, v.ID); err != nil {
+		t.Errorf("ClearWatch on unwatched video: %v", err)
+	}
+}
+
+// --- CountVideos ---
+
+func TestCountVideos(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	n, err := s.CountVideos(ctx)
+	if err != nil {
+		t.Fatalf("CountVideos (empty): %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0, got %d", n)
+	}
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	s.UpsertVideo(ctx, d.ID, d.Path, "a.mp4") //nolint:errcheck
+	s.UpsertVideo(ctx, d.ID, d.Path, "b.mp4") //nolint:errcheck
+
+	n, err = s.CountVideos(ctx)
+	if err != nil {
+		t.Fatalf("CountVideos after inserts: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2, got %d", n)
+	}
+}
+
+// --- GetNextUnwatched ---
+
+func TestGetNextUnwatched_ReturnsUnwatchedVideo(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v1, _ := s.UpsertVideo(ctx, d.ID, d.Path, "aaa.mp4")
+	v2, _ := s.UpsertVideo(ctx, d.ID, d.Path, "bbb.mp4")
+
+	// Watch v1; v2 should be returned as next unwatched.
+	s.RecordWatch(ctx, v1.ID, 0) //nolint:errcheck
+
+	next, err := s.GetNextUnwatched(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetNextUnwatched: %v", err)
+	}
+	if next.ID != v2.ID {
+		t.Errorf("expected bbb.mp4 (id=%d) as next unwatched, got %q (id=%d)", v2.ID, next.Filename, next.ID)
+	}
+}
+
+func TestGetNextUnwatched_ErrorWhenAllWatched(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep.mp4")
+	s.RecordWatch(ctx, v.ID, 0) //nolint:errcheck
+
+	if _, err := s.GetNextUnwatched(ctx, 0); err == nil {
+		t.Error("expected error when all videos are watched, got nil")
+	}
+}
+
+func TestGetNextUnwatched_WithTagFilter(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v1, _ := s.UpsertVideo(ctx, d.ID, d.Path, "aaa.mp4")
+	v2, _ := s.UpsertVideo(ctx, d.ID, d.Path, "bbb.mp4")
+
+	tag, _ := s.UpsertTag(ctx, "playlist")
+	// Only tag v1.
+	s.TagVideo(ctx, v1.ID, tag.ID) //nolint:errcheck
+
+	next, err := s.GetNextUnwatched(ctx, tag.ID)
+	if err != nil {
+		t.Fatalf("GetNextUnwatched with tagID: %v", err)
+	}
+	if next.ID != v1.ID {
+		t.Errorf("expected aaa.mp4 as next unwatched in tag, got %q", next.Filename)
+	}
+	_ = v2
+}

@@ -4263,3 +4263,159 @@ func TestHandleAPIListVideos_NoThumbnailURLWhenAbsent(t *testing.T) {
 		t.Errorf("expected empty thumbnail_url, got %q", result[0].ThumbnailURL)
 	}
 }
+
+// --- srtToWebVTT ---
+
+func TestSRTToWebVTT_AddsHeader(t *testing.T) {
+	vtt := srtToWebVTT("")
+	if !strings.HasPrefix(vtt, "WEBVTT") {
+		t.Errorf("expected WEBVTT header, got: %q", vtt)
+	}
+}
+
+func TestSRTToWebVTT_ConvertTimestamps(t *testing.T) {
+	srt := "1\n00:00:01,000 --> 00:00:04,500\nHello world\n"
+	vtt := srtToWebVTT(srt)
+	if strings.Contains(vtt, "00:00:01,000") {
+		t.Error("expected comma replaced with dot in timestamp")
+	}
+	if !strings.Contains(vtt, "00:00:01.000 --> 00:00:04.500") {
+		t.Errorf("expected dot-separated timestamp in output, got:\n%s", vtt)
+	}
+	if !strings.Contains(vtt, "Hello world") {
+		t.Error("expected subtitle text to be preserved")
+	}
+}
+
+func TestSRTToWebVTT_DoesNotAlterTextCommas(t *testing.T) {
+	// Commas inside dialogue lines must not be touched.
+	srt := "1\n00:00:01,000 --> 00:00:02,000\nHello, world!\n"
+	vtt := srtToWebVTT(srt)
+	if !strings.Contains(vtt, "Hello, world!") {
+		t.Error("dialogue comma should not be removed")
+	}
+}
+
+func TestSRTToWebVTT_MultipleEntries(t *testing.T) {
+	srt := "1\n00:00:01,000 --> 00:00:02,000\nFirst\n\n2\n00:00:03,000 --> 00:00:04,000\nSecond\n"
+	vtt := srtToWebVTT(srt)
+	if !strings.Contains(vtt, "First") || !strings.Contains(vtt, "Second") {
+		t.Error("expected both subtitle entries in output")
+	}
+}
+
+// --- handleServeSubtitles ---
+
+func TestHandleServeSubtitles_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	// Write a video file but NO .srt
+	f := filepath.Join(dir, "movie.mp4")
+	os.WriteFile(f, []byte("fake"), 0o644)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "movie.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/videos/%d/subtitles", v.ID), nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 when no .srt exists, got %d", rec.Code)
+	}
+}
+
+func TestHandleServeSubtitles_ServesWebVTT(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+
+	// Write video stub + .srt file.
+	os.WriteFile(filepath.Join(dir, "film.mp4"), []byte("fake"), 0o644)
+	srtContent := "1\n00:00:01,000 --> 00:00:02,000\nHello!\n"
+	os.WriteFile(filepath.Join(dir, "film.srt"), []byte(srtContent), 0o644)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/videos/%d/subtitles", v.ID), nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/vtt") {
+		t.Errorf("expected text/vtt content type, got %q", ct)
+	}
+	body := rec.Body.String()
+	if !strings.HasPrefix(body, "WEBVTT") {
+		t.Errorf("expected WEBVTT header in response body")
+	}
+	if !strings.Contains(body, "Hello!") {
+		t.Error("expected subtitle text in response")
+	}
+}
+
+// --- handleLogout ---
+
+func TestHandleLogout_ClearsCookie(t *testing.T) {
+	srv := newTestServerWithAuth(t, "secret")
+
+	// First: log in to get a session cookie.
+	loginBody := strings.NewReader(url.Values{"password": {"secret"}}.Encode())
+	loginReq := httptest.NewRequest(http.MethodPost, "/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusFound {
+		t.Fatalf("login: expected 302, got %d", loginRec.Code)
+	}
+	cookieHeader := loginRec.Header().Get("Set-Cookie")
+	if cookieHeader == "" {
+		t.Fatal("login: expected session cookie")
+	}
+	// Extract the token value from "session=TOKEN; ..."
+	var token string
+	for _, part := range strings.Split(cookieHeader, ";") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "session=") {
+			token = strings.TrimPrefix(part, "session=")
+		}
+	}
+	if token == "" {
+		t.Fatal("could not extract session token from cookie")
+	}
+
+	// Logout with the session cookie.
+	logoutReq := httptest.NewRequest(http.MethodGet, "/logout", nil)
+	logoutReq.AddCookie(&http.Cookie{Name: "session", Value: token})
+	logoutRec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(logoutRec, logoutReq)
+
+	if logoutRec.Code != http.StatusFound {
+		t.Fatalf("logout: expected redirect, got %d", logoutRec.Code)
+	}
+	// The session should no longer be valid.
+	srv.sessionsMu.RLock()
+	_, exists := srv.sessions[token]
+	srv.sessionsMu.RUnlock()
+	if exists {
+		t.Error("session should be removed from in-memory map after logout")
+	}
+}
+
+func TestHandleLogout_NoCookieIsHarmless(t *testing.T) {
+	srv := newTestServerWithAuth(t, "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/logout", nil)
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+
+	// Should redirect to /login without panicking.
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected redirect from logout, got %d", rec.Code)
+	}
+}
