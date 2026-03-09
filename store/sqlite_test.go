@@ -756,3 +756,291 @@ func TestSearchVideos_NoMatch(t *testing.T) {
 		t.Errorf("expected 0 results, got %d", len(results))
 	}
 }
+
+// --- System tag tests ---
+
+func TestSetExclusiveSystemTag_ReplacesExisting(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	// Set initial type tag.
+	if err := s.SetExclusiveSystemTag(ctx, v.ID, "type", "Movie"); err != nil {
+		t.Fatalf("SetExclusiveSystemTag(Movie): %v", err)
+	}
+	got, _ := s.GetVideo(ctx, v.ID)
+	if got.VideoType != "Movie" {
+		t.Errorf("expected VideoType=Movie, got %q", got.VideoType)
+	}
+
+	// Replace with a different type — old tag should be removed.
+	if err := s.SetExclusiveSystemTag(ctx, v.ID, "type", "TV"); err != nil {
+		t.Fatalf("SetExclusiveSystemTag(TV): %v", err)
+	}
+	got, _ = s.GetVideo(ctx, v.ID)
+	if got.VideoType != "TV" {
+		t.Errorf("expected VideoType=TV after replacement, got %q", got.VideoType)
+	}
+
+	// Verify only one type tag exists for this video.
+	tags, _ := s.ListTagsByVideo(ctx, v.ID)
+	typeTags := 0
+	for _, tg := range tags {
+		if len(tg.Name) > 5 && tg.Name[:5] == "type:" {
+			typeTags++
+		}
+	}
+	if typeTags != 1 {
+		t.Errorf("expected exactly 1 type: tag, got %d", typeTags)
+	}
+}
+
+func TestSetExclusiveSystemTag_EmptyRemoves(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	if err := s.SetExclusiveSystemTag(ctx, v.ID, "type", "Movie"); err != nil {
+		t.Fatalf("SetExclusiveSystemTag(Movie): %v", err)
+	}
+
+	// Clear with empty value.
+	if err := s.SetExclusiveSystemTag(ctx, v.ID, "type", ""); err != nil {
+		t.Fatalf("SetExclusiveSystemTag(empty): %v", err)
+	}
+	got, _ := s.GetVideo(ctx, v.ID)
+	if got.VideoType != "" {
+		t.Errorf("expected VideoType empty after clear, got %q", got.VideoType)
+	}
+}
+
+func TestSetMultiSystemTag_ActorSplit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	if err := s.SetMultiSystemTag(ctx, v.ID, "actor", []string{"Tom Hanks", "Meryl Streep"}); err != nil {
+		t.Fatalf("SetMultiSystemTag: %v", err)
+	}
+
+	got, _ := s.GetVideo(ctx, v.ID)
+	// Actors come back as GROUP_CONCAT, order may vary.
+	if got.Actors == "" {
+		t.Error("expected non-empty Actors field")
+	}
+	if !containsSubstr(got.Actors, "Tom Hanks") || !containsSubstr(got.Actors, "Meryl Streep") {
+		t.Errorf("expected both actors in %q", got.Actors)
+	}
+
+	// Replace with a single actor — old actors should be removed.
+	if err := s.SetMultiSystemTag(ctx, v.ID, "actor", []string{"Cate Blanchett"}); err != nil {
+		t.Fatalf("SetMultiSystemTag replace: %v", err)
+	}
+	got, _ = s.GetVideo(ctx, v.ID)
+	if got.Actors != "Cate Blanchett" {
+		t.Errorf("expected Actors=Cate Blanchett after replace, got %q", got.Actors)
+	}
+}
+
+func containsSubstr(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(s) > 0 && (s[:len(sub)] == sub || s[len(s)-len(sub):] == sub || containsSubstrInner(s, sub)))
+}
+
+func containsSubstrInner(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+func TestGetVideo_ShowNameFromTag(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep01.mp4")
+
+	if err := s.UpdateVideoShowName(ctx, v.ID, "Breaking Bad"); err != nil {
+		t.Fatalf("UpdateVideoShowName: %v", err)
+	}
+	got, _ := s.GetVideo(ctx, v.ID)
+	if got.ShowName != "Breaking Bad" {
+		t.Errorf("expected ShowName=Breaking Bad, got %q", got.ShowName)
+	}
+}
+
+func TestUpdateVideoFields_WritesSystemTags(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	f := store.VideoFields{
+		Genre:         "Drama",
+		SeasonNumber:  1,
+		EpisodeNumber: 5,
+		EpisodeTitle:  "The Beginning",
+		Actors:        "Tom Hanks, Meryl Streep",
+		Studio:        "Universal",
+		Channel:       "HBO",
+	}
+	if err := s.UpdateVideoFields(ctx, v.ID, f); err != nil {
+		t.Fatalf("UpdateVideoFields: %v", err)
+	}
+
+	got, _ := s.GetVideo(ctx, v.ID)
+	if got.Genre != "Drama" {
+		t.Errorf("Genre = %q, want Drama", got.Genre)
+	}
+	if got.Studio != "Universal" {
+		t.Errorf("Studio = %q, want Universal", got.Studio)
+	}
+	if got.Channel != "HBO" {
+		t.Errorf("Channel = %q, want HBO", got.Channel)
+	}
+	if got.SeasonNumber != 1 {
+		t.Errorf("SeasonNumber = %d, want 1", got.SeasonNumber)
+	}
+	if got.EpisodeTitle != "The Beginning" {
+		t.Errorf("EpisodeTitle = %q, want The Beginning", got.EpisodeTitle)
+	}
+	if !containsSubstr(got.Actors, "Tom Hanks") || !containsSubstr(got.Actors, "Meryl Streep") {
+		t.Errorf("expected both actors in %q", got.Actors)
+	}
+}
+
+func TestSearchVideos_MatchesTagName(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep01.mp4")
+
+	// Add a show system tag.
+	if err := s.SetExclusiveSystemTag(ctx, v.ID, "show", "Breaking Bad"); err != nil {
+		t.Fatalf("SetExclusiveSystemTag: %v", err)
+	}
+
+	// Search by tag value (partial match).
+	results, err := s.SearchVideos(ctx, "Breaking")
+	if err != nil {
+		t.Fatalf("SearchVideos: %v", err)
+	}
+	found := false
+	for _, r := range results {
+		if r.ID == v.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected video with show:Breaking Bad to appear in search results for 'Breaking'")
+	}
+}
+
+// --- duration_s and thumbnail_path column tests ---
+
+func TestUpdateVideoDuration_PersistsAndIsReturnedByGet(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "movie.mp4")
+
+	if v.DurationS != 0 {
+		t.Errorf("expected DurationS=0 on fresh upsert, got %f", v.DurationS)
+	}
+
+	if err := s.UpdateVideoDuration(ctx, v.ID, 3723.5); err != nil {
+		t.Fatalf("UpdateVideoDuration: %v", err)
+	}
+
+	got, err := s.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo: %v", err)
+	}
+	if got.DurationS != 3723.5 {
+		t.Errorf("GetVideo DurationS = %f, want 3723.5", got.DurationS)
+	}
+}
+
+func TestUpdateVideoDuration_IsReturnedByListVideos(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
+	s.UpdateVideoDuration(ctx, v.ID, 120.0) //nolint:errcheck
+
+	videos, err := s.ListVideos(ctx)
+	if err != nil {
+		t.Fatalf("ListVideos: %v", err)
+	}
+	if len(videos) != 1 {
+		t.Fatalf("expected 1 video, got %d", len(videos))
+	}
+	if videos[0].DurationS != 120.0 {
+		t.Errorf("ListVideos DurationS = %f, want 120.0", videos[0].DurationS)
+	}
+}
+
+func TestUpdateVideoThumbnail_IsReturnedByListAndGet(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "ep.mp4")
+
+	// Fresh video should have no thumbnail.
+	if v.ThumbnailPath != "" {
+		t.Errorf("expected empty ThumbnailPath on upsert, got %q", v.ThumbnailPath)
+	}
+
+	thumbPath := "/videos/ep_thumb.jpg"
+	if err := s.UpdateVideoThumbnail(ctx, v.ID, thumbPath); err != nil {
+		t.Fatalf("UpdateVideoThumbnail: %v", err)
+	}
+
+	// GetVideo must return the path.
+	got, err := s.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo: %v", err)
+	}
+	if got.ThumbnailPath != thumbPath {
+		t.Errorf("GetVideo ThumbnailPath = %q, want %q", got.ThumbnailPath, thumbPath)
+	}
+
+	// ListVideos must also return the path (it was previously missing from the SELECT).
+	videos, err := s.ListVideos(ctx)
+	if err != nil {
+		t.Fatalf("ListVideos: %v", err)
+	}
+	if len(videos) != 1 || videos[0].ThumbnailPath != thumbPath {
+		t.Errorf("ListVideos ThumbnailPath = %q, want %q", videos[0].ThumbnailPath, thumbPath)
+	}
+}
+
+func TestUpdateVideoDuration_ZeroIsIdempotent(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "short.mp4")
+
+	// Set a real duration, then overwrite with 0.
+	s.UpdateVideoDuration(ctx, v.ID, 60.0) //nolint:errcheck
+	s.UpdateVideoDuration(ctx, v.ID, 0.0)  //nolint:errcheck
+
+	got, _ := s.GetVideo(ctx, v.ID)
+	if got.DurationS != 0 {
+		t.Errorf("expected DurationS=0 after reset, got %f", got.DurationS)
+	}
+}
