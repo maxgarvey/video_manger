@@ -54,44 +54,45 @@
     }
     body:hover .chrome,
     body.lib-open .chrome,
-    body.cfg-open .chrome {
+    body.cfg-open .chrome,
+    body.info-open .chrome {
       opacity: 1;
     }
     .chrome-btn {
-      background: rgba(0, 0, 0, 0.65);
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      color: #eee;
+      background: #1c1c1c;
+      border: 1px solid #404040;
+      color: #ccc;
       padding: 0.4rem 0.8rem;
       border-radius: 6px;
       cursor: pointer;
       font-size: 0.82rem;
       font-family: inherit;
-      backdrop-filter: blur(6px);
+      transition: background 0.08s, border-color 0.08s;
     }
-    .chrome-btn:hover { background: rgba(50, 50, 50, 0.85); }
+    .chrome-btn:hover { background: #2e2e2e; border-color: #555; }
+    .chrome-btn:active { background: #111; transform: translateY(1px); }
 
     /* Library button — top left */
     #lib-btn { top: 1rem; left: 1rem; }
 
-    /* Info button — bottom right; scrolls to info panel */
+    /* Settings button — left side, just below library button */
+    #cfg-btn { top: 3.5rem; left: 1rem; transition: opacity 0.2s; }
+
+    /* Info button — bottom right */
     #info-btn { bottom: 1rem; right: 1rem; }
 
-    /* Config button — top right; slides left when config panel is open */
-    #cfg-btn { top: 1rem; right: 1rem; transition: opacity 0.2s, right 0.22s ease; }
-    body.cfg-open #cfg-btn { right: 272px; }
-
-    /* ── Config panel ────────────────────────────────────────────────── */
+    /* ── Config panel — slides in from the left ──────────────────────── */
     #config-panel {
       position: fixed;
       z-index: 200;
-      top: 0; right: 0; bottom: 0;
+      top: 0; left: 0; bottom: 0;
       width: 260px;
       background: rgba(18, 18, 18, 0.96);
       backdrop-filter: blur(10px);
-      border-left: 1px solid #2a2a2a;
+      border-right: 1px solid #2a2a2a;
       overflow-y: auto;
       padding: 1rem;
-      transform: translateX(100%);
+      transform: translateX(-100%);
       transition: transform 0.22s ease;
     }
     body.cfg-open #config-panel { transform: translateX(0); }
@@ -193,28 +194,98 @@
       border: 1px solid var(--border-input);
       color: var(--text);
       border-radius: 4px;
+      padding: 0.3rem 0.5rem;
+    }
+    /* Uppercase section/category label used throughout the UI */
+    .section-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #555;
+      user-select: none;
+    }
+    /* Full-screen modal overlay and its inner box */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-box {
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 1.5rem;
+      max-width: 500px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      position: relative;
+    }
+    .modal-close {
+      position: absolute;
+      top: 0.5rem; right: 0.5rem;
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 0.2rem;
+      border-radius: 50%;
+      width: 2rem; height: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    /* Drag-to-move: video rows show grab cursor; directory drop targets highlight */
+    li[data-video-id] { cursor: grab; }
+    li[data-video-id].dragging { opacity: 0.4; }
+    li[data-dir-id].dir-drag-over > div:first-child {
+      outline: 2px dashed #4a9a4a;
+      border-radius: 4px;
+      background: #0d1f0d;
+    }
+
+    /* Video type badge in list rows — set background inline via typeColor */
+    .video-type-badge {
+      flex-shrink: 0;
+      color: #fff;
+      font-size: 0.6rem;
+      padding: 0.08rem 0.3rem;
+      border-radius: 3px;
+      letter-spacing: 0.03em;
     }
     button, .btn {
-      background: var(--surface);
-      border: 1px solid var(--border-btn);
+      background: #252525;
+      border: 1px solid #444;
       color: #ccc;
       padding: 0.35rem 0.7rem;
       border-radius: 4px;
       cursor: pointer;
       font-size: 0.85rem;
       font-family: inherit;
+      transition: background 0.08s, border-color 0.08s;
     }
-    button:hover, .btn:hover { background: #333; }
+    button:hover, .btn:hover { background: #333; border-color: #555; }
+    button:active, .btn:active { background: #1a1a1a; border-color: #444; transform: translateY(1px); }
     .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.78rem; }
-    .btn-danger { background: #2a1515; border-color: #5a2a2a; color: #f08080; }
-    .btn-danger:hover { background: #331515; }
-    .btn-success { background: #1a3a1a; border-color: #3a6a3a; color: #8f8; }
-    .btn-success:hover { background: #1e4a1e; }
-    .btn-ghost { background: none; border-color: #3a3a3a; color: #666; }
-    .btn-ghost:hover { background: #1e1e1e; }
+    .btn-danger { background: #2a1515; border-color: #6a2a2a; color: #f08080; }
+    .btn-danger:hover { background: #351818; border-color: #7a3535; }
+    .btn-danger:active { background: #1e0f0f; }
+    .btn-success { background: #1a3a1a; border-color: #4a7a4a; color: #8f8; }
+    .btn-success:hover { background: #1e4a1e; border-color: #5a8a5a; }
+    .btn-success:active { background: #142814; }
+    .btn-ghost { background: transparent; border-color: #3a3a3a; color: #666; }
+    .btn-ghost:hover { background: #1e1e1e; border-color: #484848; color: #888; }
+    .btn-ghost:active { background: #161616; }
     .btn-active-filter { background: #2a3a2a; border-color: #4a7a4a; color: #8f8; }
-    .btn-icon { background: none; border: none; color: #555; padding: 0.2rem 0.35rem; line-height: 1; }
-    .btn-icon:hover { background: none; color: #888; }
+    .btn-icon { background: transparent; border: none; color: #555; padding: 0.2rem 0.35rem; line-height: 1; transition: color 0.08s; }
+    .btn-icon:hover { color: #999; }
+    .btn-icon:active { color: #bbb; transform: scale(0.88); }
     .tag-filter-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
     /* ── htmx loading states ────────────────────────────────────────── */
@@ -245,20 +316,18 @@
       display: none;
       gap: 0.2rem;
       padding: 0.3rem 0.5rem;
-      background: rgba(0, 0, 0, 0.72);
-      backdrop-filter: blur(8px);
+      background: #111;
+      border: 1px solid #2a2a2a;
+      border-top: none;
       border-radius: 0 0 8px 8px;
       max-width: 70vw;
       overflow-x: auto;
       align-items: center;
-      /* Fade right edge to signal overflow */
-      -webkit-mask-image: linear-gradient(to right, black calc(100% - 4rem), rgba(0,0,0,0.7) calc(100% - 2rem), transparent 100%);
-      mask-image: linear-gradient(to right, black calc(100% - 4rem), rgba(0,0,0,0.7) calc(100% - 2rem), transparent 100%);
     }
     .tab-btn {
-      background: rgba(35, 35, 35, 0.9);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #999;
+      background: #222;
+      border: 1px solid #333;
+      color: #888;
       padding: 0.18rem 0.4rem;
       border-radius: 4px;
       cursor: pointer;
@@ -267,22 +336,91 @@
       display: flex; align-items: center; gap: 0.25rem;
       flex-shrink: 0; user-select: none;
     }
-    .tab-btn.active { background: rgba(60, 60, 60, 0.95); color: #ddd; border-color: rgba(255,255,255,0.22); }
+    .tab-btn.active { background: #363636; color: #ddd; border-color: #555; }
     .tab-label { overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
-    .tab-close { background: none; border: none; color: #888; cursor: pointer; font-size: 0.62rem; padding: 0; line-height: 1; flex-shrink: 0; }
-    .tab-close:hover { color: #f08080; }
+    .tab-close { background: #444; border: 1px solid #555; border-radius: 3px; color: #bbb; cursor: pointer; font-size: 0.68rem; padding: 0.08rem 0.28rem; line-height: 1; flex-shrink: 0; }
+    .tab-close:hover { background: #7a2222; border-color: #a04040; color: #fff; }
 
     /* ── Player hover overlay ──────────────────────────────────────── */
     #player-overlay {
       position: absolute;
       bottom: 0; left: 0; right: 0;
-      background: linear-gradient(transparent, rgba(0, 0, 0, 0.82));
-      padding: 3rem 1.5rem 1rem;
+      padding: 0 1.2rem 3.6rem 1.2rem;
+      background: linear-gradient(transparent 0%, rgba(0,0,0,0.45) 100%);
       opacity: 0;
       transition: opacity 0.25s ease;
       pointer-events: none;
     }
     .tab-pane:hover #player-overlay { opacity: 1; }
+    #player-overlay-top {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      background: linear-gradient(rgba(0,0,0,0.55), transparent);
+      padding: 0.75rem 1rem 2rem;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      pointer-events: none;
+    }
+    .tab-pane:hover #player-overlay-top { opacity: 1; }
+
+    /* ── MTV-style lower-third card ─────────────────────────────────── */
+    .mtv-card {
+      display: inline-flex;
+      flex-direction: column;
+      max-width: 520px;
+      min-width: 0;
+      gap: 0;
+      border-top: 4px solid #f7c800;
+      background: rgba(0,0,0,0.88);
+      padding: 0.45rem 0.9rem 0.55rem 0.75rem;
+    }
+    .mtv-show {
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #fff;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mtv-title {
+      font-size: 0.85rem;
+      font-style: italic;
+      color: #f7c800;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mtv-ep {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #ccc;
+      line-height: 1.3;
+    }
+    .mtv-meta {
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #888;
+      line-height: 1.3;
+    }
+    .mtv-meta span + span::before { content: " · "; color: #555; }
+    .mtv-bug {
+      position: absolute;
+      bottom: 3.8rem;
+      right: 1.2rem;
+      font-size: 0.6rem;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.25);
+      font-family: monospace;
+    }
 
     /* ── Details / summary disclosure ──────────────────────────────── */
     details > summary {
@@ -325,7 +463,7 @@
 
   <!-- Info button — bottom right; collapses/expands the info panel -->
   <div class="chrome" id="info-btn">
-    <button class="chrome-btn" onclick="document.body.classList.toggle('info-collapsed')"
+    <button class="chrome-btn" onclick="toggleInfo()"
       aria-label="Toggle info panel (I)" title="Toggle info panel (I)">▾ Info</button>
   </div>
 
@@ -376,8 +514,8 @@
       <input type="hidden" id="active-rating" name="rating" value="">
       <input type="hidden" id="active-tag" name="tag_id" value="">
       <input type="hidden" id="active-type" name="type" value="">
-      <button class="btn-sm" id="rating-btn-1" onclick="toggleRatingFilter(1)" style="border-radius:12px">👍 Liked</button>
-      <button class="btn-sm" id="rating-btn-2" onclick="toggleRatingFilter(2)" style="border-radius:12px">⭐ Favs</button>
+      <button class="btn-sm" id="rating-btn-1" onclick="toggleRatingFilter(1)" style="border-radius:12px">♥ Liked</button>
+      <button class="btn-sm" id="rating-btn-2" onclick="toggleRatingFilter(2)" style="border-radius:12px">★ Favs</button>
       <select id="type-filter" class="btn-sm" onchange="toggleTypeFilter(this.value)" style="border-radius:12px;font-size:0.82rem">
         <option value="">Type: All</option>
         {{range $type := sort (ValidVideoTypes)}}
@@ -407,15 +545,34 @@
         <button class="btn-sm" style="text-align:left"
           hx-get="/fs" hx-target="#dir-browser-wrap" hx-swap="innerHTML"
           hx-on::after-request="document.getElementById('add-dir-input').value = ''">
-          📁 Browse…</button>
+          ⊟ Browse…</button>
         <div id="dir-browser-wrap"></div>
-        <details style="margin-top:0.1rem">
-          <summary style="font-size:0.78rem">Create new folder on disk</summary>
-          <form hx-post="/directories/create" hx-target="#directories" style="display:flex;gap:0.4rem;margin-top:0.4rem">
-            <input type="text" name="path" placeholder="/path/to/new/folder">
-            <button type="submit" title="Create folder on disk and add to library">New</button>
-          </form>
-        </details>
+        <button id="new-folder-btn" class="btn-sm" style="text-align:left"
+          onclick="document.getElementById('new-folder-btn').style.display='none';
+                   var f=document.getElementById('new-folder-form');
+                   f.style.display='flex';
+                   f.querySelector('input').focus()">
+          ⊞ New folder…</button>
+        <form id="new-folder-form"
+          hx-post="/directories/create"
+          hx-target="#directories"
+          hx-on::after-request="document.getElementById('new-folder-form').style.display='none';
+                                 document.getElementById('new-folder-btn').style.display='';
+                                 this.reset()"
+          style="display:none;gap:0.3rem;align-items:center">
+          <input type="text" name="path" placeholder="/path/to/new/folder"
+            style="flex:1"
+            onkeydown="if(event.key==='Escape'){
+              document.getElementById('new-folder-form').style.display='none';
+              document.getElementById('new-folder-btn').style.display='';
+              this.form.reset();
+            }">
+          <button type="submit" class="btn-sm" title="Create folder on disk and add to library">Create</button>
+          <button type="button" class="btn-sm" style="color:#aaa"
+            onclick="document.getElementById('new-folder-form').style.display='none';
+                     document.getElementById('new-folder-btn').style.display='';
+                     this.form.reset()">✕</button>
+        </form>
       </div>
 
       <!-- Drop to import -->
@@ -427,7 +584,7 @@
           hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
         <div id="drop-zone"
           style="border:2px dashed #444;border-radius:6px;padding:1.5rem 1rem;text-align:center;font-size:0.82rem;color:#666;cursor:pointer;transition:border-color 0.15s,color 0.15s">
-          📂 Drop video files or folders here
+          ↓ Drop video files or folders here
         </div>
         <div id="drop-status" style="font-size:0.78rem;color:#888;min-height:1.2em"></div>
       </div>
@@ -443,7 +600,7 @@
           <select name="dir_id" id="ytdlp-dir-select"
             style="background:#222;border:1px solid #444;color:#eee;padding:0.4rem 0.5rem;border-radius:4px;font-size:0.85rem"
             hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
-          <button type="submit">⬇ Download</button>
+          <button type="submit">↓ Download</button>
         </form>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:0.4rem">
           <span style="font-size:0.7rem;color:#555">Download queue</span>
@@ -484,23 +641,38 @@
   </div>
 
   <script>
-    // ── Panel helpers ───────────────────────────────────────────────
+    // ── Panel helpers (mutually exclusive) ─────────────────────────
+    function closeAllPanels() {
+      document.body.classList.remove('lib-open', 'cfg-open');
+      document.body.classList.add('info-collapsed');
+    }
+
     function toggleLib() {
       var opening = !document.body.classList.contains('lib-open');
-      document.body.classList.toggle('lib-open');
+      closeAllPanels();
       if (opening) {
+        document.body.classList.add('lib-open');
         setTimeout(function() { document.getElementById('video-search').focus(); }, 50);
       }
     }
 
     function toggleCfg() {
       var opening = !document.body.classList.contains('cfg-open');
-      document.body.classList.toggle('cfg-open');
+      closeAllPanels();
       if (opening) {
+        document.body.classList.add('cfg-open');
         setTimeout(function() {
           var el = document.querySelector('#settings-panel input, #settings-panel select, #settings-panel button');
           if (el) el.focus();
         }, 260);
+      }
+    }
+
+    function toggleInfo() {
+      var opening = document.body.classList.contains('info-collapsed');
+      closeAllPanels();
+      if (opening) {
+        document.body.classList.remove('info-collapsed');
       }
     }
 
@@ -515,7 +687,7 @@
       // If already open, just switch to it
       if (videoTabs[videoId]) {
         activateTab(videoId);
-        document.body.classList.remove('lib-open');
+        document.body.classList.remove('lib-open', 'cfg-open');
         return;
       }
 
@@ -628,6 +800,67 @@
         if (p) p.textContent = 'Select a video from the library.';
       }
     });
+
+    // ── Drag-to-move: video rows → directory targets ─────────────────
+    (function () {
+      var draggingId = null;
+
+      // dragstart: fired on video rows (delegated from document)
+      document.addEventListener('dragstart', function (e) {
+        var li = e.target.closest('li[data-video-id]');
+        if (!li) return;
+        draggingId = li.dataset.videoId;
+        e.dataTransfer.setData('text/plain', draggingId);
+        e.dataTransfer.effectAllowed = 'move';
+        li.classList.add('dragging');
+      });
+
+      document.addEventListener('dragend', function (e) {
+        var li = e.target.closest('li[data-video-id]');
+        if (li) li.classList.remove('dragging');
+        draggingId = null;
+      });
+
+      // dragover / dragleave / drop on directory rows (delegated from document)
+      document.addEventListener('dragover', function (e) {
+        if (!draggingId) return;
+        var li = e.target.closest('li[data-dir-id]');
+        if (!li) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        li.classList.add('dir-drag-over');
+      });
+
+      document.addEventListener('dragleave', function (e) {
+        var li = e.target.closest('li[data-dir-id]');
+        if (li && !li.contains(e.relatedTarget)) {
+          li.classList.remove('dir-drag-over');
+        }
+      });
+
+      document.addEventListener('drop', function (e) {
+        var li = e.target.closest('li[data-dir-id]');
+        if (!li) return;
+        e.preventDefault();
+        li.classList.remove('dir-drag-over');
+        var videoId = draggingId || e.dataTransfer.getData('text/plain');
+        if (!videoId) return;
+        var dirId = li.dataset.dirId;
+        var fd = new FormData();
+        fd.append('dir_id', dirId);
+        fetch('/videos/' + videoId + '/move', {method: 'POST', body: fd})
+          .then(function (resp) {
+            if (!resp.ok) {
+              resp.text().then(function (msg) {
+                alert('Move failed: ' + msg);
+              });
+              return;
+            }
+            htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+            htmx.ajax('GET', '/directories', {target: '#directories', swap: 'innerHTML'});
+          });
+      });
+    })();
 
     // ── Drag-and-drop import ────────────────────────────────────────
     (function () {
@@ -808,7 +1041,7 @@
       updateTagBtns();
     }
 
-    // Keyboard shortcuts: L=library  I=scroll-to-info  S=settings  Esc=close all
+    // Keyboard shortcuts: L=library  I=scroll-to-info  S=settings  →=random  Esc=close all
     document.addEventListener('keydown', function(e) {
       if (e.target.matches('input, textarea, select') || e.target.isContentEditable) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -818,10 +1051,84 @@
         document.getElementById('info-panel').scrollIntoView({behavior: 'smooth'});
       } else if (e.key === 's' || e.key === 'S') {
         toggleCfg();
+      } else if (e.key === 'ArrowRight') {
+        fetch('/random-video').then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+          if (d) openTab(d.id, d.title);
+        });
       } else if (e.key === 'Escape') {
-        document.body.classList.remove('lib-open', 'cfg-open');
+        closeAllPanels();
       }
     });
+  </script>
+
+  <!-- Persistent modal mount point for Quick Label and similar overlays -->
+  <div id="quick-label-modal"></div>
+
+  <!-- Floating thumbnail preview (shown on library row hover) -->
+  <div id="thumb-float" style="display:none;position:fixed;z-index:9000;pointer-events:none;background:#111;border:1px solid #444;border-radius:6px;padding:4px;box-shadow:0 4px 16px rgba(0,0,0,0.7)">
+    <img id="thumb-float-img" alt="" style="display:block;max-width:200px;max-height:150px;border-radius:3px">
+  </div>
+
+  <script>
+    // Open the trimmed video in a new tab when trim completes.
+    document.body.addEventListener('trimComplete', function(e) {
+      var d = e.detail;
+      if (d && d.videoId) openTab(d.videoId, d.title || 'Trimmed video');
+    });
+
+    // ── Thumbnail hover preview ──────────────────────────────────────
+    function showThumb(e, id) {
+      var f = document.getElementById('thumb-float');
+      var img = document.getElementById('thumb-float-img');
+      if (!f || !img) return;
+      img.src = '/videos/' + id + '/thumbnail';
+      f.style.display = 'block';
+      var x = e.clientX + 18, y = e.clientY - 90;
+      if (x + 220 > window.innerWidth) x = e.clientX - 220;
+      if (y < 8) y = e.clientY + 18;
+      f.style.left = x + 'px';
+      f.style.top = y + 'px';
+    }
+    function hideThumb() {
+      var f = document.getElementById('thumb-float');
+      if (f) f.style.display = 'none';
+    }
+
+    // ── Capture thumbnail from current video position ────────────────
+    function captureThumb(id) {
+      var vid = document.getElementById('vid-' + id);
+      var pos = (vid && vid.duration) ? (vid.currentTime / vid.duration).toFixed(4) : '0.5';
+      var status = document.getElementById('thumb-status-' + id);
+      if (status) status.textContent = '…';
+      fetch('/videos/' + id + '/thumbnail?position=' + pos, {method: 'POST'})
+        .then(function(r) {
+          if (!r.ok) throw new Error(r.status);
+          var t = Date.now();
+          var img = document.getElementById('thumb-img-' + id);
+          var wrap = document.getElementById('thumb-wrap-' + id);
+          if (!img && wrap) {
+            img = document.createElement('img');
+            img.id = 'thumb-img-' + id;
+            img.alt = 'Thumbnail';
+            img.style.cssText = 'width:80px;height:auto;border:1px solid #444;border-radius:4px;display:block';
+            wrap.appendChild(img);
+          }
+          if (img) {
+            img.src = '/videos/' + id + '/thumbnail?t=' + t;
+          }
+          // Wire up hover preview on the sidebar button if it wasn't before
+          var btn = document.querySelector('[data-id="' + id + '"]');
+          if (btn && !btn._thumbHooked) {
+            btn._thumbHooked = true;
+            btn.addEventListener('mouseenter', function(e) { showThumb(e, id); });
+            btn.addEventListener('mouseleave', hideThumb);
+          }
+          if (status) { status.textContent = '✓'; setTimeout(function(){ status.textContent=''; }, 2000); }
+        })
+        .catch(function() {
+          if (status) { status.textContent = 'failed'; setTimeout(function(){ status.textContent=''; }, 3000); }
+        });
+    }
   </script>
 
 </body>

@@ -51,7 +51,7 @@ Open `http://localhost:8080`.
 Directories can be added and removed from the UI at any time. Removing a
 directory offers the choice to keep or delete the files on disk.
 
-**Keyboard shortcuts:** `L` library · `I` info panel · `Esc` close all
+**Keyboard shortcuts:** `L` library · `I` info panel · `→` random video · `Esc` close all
 
 ---
 
