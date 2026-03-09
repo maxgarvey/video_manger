@@ -5,6 +5,7 @@
 
 ' Registry section name and key used to persist the server URL across launches.
 Sub init()
+    Print "MainScene: init"
     m.REGISTRY_SECTION = "VideoManger"
     m.REGISTRY_KEY_URL = "serverURL"
 
@@ -110,7 +111,13 @@ Sub popView()
     ' Re-show the previous view and give it focus.
     prevNode = m.stack[m.stack.Count() - 1]
     prevNode.visible = True
-    m.top.SetFocus(True)
+    If prevNode.HasField("isActive")
+        ' Toggle to ensure onChange fires even if already True.
+        prevNode.isActive = False
+        prevNode.isActive = True
+    Else
+        prevNode.SetFocus(True)
+    End If
 End Sub
 
 ' ---------------------------------------------------------------------------

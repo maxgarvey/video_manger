@@ -12,8 +12,8 @@ Sub init()
     m.errorLabel = m.top.FindNode("errorLabel")
     m.keyboard   = m.top.FindNode("keyboard")
 
-    ' Pre-populate with the "http://" prefix as a convenience.
-    m.keyboard.text = "http://"
+    ' Pre-populate with the default server address.
+    m.keyboard.text = "http://192.168.86.26:8080"
 End Sub
 
 ' Called by MainScene after AppendChild — safe to call SetFocus here.

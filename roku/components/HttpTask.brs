@@ -2,10 +2,16 @@
 '
 ' Runs on a Task thread — safe to call blocking roUrlTransfer methods here.
 
+Sub init()
+    m.top.functionName = "runCPUTask"
+End Sub
+
 Sub runCPUTask()
+    Print "HttpTask: start url="; m.top.url; " method="; m.top.method
     http = CreateObject("roUrlTransfer")
     If http = Invalid
         m.top.errMsg = "Could not create roUrlTransfer"
+        Print "HttpTask: ERROR could not create roUrlTransfer"
         Return
     End If
 
@@ -29,12 +35,16 @@ Sub runCPUTask()
             Return
         End If
 
+        ' Validate the JSON before sending it back, but pass the raw string
+        ' because SceneGraph has no "dynamic" field type that holds both
+        ' arrays and associative arrays.
         parsed = ParseJSON(response)
         If parsed = Invalid
             m.top.errMsg = "JSON parse error from " + m.top.url + " body=" + Left(response, 120)
             Return
         End If
 
-        m.top.result = parsed
+        Print "HttpTask: GET success, setting result"
+        m.top.result = response
     End If
 End Sub

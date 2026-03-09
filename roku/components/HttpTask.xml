@@ -20,7 +20,7 @@
         <field id="method" type="string"  value="GET" />
         <field id="body"   type="string"  value="" />
 
-        <field id="result" type="dynamic" />
+        <field id="result" type="string"  value="" />
         <field id="status" type="integer" value="0" />
         <field id="errMsg" type="string"  value="" />
     </interface>

@@ -86,15 +86,23 @@ Sub startFetch(url As String, mode As String)
 
     m.pendingMode = mode
 
+    Print "ContentList: startFetch url="; url; " mode="; mode
     m.fetchTask = CreateObject("roSGNode", "HttpTask")
+    If m.fetchTask = Invalid
+        Print "ContentList: ERROR - could not create HttpTask"
+        m.statusLabel.text = "Internal error: HttpTask missing"
+        Return
+    End If
     m.fetchTask.url = url
     m.fetchTask.ObserveField("result", "onFetchDone")
     m.fetchTask.ObserveField("errMsg", "onFetchError")
     m.fetchTask.control = "RUN"
+    Print "ContentList: HttpTask started"
 End Sub
 
 Sub onFetchDone()
-    data = m.fetchTask.result
+    Print "ContentList: onFetchDone fired"
+    data = ParseJSON(m.fetchTask.result)
     mode = m.pendingMode
 
     If mode = "shows"
@@ -112,8 +120,8 @@ End Sub
 
 Sub onFetchError()
     msg = m.fetchTask.errMsg
-    Print "ContentList fetch error: "; msg
-    m.statusLabel.text = "Connection error — check server address"
+    Print "ContentList: onFetchError msg="; msg
+    m.statusLabel.text = "Error: " + msg
 End Sub
 
 ' ── Menu mode ─────────────────────────────────────────────────────────────────
@@ -360,7 +368,7 @@ Sub handleMenuSelect(item As Object)
 End Sub
 
 Sub onRandomResult()
-    video = m.randomTask.result
+    video = ParseJSON(m.randomTask.result)
     m.statusLabel.text = ""
     If video = Invalid
         m.statusLabel.text = "Could not fetch random video."
