@@ -124,6 +124,57 @@ func TestHasData(t *testing.T) {
 	}
 }
 
+// --- ReadDuration ---
+
+// TestReadDuration_NoFFprobe verifies that ReadDuration returns 0 silently
+// when ffprobe is not on PATH, instead of panicking or returning an error.
+func TestReadDuration_NoFFprobe(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // empty PATH: no executables
+	got := ReadDuration("/any/path.mp4")
+	if got != 0 {
+		t.Errorf("expected 0 when ffprobe unavailable, got %f", got)
+	}
+}
+
+// TestReadDuration_MissingFile verifies that ReadDuration returns 0 when
+// ffprobe is available but the file does not exist (ffprobe exits non-zero).
+func TestReadDuration_MissingFile(t *testing.T) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed; skipping")
+	}
+	got := ReadDuration("/nonexistent/no-such-file.mp4")
+	if got != 0 {
+		t.Errorf("expected 0 for missing file, got %f", got)
+	}
+}
+
+// TestReadDuration_RealFile verifies that ReadDuration returns a positive
+// duration for a real video file. Skipped if ffmpeg/ffprobe are absent.
+func TestReadDuration_RealFile(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed; skipping")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed; skipping")
+	}
+
+	// Generate a 2-second test video with ffmpeg.
+	dir := t.TempDir()
+	out := filepath.Join(dir, "dur_test.mp4")
+	cmd := exec.Command("ffmpeg",
+		"-f", "lavfi", "-i", "nullsrc=s=64x64:d=2",
+		"-c:v", "libx264", "-y", out)
+	if err := cmd.Run(); err != nil {
+		t.Skipf("could not generate test video: %v", err)
+	}
+
+	got := ReadDuration(out)
+	// Allow ±0.5 s tolerance around the expected 2 s duration.
+	if got < 1.5 || got > 2.5 {
+		t.Errorf("ReadDuration = %f, want ~2.0", got)
+	}
+}
+
 // --- T13: Write ---
 
 // TestWrite_NoFFmpeg verifies that Write is a silent no-op when ffmpeg is not
