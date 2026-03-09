@@ -5,3 +5,7 @@ video_manger
 *.db-journal
 *.db.bad
 *.db.orig
+video_manger_roku.zip
+
+# claude
+plans/*
