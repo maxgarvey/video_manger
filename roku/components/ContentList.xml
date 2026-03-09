@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  ContentList.xml
+  General-purpose list view.  The `mode` field controls what data is fetched
+  and how items behave when selected.  Reused for every level of the hierarchy:
+  menu → shows → seasons → episodes, and also videos / recently-watched.
+
+  Interface fields:
+    serverURL     (string)  – base URL of the Go server, e.g. http://192.168.1.100:8080
+    mode          (string)  – "menu" | "shows" | "seasons" | "episodes" | "videos" | "recent"
+    showName      (string)  – populated when mode = "seasons" or "episodes"
+    seasonNumber  (integer) – populated when mode = "episodes"
+    videoType     (string)  – populated when mode = "videos" to filter by type
+    navAction     (assocarray, alwaysNotify) – signals navigation events to MainScene
+-->
+<component name="ContentList" extends="Group">
+    <interface>
+        <field id="serverURL"    type="string"       value=""  onChange="onServerURLChange" />
+        <field id="mode"         type="string"       value=""  onChange="onModeChange" />
+        <field id="showName"     type="string"       value="" />
+        <field id="seasonNumber" type="integer"      value="0" />
+        <field id="videoType"    type="string"       value="" />
+        <field id="navAction"    type="assocarray"   alwaysNotify="true" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/components/ContentList.brs" />
+
+    <children>
+        <!-- Screen title -->
+        <Label
+            id="titleLabel"
+            translation="[90, 60]"
+            font="font:MediumBoldSystemFont"
+            color="0xFFFFFFFF"
+            text="Video Manger" />
+
+        <!-- Subtitle / status line (shows "Loading…" then disappears) -->
+        <Label
+            id="statusLabel"
+            translation="[90, 110]"
+            font="font:SmallSystemFont"
+            color="0xAAAAAAFF"
+            text="" />
+
+        <!-- Primary list -->
+        <LabelList
+            id="list"
+            translation="[90, 160]"
+            itemSize="[1740, 60]"
+            itemSpacing="[0, 4]"
+            numRows="13"
+            focusedColor="0xFFFFFFFF"
+            color="0xCCCCCCFF"
+            focusBitmapUri=""
+            focusFootprintBitmapUri=""
+            drawFocusFeedback="true" />
+    </children>
+</component>

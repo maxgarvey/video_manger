@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  ServerSetup.xml
+  First-run component that prompts the user to enter the Video Manger server URL.
+
+  Uses a StandardKeyboardDialog (Roku's built-in on-screen keyboard) so the
+  user can type the server address with the remote control.
+
+  Interface fields:
+    navAction  (assocarray, alwaysNotify) – fires {type:"serverSaved", serverURL:"..."} on success
+-->
+<component name="ServerSetup" extends="Group">
+    <interface>
+        <field id="navAction" type="assocarray" alwaysNotify="true" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/components/ServerSetup.brs" />
+
+    <children>
+        <!-- Dark full-screen background -->
+        <Rectangle
+            id="bg"
+            width="1920"
+            height="1080"
+            color="0x141414FF" />
+
+        <!-- Title -->
+        <Label
+            id="titleLabel"
+            translation="[760, 200]"
+            font="font:LargeBoldSystemFont"
+            color="0xFFFFFFFF"
+            text="Video Manger Setup" />
+
+        <!-- Instruction text -->
+        <Label
+            id="instructionLabel"
+            translation="[560, 290]"
+            width="800"
+            font="font:MediumSystemFont"
+            color="0xCCCCCCFF"
+            wrap="true"
+            text="Enter the address of your Video Manger server.&#10;&#10;Example: http://192.168.1.100:8080&#10;&#10;Find the address in the server log when you start video_manger." />
+
+        <!-- Error / status message (shown when validation fails) -->
+        <Label
+            id="errorLabel"
+            translation="[560, 520]"
+            width="800"
+            font="font:SmallSystemFont"
+            color="0xFF4444FF"
+            text="" />
+
+        <!--
+          StandardKeyboardDialog provides a full Roku on-screen keyboard.
+          We create it programmatically in .brs so we can attach observers,
+          but declare the placeholder here so the layout is clear.
+          In practice, the dialog is created and appended in init().
+        -->
+    </children>
+</component>

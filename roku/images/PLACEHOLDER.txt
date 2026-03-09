@@ -1,0 +1,28 @@
+Place the following image files in this directory before sideloading the channel:
+
+  icon_hd.png   – 540 x 405 pixels  – channel icon (high-definition)
+  icon_sd.png   – 290 x 218 pixels  – channel icon (standard-definition, optional but recommended)
+  splash_fhd.png – 1920 x 1080 pixels – splash screen shown while the channel loads (FHD)
+  splash_hd.png  – 1280 x 720  pixels – splash screen (HD, optional)
+
+All files must be PNG format.  The channel will fail to install if icon_hd.png
+or splash_fhd.png are missing (they are referenced in the manifest).
+
+Tip: a simple solid-colour PNG with the text "Video Manger" is enough for
+development/testing.  Tools like ImageMagick can generate them quickly:
+
+  convert -size 540x405   xc:#141414 -fill white -gravity Center \
+          -font DejaVu-Sans-Bold -pointsize 48 -annotate 0 "Video Manger" \
+          icon_hd.png
+
+  convert -size 290x218   xc:#141414 -fill white -gravity Center \
+          -font DejaVu-Sans-Bold -pointsize 32 -annotate 0 "Video Manger" \
+          icon_sd.png
+
+  convert -size 1920x1080 xc:#141414 -fill white -gravity Center \
+          -font DejaVu-Sans-Bold -pointsize 96 -annotate 0 "Video Manger" \
+          splash_fhd.png
+
+  convert -size 1280x720  xc:#141414 -fill white -gravity Center \
+          -font DejaVu-Sans-Bold -pointsize 72 -annotate 0 "Video Manger" \
+          splash_hd.png

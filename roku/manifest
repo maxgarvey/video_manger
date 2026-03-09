@@ -1,0 +1,32 @@
+##
+## Video Manger – Roku Channel Manifest
+## https://developer.roku.com/docs/references/brightscript/interfaces/ifsgnodefield.md
+##
+
+title=Video Manger
+subtitle=Personal video library
+
+major_version=1
+minor_version=0
+build_version=00001
+
+## UI resolution – only FHD (1920×1080) needed; Roku scales for HD automatically
+ui_resolutions=fhd
+
+## Channel entry-point SceneGraph component
+sg_component_libs_required=
+
+## Icons – place 540×405 PNG at pkg:/images/icon_hd.png
+##         place 290×218 PNG at pkg:/images/icon_sd.png (optional but recommended)
+##         place 1920×1080 PNG at pkg:/images/splash_fhd.png
+##         place 1280×720  PNG at pkg:/images/splash_hd.png  (optional)
+mm_icon_focus_hd=pkg:/images/icon_hd.png
+mm_icon_focus_sd=pkg:/images/icon_sd.png
+
+splash_screen_fhd=pkg:/images/splash_fhd.png
+splash_screen_hd=pkg:/images/splash_hd.png
+splash_color=#141414
+splash_min_time=1000
+
+## Required since Roku OS 9.2
+bs_const=ENABLE_FOCUS_COLOR=true

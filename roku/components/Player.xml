@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Player.xml
+  Video playback component.
+
+  Interface fields:
+    serverURL  (string)     – base URL of the Go server
+    videoData  (assocarray) – apiVideo object from the JSON API
+    navAction  (assocarray, alwaysNotify) – signals navigation events to MainScene
+
+  Children:
+    Video  – the Roku built-in video player node
+    Timer  – fires every 10 s to POST watch progress
+-->
+<component name="Player" extends="Group">
+    <interface>
+        <field id="serverURL" type="string"     value=""  onChange="onVideoDataChange" />
+        <field id="videoData" type="assocarray"           onChange="onVideoDataChange" />
+        <field id="navAction" type="assocarray"           alwaysNotify="true" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/components/Player.brs" />
+
+    <children>
+        <Video id="video" />
+
+        <!--
+          Timer fires every 10 seconds to save watch progress.
+          duration is in seconds; repeat keeps it firing indefinitely.
+        -->
+        <Timer id="progressTimer" duration="10" repeat="true" />
+    </children>
+</component>
