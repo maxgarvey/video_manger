@@ -23,8 +23,9 @@ import (
 // they are produced; ch is closed when the download finishes. err is set
 // (if non-nil) before ch is closed.
 type ytdlpJob struct {
-	ch  chan string
-	err error
+	ch      chan string
+	err     error
+	videoID int64 // set after successful sync; 0 if unknown
 }
 
 // convertJob tracks a running ffmpeg conversion. Lines are sent to ch as
@@ -184,15 +185,16 @@ func (s *server) routes() http.Handler {
 	r.Post("/login", s.handleLoginSubmit)
 	r.Get("/logout", s.handleLogout)
 
-	// Video file streaming and thumbnails must NOT be wrapped by Compress.
-	// The browser sends HTTP Range requests when seeking; gzip wrapping of
-	// the ResponseWriter can interfere with the 206 Partial Content response
-	// that http.ServeFile sends, causing the seek to stall and breaking
-	// the ability to stream after a seek.  Thumbnail images are already
-	// compressed JPEGs and gain nothing from an extra gzip pass.
+	// Video file streaming, thumbnails, and SSE endpoints must NOT be wrapped
+	// by Compress.  The gzip middleware buffers output until the response ends,
+	// which prevents SSE events from being flushed incrementally to the client.
+	// Video Range requests and already-compressed JPEGs also benefit from
+	// bypassing gzip.
 	r.Get("/video/{id}", s.handleVideoFile)
 	r.Get("/videos/{id}/thumbnail", s.handleServeThumbnail)
 	r.Get("/videos/{id}/subtitles", s.handleServeSubtitles)
+	r.Get("/ytdlp/job/{jobID}/events", s.handleYTDLPJobEvents)
+	r.Get("/videos/{id}/convert/events/{jobID}", s.handleConvertEvents)
 
 	// All remaining routes use gzip compression (HTML/JSON responses).
 	r.Group(func(r chi.Router) {
@@ -227,11 +229,9 @@ func (s *server) routes() http.Handler {
 		// Export / convert
 		r.Post("/videos/{id}/export/usb", s.handleExportUSB)
 		r.Post("/videos/{id}/convert", s.handleConvertStart)
-		r.Get("/videos/{id}/convert/events/{jobID}", s.handleConvertEvents)
 
 		// yt-dlp download
 		r.Post("/ytdlp/download", s.handleYTDLPDownload)
-		r.Get("/ytdlp/job/{jobID}/events", s.handleYTDLPJobEvents)
 
 		// Metadata lookup (TMDB)
 		r.Get("/videos/{id}/lookup", s.handleLookupModal)

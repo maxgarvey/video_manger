@@ -487,6 +487,11 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 				}
 				send("[video_manger] Syncing library…")
 				s.syncDir(dir)
+				if videoPath != "" {
+					if v, verr := s.store.UpsertVideo(context.Background(), dir.ID, dir.Path, filepath.Base(videoPath)); verr == nil {
+						job.videoID = v.ID
+					}
+				}
 				send("[video_manger] Done!")
 			}
 		}()
@@ -528,8 +533,11 @@ loop:
 	}
 
 	if job.err != nil {
-		sse.Event("error", job.err.Error())
+		sse.Event("downloadError", job.err.Error())
 	} else {
+		if job.videoID > 0 {
+			sse.Event("videoReady", strconv.FormatInt(job.videoID, 10))
+		}
 		sse.Event("done", "")
 	}
 }

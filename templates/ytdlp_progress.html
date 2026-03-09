@@ -11,13 +11,36 @@
   var pre = document.getElementById('ytdlp-out-{{.JobID}}');
   var msg = document.getElementById('ytdlp-msg-{{.JobID}}');
   var es = new EventSource('/ytdlp/job/{{.JobID}}/events');
+
+  // Track the last [download] progress line so we can update it in-place
+  // rather than appending a new line for every percentage tick.
+  var lastProgressSpan = null;
+
   es.onmessage = function(e) {
-    pre.textContent += e.data + '\n';
+    var line = e.data;
+    var isProgress = line.indexOf('[download]') === 0 && line.indexOf('%') !== -1;
+    if (isProgress && lastProgressSpan) {
+      // Overwrite the previous progress line in-place.
+      lastProgressSpan.textContent = line + '\n';
+    } else {
+      var span = document.createElement('span');
+      span.textContent = line + '\n';
+      pre.appendChild(span);
+      lastProgressSpan = isProgress ? span : null;
+    }
     pre.scrollTop = pre.scrollHeight;
   };
+
+  es.addEventListener('videoReady', function(e) {
+    var videoID = e.data.trim();
+    if (videoID) {
+      window.open('/play/' + videoID, '_blank');
+    }
+  });
+
   es.addEventListener('done', function() {
     es.close();
-    msg.innerHTML = '✓ Done';
+    msg.innerHTML = '&#10003; Done';
     msg.style.color = '#4a9a4a';
     htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'morph:innerHTML'});
     // Auto-remove completed block after 30 seconds.
@@ -26,17 +49,25 @@
       if (block) block.remove();
     }, 30000);
   });
-  es.addEventListener('error', function(evt) {
+
+  // downloadError is the server-sent named event for a failed download.
+  // We deliberately do NOT use addEventListener('error', ...) because that
+  // event name is also fired natively by the browser for connection issues,
+  // which would overwrite the ✓ Done state when the server closes the SSE
+  // connection after a successful download.
+  es.addEventListener('downloadError', function(evt) {
     es.close();
-    msg.innerHTML = '✗ Failed';
+    msg.innerHTML = '&#10007; Failed: ' + (evt.data || 'unknown error');
     msg.style.color = '#c44';
   });
+
+  // onerror handles native connection failures only.
   es.onerror = function() {
     if (es.readyState === EventSource.CLOSED) {
-      return; // already cleanly closed by done/error handler
+      return; // already cleanly closed by done/downloadError handler
     }
     es.close();
-    if (msg.textContent.indexOf('✓') === -1 && msg.textContent.indexOf('✗') === -1) {
+    if (msg.textContent.indexOf('\u2713') === -1 && msg.textContent.indexOf('\u2717') === -1) {
       msg.innerHTML = '<span style="color:#c44">Connection lost — download may still be running in background.</span>';
     }
   };
