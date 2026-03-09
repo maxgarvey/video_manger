@@ -72,8 +72,16 @@ Sub pushView(compName, params)
     m.stack.Push(node)
     m.top.AppendChild(node)
 
-    ' Give focus to the new view.
-    m.top.SetFocus(True)
+    ' Give focus to the new view.  Components that manage an internal focused
+    ' child (e.g. ServerSetup → Keyboard, ContentList → LabelList) expose an
+    ' `isActive` field; setting it here (after AppendChild) lets them call
+    ' SetFocus on the right child now that they are in the scene tree.
+    ' Components without `isActive` fall back to focusing the node itself.
+    If node.HasField("isActive")
+        node.isActive = True
+    Else
+        node.SetFocus(True)
+    End If
 End Sub
 
 ' ---------------------------------------------------------------------------

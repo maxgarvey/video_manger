@@ -19,6 +19,11 @@ Sub init()
     ' to explicitly observe focusedChild for that purpose.
 End Sub
 
+' Called by MainScene after AppendChild — safe to call SetFocus here.
+Sub onActivated()
+    m.list.SetFocus(True)
+End Sub
+
 ' ── Field change handlers ────────────────────────────────────────────────────
 
 Sub onServerURLChange()

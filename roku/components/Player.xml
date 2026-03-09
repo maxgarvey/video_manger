@@ -17,6 +17,7 @@
         <field id="serverURL" type="string"     value=""  onChange="onVideoDataChange" />
         <field id="videoData" type="assocarray"           onChange="onVideoDataChange" />
         <field id="navAction" type="assocarray"           alwaysNotify="true" />
+        <field id="isActive"  type="boolean"  value="false" onChange="onActivated" />
     </interface>
 
     <script type="text/brightscript" uri="pkg:/source/api.brs" />

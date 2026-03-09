@@ -2,72 +2,52 @@
 '
 ' First-run server URL entry screen.
 '
-' Roku's KeyboardDialog is the recommended way to collect text input
-' on the Roku remote.  We create it dynamically and observe its responses.
+' Uses a Keyboard node (inline widget) for text input.  KeyboardDialog requires
+' Scene-level placement and cannot receive focus when added to a Group child.
+'
+' Focus is given to the Keyboard in onActivated(), which is called by MainScene
+' after AppendChild — SetFocus has no effect before the node is in the scene tree.
 
 Sub init()
     m.errorLabel = m.top.FindNode("errorLabel")
-
-    ' Create the standard keyboard dialog and add it as a child so it appears
-    ' on screen.
-    m.keyboard = CreateObject("roSGNode", "KeyboardDialog")
-
-    If m.keyboard = Invalid
-        ' Fall back to a simple on-screen message if the dialog isn't available
-        ' (should not happen on any Roku with OS 7+).
-        Print "ServerSetup: KeyboardDialog not available"
-        m.errorLabel.text = "Error: keyboard dialog unavailable. Please update your Roku OS."
-        Return
-    End If
-
-    m.keyboard.title = "Video Manger Server URL"
-    m.keyboard.message = "Enter the server address (e.g. http://192.168.1.100:8080)"
+    m.keyboard   = m.top.FindNode("keyboard")
 
     ' Pre-populate with the "http://" prefix as a convenience.
     m.keyboard.text = "http://"
+End Sub
 
-    ' Add "Connect" and "Cancel" buttons to the dialog button bar.
-    ' buttons = ["Connect", "Cancel"]
-    ' m.keyboard.buttons = buttons
-
-    ' Observe the dialog's button selection.
-    ' m.keyboard.ObserveField("buttonSelected", "onButtonSelected")
-    m.keyboard.ObserveField("wasClosed", "onKeyboardClosed")
-
-    m.top.AppendChild(m.keyboard)
-
-    ' Give focus to the keyboard.
+' Called by MainScene after AppendChild — safe to call SetFocus here.
+Sub onActivated()
     m.keyboard.SetFocus(True)
 End Sub
 
-' ── Button handler ────────────────────────────────────────────────────────────
+' ── Key handling ──────────────────────────────────────────────────────────────
+'
+' The Keyboard node consumes D-pad and OK for character input.  We catch PLAY
+' (the remote's play button) for form submission since OK is taken by the widget.
+' BACK exits the channel (nowhere else to go on first run).
 
-Sub onButtonSelected()
-    idx = m.keyboard.buttonSelected
+Function onKeyEvent(key As String, press As Boolean) As Boolean
+    If Not press Then Return False
 
-    ' Button indices match the array passed to m.keyboard.buttons:
-    '   0 = "Connect"
-    '   1 = "Cancel"
-    If idx = 0
-        ' "Connect" pressed.
-        serverURL = m.keyboard.text.Trim()
-        validateAndSave(serverURL)
-    Else If idx = 1
-        ' "Cancel" pressed.  If there is no saved URL, pressing Cancel exits
-        ' the channel (nothing else to do); otherwise it goes back.
-        m.top.navAction = {type: "back"}
+    If key = "play"
+        validateAndSave(m.keyboard.text)
+        Return True
     End If
-End Sub
 
-Sub onKeyboardClosed()
-    serverURL = m.keyboard.text
-    validateAndSave(serverURL)
-End Sub
+    If key = "back"
+        m.top.navAction = {type: "back"}
+        Return True
+    End If
+
+    Return False
+End Function
 
 ' ── Validation ────────────────────────────────────────────────────────────────
 
-Sub validateAndSave(serverURL)
-    ' Basic validation: must start with http:// or https://
+Sub validateAndSave(serverURL As String)
+    serverURL = serverURL.Trim()
+
     If serverURL = "" Or serverURL = Invalid
         showError("Please enter a server URL.")
         Return
@@ -88,20 +68,6 @@ Sub validateAndSave(serverURL)
     m.top.navAction = {type: "serverSaved", serverURL: serverURL}
 End Sub
 
-Sub showError(msg)
+Sub showError(msg As String)
     m.errorLabel.text = msg
 End Sub
-
-' ── Key handling ─────────────────────────────────────────────────────────────
-
-' TRY THIS IF BROKEN:
-' Function onKeyEvent(key, press) As Boolean
-Function onKeyEvent(key, press)
-    If press And key = "back"
-        ' On the setup screen, Back exits the channel since there's nowhere
-        ' else to go.
-        m.top.navAction = {type: "back"}
-        Return True
-    End If
-    Return False
-End Function
