@@ -109,6 +109,79 @@ func TestIsVideoFile(t *testing.T) {
 	}
 }
 
+// --- library.go helper unit tests ---
+
+func TestCleanShowName(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"Show Name", "Show Name"},
+		{"Show.Name", "Show Name"},
+		{"Show_Name", "Show Name"},
+		{"Show-Name", "Show Name"},
+		{"Show...Name", "Show Name"},
+		{"Show___Name", "Show Name"},
+		{"  spaces  ", "spaces"},
+		{"Show . Name", "Show Name"}, // dots→spaces, then Fields collapses multiple spaces
+		{"", ""},
+		{"   ", ""},
+	}
+	for _, c := range cases {
+		got := cleanShowName(c.in)
+		if got != c.want {
+			t.Errorf("cleanShowName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestExtractShowFromFilename(t *testing.T) {
+	cases := []struct {
+		filename string
+		want     string
+	}{
+		// SxxExx patterns
+		{"Breaking.Bad.S01E01.mkv", "Breaking Bad"},
+		{"the_wire_S03E05_720p.mp4", "the wire"},
+		{"ShowName-S02E10.avi", "ShowName"},
+		// Season N patterns
+		{"Seinfeld.Season.4.Episode.1.mp4", "Seinfeld"},
+		{"my_show_Season1.mkv", "my show"},
+		// No recognisable pattern — returns empty
+		{"random_clip.mp4", ""},
+		{"S01E01.mp4", ""},        // nothing before the pattern
+		{"movie_2024.mp4", ""},
+	}
+	for _, c := range cases {
+		got := extractShowFromFilename(c.filename)
+		if got != c.want {
+			t.Errorf("extractShowFromFilename(%q) = %q, want %q", c.filename, got, c.want)
+		}
+	}
+}
+
+func TestContainsWord(t *testing.T) {
+	cases := []struct {
+		s, word string
+		want    bool
+	}{
+		{"youtube channel", "youtube", true},
+		{"YouTube Channel", "youtube", true}, // case-insensitive
+		{"not a tube", "youtube", false},     // not a whole word match
+		{"concert footage", "concert", true},
+		{"my_concert_video", "concert", true}, // underscore is word boundary
+		{"concerts are fun", "concert", false}, // "concerts" != "concert"
+		{"", "anything", false},
+		{"word", "", false},
+	}
+	for _, c := range cases {
+		got := containsWord(c.s, c.word)
+		if got != c.want {
+			t.Errorf("containsWord(%q, %q) = %v, want %v", c.s, c.word, got, c.want)
+		}
+	}
+}
+
 // --- Integration tests ---
 
 func TestHandleIndex(t *testing.T) {
