@@ -6,7 +6,7 @@
     hx-swap="outerHTML"
     title="Like"
     {{if ge .Rating 1}}style="background:#2a4a2a;border-color:#4a9a4a;color:#8f8"{{end}}
-  >👍{{if ge .Rating 1}} Liked{{end}}</button>
+  >♥{{if ge .Rating 1}} Liked{{end}}</button>
   <button class="btn-sm"
     hx-post="/videos/{{.ID}}/rating"
     hx-vals='{"rating": "{{if eq .Rating 2}}0{{else}}2{{end}}"}'
@@ -14,5 +14,5 @@
     hx-swap="outerHTML"
     title="Favourite"
     {{if eq .Rating 2}}style="background:#4a3a00;border-color:#c8a000;color:#fc0"{{end}}
-  >⭐{{if eq .Rating 2}} Fav{{end}}</button>
+  >★{{if eq .Rating 2}} Fav{{end}}</button>
 </div>

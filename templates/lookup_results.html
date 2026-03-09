@@ -21,22 +21,54 @@
     <button type="submit" class="btn-success btn-sm">Apply</button>
   </form>
   {{else if eq .MediaType "tv"}}
-  <form hx-post="/videos/{{$.VideoID}}/lookup/apply"
-        hx-target="#file-meta-{{$.VideoID}}"
+  <div style="margin-top:0.4rem">
+    <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap">
+      <span style="font-size:0.78rem;color:#888">Season</span>
+      <input type="number" id="season-{{.ID}}" name="season" min="1" value="{{if $.HintSeason}}{{$.HintSeason}}{{else}}1{{end}}"
+        style="width:55px;background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.3rem;border-radius:4px;font-size:0.78rem">
+      <button type="button"
+        hx-get="/videos/{{$.VideoID}}/lookup/episodes"
+        hx-include="#season-{{.ID}}"
+        hx-vals='{"tmdb_id":"{{.ID}}"}'
+        hx-target="#ep-list-{{.ID}}"
         hx-swap="innerHTML"
-        style="margin-top:0.4rem;display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap">
-    <input type="hidden" name="media_type" value="tv">
-    <input type="hidden" name="tmdb_id" value="{{.ID}}">
-    <input type="number" name="season" placeholder="Season" min="1" value="1"
-      style="width:70px;background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.3rem;border-radius:4px;font-size:0.78rem">
-    <input type="number" name="episode" placeholder="Episode" min="1" value="1"
-      style="width:70px;background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.3rem;border-radius:4px;font-size:0.78rem">
-    <button type="submit" class="btn-success btn-sm">Apply</button>
-  </form>
+        class="btn-sm">Browse episodes ▾</button>
+    </div>
+    <div id="ep-list-{{.ID}}" style="margin-top:0.4rem;max-height:280px;overflow-y:auto"></div>
+  </div>
   {{end}}
 </li>
 {{end}}
 </ul>
 {{else}}
 <p style="font-size:0.82rem;color:#888">No results found.</p>
+{{end}}
+
+{{define "lookup_episodes.html"}}
+{{if .Episodes}}
+<ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.2rem">
+{{range .Episodes}}
+<li style="border-bottom:1px solid #2a2a2a;padding:0.25rem 0">
+  <form hx-post="/videos/{{$.VideoID}}/lookup/apply"
+        hx-target="#file-meta-{{$.VideoID}}"
+        hx-swap="innerHTML"
+        style="display:flex;align-items:flex-start;gap:0.5rem">
+    <input type="hidden" name="media_type" value="tv">
+    <input type="hidden" name="tmdb_id" value="{{$.TmdbID}}">
+    <input type="hidden" name="season" value="{{$.Season}}">
+    <input type="hidden" name="episode" value="{{.EpisodeNumber}}">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:0.78rem;color:#ddd">
+        <span style="color:#555;font-family:monospace;margin-right:0.3rem">{{$.Season}}×{{printf "%02d" .EpisodeNumber}}</span>{{.Name}}{{if .AirDate}}<span style="color:#555;font-size:0.72rem;margin-left:0.3rem">({{.AirDate}})</span>{{end}}
+      </div>
+      {{if .Overview}}<div style="font-size:0.72rem;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.Overview}}</div>{{end}}
+    </div>
+    <button type="submit" class="btn-success btn-sm" style="flex-shrink:0;font-size:0.72rem;padding:0.2rem 0.4rem">Apply</button>
+  </form>
+</li>
+{{end}}
+</ul>
+{{else}}
+<p style="font-size:0.82rem;color:#888;margin:0">No episodes found for season {{.Season}}.</p>
+{{end}}
 {{end}}

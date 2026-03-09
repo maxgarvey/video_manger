@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -232,4 +233,50 @@ func openFreeFile(dir, stem, ext string) (*os.File, string, error) {
 func parseInt(s string) int {
 	i, _ := strconv.Atoi(s)
 	return i
+}
+
+// freeOutputName returns a filename of the form stem+suffix+ext that does not
+// already exist in dir, appending _2, _3, … as needed.
+// Uses os.Stat rather than O_EXCL; prefer openFreeFile when you need to
+// atomically claim the name (e.g. for upload temp files).
+func freeOutputName(dir, stem, suffix, ext string) string {
+	name := stem + suffix + ext
+	if _, err := os.Stat(filepath.Join(dir, name)); os.IsNotExist(err) {
+		return name
+	}
+	for i := 2; ; i++ {
+		name = fmt.Sprintf("%s%s_%d%s", stem, suffix, i, ext)
+		if _, err := os.Stat(filepath.Join(dir, name)); os.IsNotExist(err) {
+			return name
+		}
+	}
+}
+
+// refreshVideoTags re-lists the video's tags, syncs them to the file's
+// metadata, then renders video_tags.html. Used as a shared finaliser by
+// handleAddVideoTag and handleRemoveVideoTag.
+func (s *server) refreshVideoTags(w http.ResponseWriter, r *http.Request, id int64) {
+	tags, err := s.store.ListTagsByVideo(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if video, err := s.store.GetVideo(r.Context(), id); err == nil {
+		s.syncTagsToFile(r.Context(), video)
+	}
+	render(w, "video_tags.html", videoTagsData{id, tags})
+}
+
+// deleteVideoAndRefresh removes a video from the store, prunes orphan tags,
+// and re-renders the video list. Used as a shared finaliser by
+// handleDeleteVideo and handleDeleteVideoAndFile.
+func (s *server) deleteVideoAndRefresh(w http.ResponseWriter, r *http.Request, id int64) {
+	if err := s.store.DeleteVideo(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.PruneOrphanTags(r.Context()); err != nil {
+		slog.Warn("prune orphan tags failed", "err", err)
+	}
+	s.serveVideoList(w, r)
 }

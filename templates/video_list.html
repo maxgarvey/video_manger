@@ -1,8 +1,36 @@
+{{define "videoRow"}}
+<li draggable="true" data-video-id="{{.ID}}" style="display:flex;align-items:center;gap:0.2rem">
+  <button
+    onclick="openTab(Number(this.dataset.id), this.dataset.title)"
+    data-id="{{.ID}}"
+    data-title="{{.Title}}"
+    class="btn-sm"
+    style="flex:1;text-align:left;display:flex;align-items:center;gap:0.3rem;min-width:0;padding:0.35rem 0.6rem"
+    title="{{.Title}} ({{.Filename}})"
+    {{if .ThumbnailPath}}onmouseenter="showThumb(event,{{.ID}})" onmouseleave="hideThumb()"{{end}}
+  >
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85rem">
+      {{if .WatchedAt}}<span title="Watched" style="color:#4a9;font-size:0.68rem">✓</span> {{end}}{{if eq .Rating 2}}<span title="Favourite" style="font-size:0.68rem">★</span> {{else if eq .Rating 1}}<span title="Liked" style="font-size:0.68rem">♥</span> {{end}}{{.Title}}
+    </span>
+    <span style="flex-shrink:0;color:#444;font-size:0.68rem;font-family:monospace">{{ext .Filename}}</span>
+    {{if .WatchedAt}}<span style="flex-shrink:0;color:#3a5a3a;font-size:0.68rem">{{reltime .WatchedAt}}</span>{{end}}
+    {{if .VideoType}}<span class="video-type-badge" style="background:{{typeColor .VideoType}}" title="{{.VideoType}}">{{.VideoType}}</span>{{end}}
+  </button>
+  <button class="btn-icon"
+    hx-get="/videos/{{.ID}}/delete-confirm"
+    hx-target="closest li"
+    hx-swap="outerHTML"
+    style="flex-shrink:0;font-size:0.78rem"
+    title="Delete"
+  >✕</button>
+</li>
+{{end}}
+
 {{if .Groups}}
 {{$multi := gt (len .Groups) 1}}
 {{range .Groups}}
   {{if $multi}}
-  <details open style="margin-bottom:0.3rem">
+  <details style="margin-bottom:0.3rem">
     {{/* compute total videos in this show */}}
     {{$total := 0}}
     {{range .Seasons}}
@@ -15,37 +43,12 @@
   {{/* season grouping */}}
   {{if gt (len .Seasons) 1}}
     {{range .Seasons}}
-      <details open style="margin-left:0.6rem;margin-bottom:0.3rem">
+      <details style="margin-left:0.6rem;margin-bottom:0.3rem">
         <summary style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;color:#666;user-select:none">
           {{if gt .Number 0}}Season {{.Number}}{{else}}Unsorted{{end}} <span style="color:#3a3a3a;font-weight:400">({{len .Videos}})</span>
         </summary>
         <ul style="list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0.15rem;margin-top:0.2rem">
-          {{range .Videos}}
-          <li style="display:flex;align-items:center;gap:0.2rem">
-            <button
-              onclick="openTab(Number(this.dataset.id), this.dataset.title)"
-              data-id="{{.ID}}"
-              data-title="{{.Title}}"
-              class="btn-sm"
-              style="flex:1;text-align:left;display:flex;align-items:center;gap:0.3rem;min-width:0;padding:0.35rem 0.6rem"
-              title="{{.Title}} ({{.Filename}})"
-            >
-              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85rem">
-                {{if .WatchedAt}}<span title="Watched" style="color:#4a9;font-size:0.68rem">✓</span> {{end}}{{if eq .Rating 2}}<span title="Favourite" style="font-size:0.68rem">⭐</span> {{else if eq .Rating 1}}<span title="Liked" style="font-size:0.68rem">👍</span> {{end}}{{.Title}}
-              </span>
-              <span style="flex-shrink:0;color:#444;font-size:0.68rem;font-family:monospace">{{ext .Filename}}</span>
-              {{if .WatchedAt}}<span style="flex-shrink:0;color:#3a5a3a;font-size:0.68rem">{{reltime .WatchedAt}}</span>{{end}}
-              {{if .VideoType}}<span style="flex-shrink:0;background:{{typeColor .VideoType}};color:#fff;font-size:0.6rem;padding:0.08rem 0.3rem;border-radius:3px;letter-spacing:0.03em" title="{{.VideoType}}">{{.VideoType}}</span>{{end}}
-            </button>
-            <button class="btn-icon"
-              hx-get="/videos/{{.ID}}/delete-confirm"
-              hx-target="closest li"
-              hx-swap="outerHTML"
-              style="flex-shrink:0;font-size:0.78rem"
-              title="Delete"
-            >✕</button>
-          </li>
-          {{end}}
+          {{range .Videos}}{{template "videoRow" .}}{{end}}
         </ul>
       </details>
     {{end}}
@@ -53,32 +56,7 @@
     {{/* single season (or unsorted) */}}
     {{range .Seasons}}
       <ul style="list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0.15rem{{if $multi}};margin-top:0.2rem{{end}}">
-        {{range .Videos}}
-        <li style="display:flex;align-items:center;gap:0.2rem">
-          <button
-            onclick="openTab(Number(this.dataset.id), this.dataset.title)"
-            data-id="{{.ID}}"
-            data-title="{{.Title}}"
-            class="btn-sm"
-            style="flex:1;text-align:left;display:flex;align-items:center;gap:0.3rem;min-width:0;padding:0.35rem 0.6rem"
-            title="{{.Title}} ({{.Filename}})"
-          >
-            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85rem">
-              {{if .WatchedAt}}<span title="Watched" style="color:#4a9;font-size:0.68rem">✓</span> {{end}}{{if eq .Rating 2}}<span title="Favourite" style="font-size:0.68rem">⭐</span> {{else if eq .Rating 1}}<span title="Liked" style="font-size:0.68rem">👍</span> {{end}}{{.Title}}
-            </span>
-            <span style="flex-shrink:0;color:#444;font-size:0.68rem;font-family:monospace">{{ext .Filename}}</span>
-            {{if .WatchedAt}}<span style="flex-shrink:0;color:#3a5a3a;font-size:0.68rem">{{reltime .WatchedAt}}</span>{{end}}
-            {{if .VideoType}}<span style="flex-shrink:0;background:{{typeColor .VideoType}};color:#fff;font-size:0.6rem;padding:0.08rem 0.3rem;border-radius:3px;letter-spacing:0.03em" title="{{.VideoType}}">{{.VideoType}}</span>{{end}}
-          </button>
-          <button class="btn-icon"
-            hx-get="/videos/{{.ID}}/delete-confirm"
-            hx-target="closest li"
-            hx-swap="outerHTML"
-            style="flex-shrink:0;font-size:0.78rem"
-            title="Delete"
-          >✕</button>
-        </li>
-        {{end}}
+        {{range .Videos}}{{template "videoRow" .}}{{end}}
       </ul>
     {{end}}
   {{end}}

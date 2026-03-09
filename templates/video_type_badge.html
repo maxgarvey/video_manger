@@ -1,10 +1,11 @@
 <div id="video-type-{{.ID}}" style="display:flex;align-items:center;gap:0.3rem">
   <form hx-post="/videos/{{.ID}}/type" hx-target="#video-type-{{.ID}}" hx-swap="outerHTML">
-    <select name="type" onchange="this.form.submit()" style="font-size:0.82rem">
+    <select name="type" onchange="htmx.trigger(this.closest('form'),'submit')" style="font-size:0.82rem;background:#222;border:1px solid #444;color:#eee;padding:0.2rem 0.4rem;border-radius:4px">
       <option value="">Type…</option>
       {{range ValidVideoTypes}}
         <option value="{{.}}" {{if eq $.VideoType .}}selected{{end}}>{{.}}</option>
       {{end}}
     </select>
   </form>
+  {{if .VideoType}}<span style="background:{{typeColor .VideoType}};color:#fff;font-size:0.75rem;padding:0.15rem 0.5rem;border-radius:4px">{{.VideoType}}</span>{{end}}
 </div>

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,24 +17,6 @@ import (
 	"github.com/maxgarvey/video_manger/metadata"
 	"github.com/maxgarvey/video_manger/transcode"
 )
-
-// ── Output naming ─────────────────────────────────────────────────────────────
-
-// freeOutputName returns a filename of the form stem+suffix+ext that does not
-// already exist in dir. If that name is taken it appends _2, _3, … before the
-// suffix so the result is always unique without overwriting an existing file.
-func freeOutputName(dir, stem, suffix, ext string) string {
-	name := stem + suffix + ext
-	if _, err := os.Stat(filepath.Join(dir, name)); os.IsNotExist(err) {
-		return name
-	}
-	for i := 2; ; i++ {
-		name = fmt.Sprintf("%s%s_%d%s", stem, suffix, i, ext)
-		if _, err := os.Stat(filepath.Join(dir, name)); os.IsNotExist(err) {
-			return name
-		}
-	}
-}
 
 // ── Convert ───────────────────────────────────────────────────────────────────
 
@@ -198,14 +181,6 @@ func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
 
 // ── Trim ──────────────────────────────────────────────────────────────────────
 
-func (s *server) handleTrimPanel(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseIDParam(w, r)
-	if !ok {
-		return
-	}
-	render(w, "trim_panel.html", id)
-}
-
 func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	// Validate video ID before binary check so unknown IDs get 404, not 503.
 	video, ok := s.videoOrError(w, r)
@@ -233,6 +208,12 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	if err := transcode.Trim(r.Context(), s.convertSem, src, dst, start, end); err != nil {
 		http.Error(w, "trim failed: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Upsert the new file synchronously so the client can open it immediately.
+	if newVid, err := s.store.UpsertVideo(r.Context(), video.DirectoryID, dir, dstName); err == nil {
+		titleJSON, _ := json.Marshal(dstName)
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"trimComplete":{"videoId":%d,"title":%s}}`, newVid.ID, titleJSON))
 	}
 
 	if d, err := s.store.GetDirectory(r.Context(), video.DirectoryID); err == nil {

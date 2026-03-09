@@ -59,16 +59,57 @@ func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	_, statErr := os.Stat(video.FilePath())
 	fileNotFound := statErr != nil
 
+	srtPath := strings.TrimSuffix(video.FilePath(), filepath.Ext(video.FilePath())) + ".srt"
+	_, srtErr := os.Stat(srtPath)
+	hasSubtitles := srtErr == nil
+
 	libPath, _ := s.store.GetSetting(r.Context(), "library_path")
 	data := struct {
 		Video        store.Video
 		Tags         []store.Tag
 		AllTags      []store.Tag
 		FileNotFound bool
+		HasSubtitles bool
 		LibraryPath  string
 		Formats      []transcode.FormatEntry
-	}{video, tags, allTags, fileNotFound, strings.TrimSpace(libPath), transcode.FormatList}
+	}{video, tags, allTags, fileNotFound, hasSubtitles, strings.TrimSpace(libPath), transcode.FormatList}
 	render(w, "player.html", data)
+}
+
+// handleServeSubtitles converts a sidecar .srt file to WebVTT on-the-fly and
+// serves it so the browser <track> element can consume it directly.
+func (s *server) handleServeSubtitles(w http.ResponseWriter, r *http.Request) {
+	video, ok := s.videoOrError(w, r)
+	if !ok {
+		return
+	}
+	srtPath := strings.TrimSuffix(video.FilePath(), filepath.Ext(video.FilePath())) + ".srt"
+	data, err := os.ReadFile(srtPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	vtt := srtToWebVTT(string(data))
+	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+	fmt.Fprint(w, vtt)
+}
+
+// srtToWebVTT converts SRT subtitle text to WebVTT format.
+// The only structural differences are the header and timestamp separators:
+// SRT uses commas for milliseconds (00:00:01,000) while WebVTT uses dots
+// (00:00:01.000).
+func srtToWebVTT(srt string) string {
+	lines := strings.Split(srt, "\n")
+	out := make([]string, 0, len(lines)+2)
+	out = append(out, "WEBVTT", "")
+	for _, line := range lines {
+		// Replace timestamp separators: "HH:MM:SS,mmm --> HH:MM:SS,mmm"
+		if strings.Contains(line, " --> ") {
+			line = strings.ReplaceAll(line, ",", ".")
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 func (s *server) handleVideoFile(w http.ResponseWriter, r *http.Request) {
@@ -101,8 +142,9 @@ func (s *server) handleUpdateVideoName(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("write title metadata failed", "path", video.FilePath(), "err", err)
 		}
 	}
-	// Trigger a video-list refresh so the sidebar reflects the new name immediately.
-	w.Header().Set("HX-Trigger", "videoRenamed")
+	// Trigger a video-list refresh so the sidebar reflects the new name immediately,
+	// and a metadata panel refresh for the player page.
+	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"videoRenamed":true,"videoLabelled":{"id":%d}}`, id))
 	w.Write([]byte(html.EscapeString(video.Title()))) //nolint:errcheck
 }
 
@@ -129,6 +171,14 @@ func (s *server) handleAddVideoTag(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tag name required", http.StatusBadRequest)
 		return
 	}
+	reservedPrefixes := []string{"show:", "type:", "genre:", "actor:", "studio:", "channel:"}
+	for _, p := range reservedPrefixes {
+		if strings.HasPrefix(strings.ToLower(tagName), p) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<p style="font-size:0.82rem;color:#f87">Use the dedicated field to set %s</p>`, html.EscapeString(strings.TrimSuffix(p, ":")))
+			return
+		}
+	}
 	tag, err := s.store.UpsertTag(r.Context(), tagName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -138,16 +188,7 @@ func (s *server) handleAddVideoTag(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	tags, err := s.store.ListTagsByVideo(r.Context(), id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	video, err := s.store.GetVideo(r.Context(), id)
-	if err == nil {
-		s.syncTagsToFile(r.Context(), video)
-	}
-	render(w, "video_tags.html", videoTagsData{id, tags})
+	s.refreshVideoTags(w, r, id)
 }
 
 func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
@@ -167,16 +208,7 @@ func (s *server) handleRemoveVideoTag(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.PruneOrphanTags(r.Context()); err != nil {
 		slog.Warn("prune orphan tags failed", "err", err)
 	}
-	tags, err := s.store.ListTagsByVideo(r.Context(), id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	video, err := s.store.GetVideo(r.Context(), id)
-	if err == nil {
-		s.syncTagsToFile(r.Context(), video)
-	}
-	render(w, "video_tags.html", videoTagsData{id, tags})
+	s.refreshVideoTags(w, r, id)
 }
 
 func (s *server) handleVideoDeleteConfirm(w http.ResponseWriter, r *http.Request) {
@@ -192,14 +224,7 @@ func (s *server) handleDeleteVideo(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.store.DeleteVideo(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := s.store.PruneOrphanTags(r.Context()); err != nil {
-		slog.Warn("prune orphan tags failed", "err", err)
-	}
-	s.serveVideoList(w, r)
+	s.deleteVideoAndRefresh(w, r, id)
 }
 
 func (s *server) handleDeleteVideoAndFile(w http.ResponseWriter, r *http.Request) {
@@ -207,14 +232,10 @@ func (s *server) handleDeleteVideoAndFile(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if err := s.store.DeleteVideo(r.Context(), video.ID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	if err := os.Remove(video.FilePath()); err != nil {
 		slog.Warn("delete file failed", "path", video.FilePath(), "err", err)
 	}
-	s.serveVideoList(w, r)
+	s.deleteVideoAndRefresh(w, r, video.ID)
 }
 
 func (s *server) handleRelocateVideo(w http.ResponseWriter, r *http.Request) {
@@ -603,6 +624,7 @@ func (s *server) handleSetVideoType(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"videoLabelled":{"id":%d}}`, video.ID))
 	render(w, "video_type_badge.html", updated)
 }
 
@@ -728,6 +750,7 @@ func (s *server) handleQuickLabelSubmit(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"videoLabelled":{"id":%d}}`, video.ID))
 	w.WriteHeader(http.StatusOK)
 }
 

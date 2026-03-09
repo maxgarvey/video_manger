@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -70,6 +71,14 @@ var templates = template.Must(template.New("").Funcs(template.FuncMap{
 		return vals
 	},
 	"IsValidVideoType": store.IsValidVideoType,
+	// splitTagName splits "namespace:value" into parts for styled display.
+	// Returns a struct with Namespace and Value; plain tags have empty Namespace.
+	"splitTagName": func(name string) struct{ Namespace, Value string } {
+		if i := strings.Index(name, ":"); i > 0 {
+			return struct{ Namespace, Value string }{name[:i], name[i+1:]}
+		}
+		return struct{ Namespace, Value string }{"", name}
+	},
 }).ParseFS(templateFS, "templates/*.html"))
 
 // Server tunables – change these to adjust behaviour without recompiling.
@@ -129,7 +138,11 @@ func parseIDParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
 // render executes the named template, writing a 500 on error.
 // The raw template error is only logged server-side; the client receives a
 // generic message so that internal paths and Go type details are not leaked.
+// Cache-Control: no-store prevents stale HTMX GET responses (e.g. lookup
+// modal rendered before a key was saved) from being served from browser cache.
 func render(w http.ResponseWriter, name string, data any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	if err := templates.ExecuteTemplate(w, name, data); err != nil {
 		slog.Error("render template failed", "template", name, "err", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -45,6 +46,13 @@ func runMigrations(conn *sql.DB) error {
 		script, err := migrationFS.ReadFile("migrations/" + e.Name())
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", ver, err)
+		}
+
+		// Special pre-migration hook for 013: split actors column before DROP COLUMN.
+		if strings.HasPrefix(ver, "013_") {
+			if err := migrate013Actors(context.Background(), conn); err != nil {
+				return fmt.Errorf("migrate013Actors hook: %w", err)
+			}
 		}
 
 		tx, err := conn.Begin()

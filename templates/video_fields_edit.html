@@ -1,37 +1,30 @@
 <div id="video-fields-{{.ID}}" style="border-top:1px solid #2a2a2a;padding-top:0.6rem">
-  <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:#555;margin-bottom:0.5rem">Video Fields</div>
+  <div class="section-label" style="margin-bottom:0.5rem">Video Fields</div>
   <form hx-put="/videos/{{.ID}}/fields"
         hx-target="#video-fields-{{.ID}}"
         hx-swap="outerHTML"
         style="display:grid;grid-template-columns:auto 1fr;gap:0.35rem 0.6rem;align-items:center;font-size:0.8rem">
 
     <label style="color:#666;white-space:nowrap">Genre</label>
-    <input type="text" name="genre" value="{{.Genre}}"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+    <input type="text" name="genre" value="{{.Genre}}" class="input-dark">
 
     <label style="color:#666;white-space:nowrap">Channel / Show</label>
-    <input type="text" name="channel" value="{{.Channel}}"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+    <input type="text" name="channel" value="{{.Channel}}" class="input-dark">
 
     <label style="color:#666;white-space:nowrap">Season #</label>
-    <input type="number" name="season_number" value="{{.SeasonNumber}}" min="0"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem;width:6rem">
+    <input type="number" name="season_number" value="{{.SeasonNumber}}" min="0" class="input-dark" style="width:6rem">
 
     <label style="color:#666;white-space:nowrap">Episode #</label>
-    <input type="number" name="episode_number" value="{{.EpisodeNumber}}" min="0"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem;width:6rem">
+    <input type="number" name="episode_number" value="{{.EpisodeNumber}}" min="0" class="input-dark" style="width:6rem">
 
     <label style="color:#666;white-space:nowrap">Episode title</label>
-    <input type="text" name="episode_title" value="{{.EpisodeTitle}}"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+    <input type="text" name="episode_title" value="{{.EpisodeTitle}}" class="input-dark">
 
     <label style="color:#666;white-space:nowrap">Actors</label>
-    <input type="text" name="actors" value="{{.Actors}}" placeholder="e.g. Tom Hanks, Robin Wright"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+    <input type="text" name="actors" value="{{.Actors}}" placeholder="e.g. Tom Hanks, Robin Wright" class="input-dark">
 
     <label style="color:#666;white-space:nowrap">Studio</label>
-    <input type="text" name="studio" value="{{.Studio}}"
-      style="background:#222;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem">
+    <input type="text" name="studio" value="{{.Studio}}" class="input-dark">
 
     <div style="grid-column:1/-1;display:flex;gap:0.4rem;margin-top:0.1rem">
       <button type="submit" class="btn-sm btn-success" style="font-size:0.78rem">Save</button>

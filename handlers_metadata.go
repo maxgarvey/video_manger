@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -24,6 +25,94 @@ const (
 )
 
 var tmdbClient = &http.Client{Timeout: tmdbTimeout}
+
+// tmdbEpisode holds a single episode from the TMDB /tv/{id}/season/{n} endpoint.
+type tmdbEpisode struct {
+	EpisodeNumber int    `json:"episode_number"`
+	Name          string `json:"name"`
+	AirDate       string `json:"air_date"`
+	Overview      string `json:"overview"`
+}
+
+// lookupHints holds season/episode numbers inferred from a video's existing data.
+type lookupHints struct {
+	Season  int
+	Episode int
+}
+
+// hintsForVideo extracts season/episode hints from DB fields first, then
+// ffprobe metadata, then filename pattern (e.g. S02E05).
+func hintsForVideo(v store.Video, filePath string) lookupHints {
+	if v.SeasonNumber > 0 || v.EpisodeNumber > 0 {
+		return lookupHints{Season: v.SeasonNumber, Episode: v.EpisodeNumber}
+	}
+	m, err := metadata.Read(filePath)
+	if err == nil {
+		if sn, _ := strconv.Atoi(m.SeasonNum); sn > 0 {
+			ep, _ := strconv.Atoi(m.EpisodeNum)
+			return lookupHints{Season: sn, Episode: ep}
+		}
+		if m.EpisodeID != "" {
+			if s, e := parseEpisodeID(m.EpisodeID); s > 0 {
+				return lookupHints{Season: s, Episode: e}
+			}
+		}
+	}
+	return parseFilenameHints(v.Filename)
+}
+
+// parseEpisodeID parses "S02E05" or "s02e05" into season=2, episode=5.
+func parseEpisodeID(id string) (int, int) {
+	id = strings.ToUpper(id)
+	si := strings.Index(id, "S")
+	if si < 0 {
+		return 0, 0
+	}
+	rest := id[si+1:]
+	ei := strings.Index(rest, "E")
+	if ei < 0 {
+		return 0, 0
+	}
+	sn, err1 := strconv.Atoi(rest[:ei])
+	en, err2 := strconv.Atoi(rest[ei+1:])
+	if err1 != nil || err2 != nil {
+		return 0, 0
+	}
+	return sn, en
+}
+
+// parseFilenameHints scans a filename for SxxExx patterns, e.g. "Show.S02E05.mkv".
+func parseFilenameHints(filename string) lookupHints {
+	if i := strings.LastIndex(filename, "."); i > 0 {
+		filename = filename[:i]
+	}
+	upper := strings.ToUpper(filename)
+	for i := 0; i+3 < len(upper); i++ {
+		if upper[i] != 'S' {
+			continue
+		}
+		j := i + 1
+		for j < len(upper) && upper[j] >= '0' && upper[j] <= '9' {
+			j++
+		}
+		if j == i+1 || j >= len(upper) || upper[j] != 'E' {
+			continue
+		}
+		sn, _ := strconv.Atoi(upper[i+1 : j])
+		k := j + 1
+		for k < len(upper) && upper[k] >= '0' && upper[k] <= '9' {
+			k++
+		}
+		if k == j+1 {
+			continue
+		}
+		en, _ := strconv.Atoi(upper[j+1 : k])
+		if sn > 0 {
+			return lookupHints{Season: sn, Episode: en}
+		}
+	}
+	return lookupHints{Season: 1}
+}
 
 // tmdbResult holds a single search result from the TMDB /search/multi endpoint.
 type tmdbResult struct {
@@ -58,12 +147,26 @@ func (r tmdbResult) Year() string {
 
 // tmdbGet performs an authenticated GET against the TMDB v3 API and
 // JSON-decodes the response into v.
+// Supports both v3 API keys (32-char hex, passed as ?api_key=) and
+// v4 Read Access Tokens (JWT starting with "eyJ", passed as Bearer).
 func tmdbGet(apiKey, path string, v any) error {
-	req, err := http.NewRequest("GET", "https://api.themoviedb.org/3"+path, nil)
+	var rawURL string
+	if strings.HasPrefix(apiKey, "eyJ") {
+		rawURL = "https://api.themoviedb.org/3" + path
+	} else {
+		sep := "?"
+		if strings.Contains(path, "?") {
+			sep = "&"
+		}
+		rawURL = "https://api.themoviedb.org/3" + path + sep + "api_key=" + url.QueryEscape(apiKey)
+	}
+	req, err := http.NewRequest("GET", rawURL, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if strings.HasPrefix(apiKey, "eyJ") {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := tmdbClient.Do(req)
 	if err != nil {
@@ -178,6 +281,7 @@ func (s *server) handleUpdateVideoFields(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"videoLabelled":{"id":%d}}`, id))
 	render(w, "video_fields.html", video)
 }
 
@@ -199,7 +303,10 @@ func (s *server) handleLookupModal(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	apiKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
+	apiKey, err := s.store.GetSetting(r.Context(), "tmdb_api_key")
+	if err != nil {
+		slog.Warn("handleLookupModal: GetSetting tmdb_api_key failed", "err", err)
+	}
 	render(w, "lookup_modal.html", struct {
 		VideoID int64
 		HasKey  bool
@@ -227,6 +334,7 @@ func (s *server) handleLookupSearch(w http.ResponseWriter, r *http.Request) {
 		Results []tmdbResult `json:"results"`
 	}
 	if err := tmdbGet(apiKey, "/search/multi?query="+url.QueryEscape(q)+"&page=1", &result); err != nil {
+		slog.Warn("TMDB search failed", "err", err)
 		http.Error(w, "TMDB search failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -243,10 +351,17 @@ func (s *server) handleLookupSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var hints lookupHints
+	if video, err := s.store.GetVideo(r.Context(), id); err == nil {
+		hints = hintsForVideo(video, video.FilePath())
+	}
+
 	render(w, "lookup_results.html", struct {
-		VideoID int64
-		Results []tmdbResult
-	}{id, filtered})
+		VideoID     int64
+		Results     []tmdbResult
+		HintSeason  int
+		HintEpisode int
+	}{id, filtered, hints.Season, hints.Episode})
 }
 
 func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
@@ -338,11 +453,79 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("TMDB apply: write failed", "path", video.FilePath(), "err", err)
 		warn = "Metadata write failed: " + err.Error()
 	}
+
+	// Also persist relevant metadata as system tags in the DB.
+	switch mediaType {
+	case "movie":
+		if u.Genre != nil && *u.Genre != "" {
+			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "genre", *u.Genre); err != nil {
+				slog.Warn("TMDB apply: set genre tag failed", "err", err)
+			}
+		}
+	case "tv":
+		if u.Show != nil && *u.Show != "" {
+			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "show", *u.Show); err != nil {
+				slog.Warn("TMDB apply: set show tag failed", "err", err)
+			}
+		}
+		if u.Genre != nil && *u.Genre != "" {
+			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "genre", *u.Genre); err != nil {
+				slog.Warn("TMDB apply: set genre tag failed", "err", err)
+			}
+		}
+		if u.Network != nil && *u.Network != "" {
+			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "channel", *u.Network); err != nil {
+				slog.Warn("TMDB apply: set channel tag failed", "err", err)
+			}
+		}
+		if s2, _ := strconv.Atoi(r.FormValue("season")); s2 > 0 {
+			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "season", strconv.Itoa(s2)); err != nil {
+				slog.Warn("TMDB apply: set season tag failed", "err", err)
+			}
+		}
+	}
+
 	native, err := metadata.Read(video.FilePath())
 	if err != nil {
 		slog.Warn("TMDB apply: read failed", "path", video.FilePath(), "err", err)
 	}
+	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"videoLabelled":{"id":%d}}`, video.ID))
 	render(w, "file_metadata.html", fileMetaData{VideoID: video.ID, Native: native, Warn: warn})
+}
+
+func (s *server) handleLookupEpisodes(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDParam(w, r)
+	if !ok {
+		return
+	}
+	apiKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, `<p style="font-size:0.82rem;color:#f87">TMDB API key not configured.</p>`)
+		return
+	}
+	tmdbID := r.FormValue("tmdb_id")
+	season, _ := strconv.Atoi(r.FormValue("season"))
+	if season < 1 {
+		season = 1
+	}
+	var seasonData struct {
+		Episodes []tmdbEpisode `json:"episodes"`
+	}
+	epPath := fmt.Sprintf("/tv/%s/season/%d", tmdbID, season)
+	if err := tmdbGet(apiKey, epPath, &seasonData); err != nil {
+		slog.Warn("TMDB fetch season failed", "err", err)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<p style="font-size:0.82rem;color:#f87">Could not load episodes: %s</p>`, html.EscapeString(err.Error()))
+		return
+	}
+	render(w, "lookup_episodes.html", struct {
+		VideoID  int64
+		TmdbID   string
+		Season   int
+		Episodes []tmdbEpisode
+	}{id, tmdbID, season, seasonData.Episodes})
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────

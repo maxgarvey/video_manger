@@ -5,7 +5,7 @@
 <ul style="list-style:none;display:flex;flex-direction:column;gap:0.3rem"
   {{if $anySyncing}}hx-get="/directories" hx-trigger="every 2s" hx-target="this" hx-swap="outerHTML"{{end}}>
   {{range .Dirs}}
-  <li>
+  <li data-dir-id="{{.ID}}">
     <div style="display:flex;align-items:center;gap:0.4rem">
       <span style="flex:1;font-size:0.8rem;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Path}}">{{.Path}}</span>
       {{if index $syncing .ID}}
@@ -20,7 +20,7 @@
       {{end}}
       <button class="btn-icon" style="flex-shrink:0" title="New subfolder"
         onclick="var f=this.closest('li').querySelector('.subfolder-form');var open=f.style.display==='none';f.style.display=open?'flex':'none';if(open)f.querySelector('input').focus()"
-      >📁＋</button>
+      >⊞</button>
       <button class="btn-icon"
         hx-get="/directories/{{.ID}}/delete-confirm"
         hx-target="closest li"
@@ -29,7 +29,7 @@
         title="Delete"
       >✕</button>
     </div>
-    <!-- Inline new-subfolder form (hidden until 📁＋ is clicked) -->
+    <!-- Inline new-subfolder form (hidden until ⊞ is clicked) -->
     <form class="subfolder-form"
           hx-post="/directories/{{.ID}}/subfolder"
           hx-target="#directories"

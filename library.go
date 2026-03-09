@@ -145,6 +145,13 @@ func (s *server) syncDir(d store.Directory) {
 				}
 			}
 		}
+		if v.DurationS == 0 {
+			if d := metadata.ReadDuration(path); d > 0 {
+				if err := s.store.UpdateVideoDuration(context.Background(), v.ID, d); err != nil {
+					slog.Warn("set duration failed", "path", path, "err", err)
+				}
+			}
+		}
 		// Infer video type if not already set
 		if v.VideoType == "" {
 			tags, err := s.store.ListTagsByVideo(context.Background(), v.ID)

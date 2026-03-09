@@ -192,6 +192,7 @@ func (s *server) routes() http.Handler {
 	// compressed JPEGs and gain nothing from an extra gzip pass.
 	r.Get("/video/{id}", s.handleVideoFile)
 	r.Get("/videos/{id}/thumbnail", s.handleServeThumbnail)
+	r.Get("/videos/{id}/subtitles", s.handleServeSubtitles)
 
 	// All remaining routes use gzip compression (HTML/JSON responses).
 	r.Group(func(r chi.Router) {
@@ -235,6 +236,7 @@ func (s *server) routes() http.Handler {
 		// Metadata lookup (TMDB)
 		r.Get("/videos/{id}/lookup", s.handleLookupModal)
 		r.Post("/videos/{id}/lookup/search", s.handleLookupSearch)
+		r.Get("/videos/{id}/lookup/episodes", s.handleLookupEpisodes)
 		r.Post("/videos/{id}/lookup/apply", s.handleLookupApply)
 
 		// Quick label
@@ -285,7 +287,6 @@ func (s *server) routes() http.Handler {
 		r.Get("/duplicates", s.handleListDuplicates)
 
 		// Video trimming (temporal crop)
-		r.Get("/videos/{id}/trim", s.handleTrimPanel)
 		r.Post("/videos/{id}/trim", s.handleTrim)
 
 		// Random video ID (for initial tab load)
@@ -293,6 +294,17 @@ func (s *server) routes() http.Handler {
 
 		// Next unwatched video
 		r.Get("/videos/next-unwatched", s.handleNextUnwatched)
+
+		// ── JSON API (Roku / external clients) ──────────────────────────
+		r.Get("/api/videos", s.handleAPIListVideos)
+		r.Get("/api/videos/{id}", s.handleAPIGetVideo)
+		r.Get("/api/random", s.handleAPIRandom)
+		r.Get("/api/shows", s.handleAPIListShows)
+		r.Get("/api/shows/{show}/seasons", s.handleAPIListSeasons)
+		r.Get("/api/shows/{show}/seasons/{season}/episodes", s.handleAPIListEpisodes)
+		r.Get("/api/tags", s.handleAPIListTags)
+		r.Get("/api/tags/{id}/videos", s.handleAPITagVideos)
+		r.Get("/api/recently-watched", s.handleAPIRecentlyWatched)
 	})
 
 	return r

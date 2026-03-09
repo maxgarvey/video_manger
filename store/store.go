@@ -31,7 +31,8 @@ type Video struct {
 	Actors        string
 	Studio        string
 	Channel       string
-	ThumbnailPath string // relative or absolute path to thumbnail image
+	ThumbnailPath string  // relative or absolute path to thumbnail image
+	DurationS     float64 // total duration in seconds; 0 means unknown
 	// WatchedAt holds the last watch timestamp (SQLite datetime string, empty if never watched).
 	// Populated by list queries via LEFT JOIN watch_history — do not set manually.
 	WatchedAt string
@@ -174,6 +175,17 @@ type Store interface {
 	// PruneOrphanTags removes tags that are no longer associated with any video.
 	PruneOrphanTags(ctx context.Context) error
 
+	// SetExclusiveSystemTag removes all tags with prefix "namespace:" from the video
+	// and upserts "namespace:value". Empty value just removes existing tags.
+	SetExclusiveSystemTag(ctx context.Context, videoID int64, namespace, value string) error
+
+	// SetMultiSystemTag removes all tags with prefix "namespace:" then adds one tag
+	// per value in values (empty strings skipped).
+	SetMultiSystemTag(ctx context.Context, videoID int64, namespace string, values []string) error
+
 	// Thumbnail management
 	UpdateVideoThumbnail(ctx context.Context, videoID int64, thumbnailPath string) error
+
+	// Duration
+	UpdateVideoDuration(ctx context.Context, videoID int64, duration float64) error
 }

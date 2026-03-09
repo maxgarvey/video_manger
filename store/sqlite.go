@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,24 +129,66 @@ func (s *SQLiteStore) DeleteDirectoryAndVideos(ctx context.Context, id int64) ([
 // --- Videos (raw SQL — directory_id is nullable, so no sqlc JOIN queries) ---
 
 func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, dirPath string, filename string) (Video, error) {
-	// show_name is not known during initial sync; insert empty string so
-	// RETURNING ordering stays consistent with scan helpers.
 	row := s.conn.QueryRowContext(ctx, `
-		INSERT INTO videos (filename, directory_id, directory_path, original_filename, show_name)
-		VALUES (?, ?, ?, ?, '')
+		INSERT INTO videos (filename, directory_id, directory_path, original_filename)
+		VALUES (?, ?, ?, ?)
 		ON CONFLICT (filename, directory_path)
 			DO UPDATE SET directory_id = excluded.directory_id
-		RETURNING id, filename, directory_id, directory_path, show_name, display_name, rating, original_filename,
-		          genre, season_number, episode_number, episode_title, actors, studio, channel, video_type,
-		          NULL -- watched_at: new/upserted videos have no watch history yet
+		RETURNING id, filename, directory_id, directory_path, display_name,
+		          (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		           WHERE vt.video_id=id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		          rating, original_filename,
+		          (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		           WHERE vt.video_id=id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		          season_number,
+		          episode_number,
+		          episode_title,
+		          (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		           WHERE vt.video_id=id AND t.name LIKE 'actor:%') AS actors,
+		          (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		           WHERE vt.video_id=id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		          (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		           WHERE vt.video_id=id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		          (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		           WHERE vt.video_id=id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		          thumbnail_path, duration_s,
+		          NULL AS watched_at
 	`, filename, dirID, dirPath, filename)
 	return scanVideoRow(row)
 }
 
 func (s *SQLiteStore) ListVideos(ctx context.Context) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -165,8 +208,30 @@ func (s *SQLiteStore) CountVideos(ctx context.Context) (int, error) {
 
 func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
 		JOIN video_tags vt ON v.id = vt.video_id
@@ -182,8 +247,30 @@ func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video
 
 func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -198,8 +285,30 @@ func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([
 
 func (s *SQLiteStore) GetVideo(ctx context.Context, id int64) (Video, error) {
 	row := s.conn.QueryRowContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -215,8 +324,30 @@ func (s *SQLiteStore) SetVideoRating(ctx context.Context, id int64, rating int) 
 
 func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -230,12 +361,36 @@ func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
 
 func (s *SQLiteStore) ListVideosByShow(ctx context.Context, showName string) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
+		JOIN video_tags vt ON vt.video_id = v.id
+		JOIN tags t ON t.id = vt.tag_id
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
-		WHERE v.show_name = ?
+		WHERE t.name = 'show:' || ?
 		ORDER BY v.season_number ASC, v.episode_number ASC, COALESCE(NULLIF(v.display_name, ''), v.filename) ASC
 	`, showName)
 	if err != nil {
@@ -250,8 +405,30 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 	var row *sql.Row
 	if tagID > 0 {
 		row = s.conn.QueryRowContext(ctx, `
-			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-			       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+			        WHERE vt2.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+			       v.rating, v.original_filename,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+			        WHERE vt2.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+			       v.season_number,
+			       v.episode_number,
+			       v.episode_title,
+			       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+			        WHERE vt2.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+			        WHERE vt2.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+			        WHERE vt2.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+			        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+			       v.thumbnail_path, v.duration_s,
 			       wh.watched_at
 			FROM videos v
 			JOIN video_tags vt ON v.id = vt.video_id
@@ -262,8 +439,30 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 		`, tagID)
 	} else {
 		row = s.conn.QueryRowContext(ctx, `
-			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-			       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+			       v.rating, v.original_filename,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+			       v.season_number,
+			       v.episode_number,
+			       v.episode_title,
+			       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+			       v.thumbnail_path, v.duration_s,
 			       wh.watched_at
 			FROM videos v
 			LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -280,8 +479,30 @@ func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
 	// MAX(1, …) prevents modulo-by-zero when the table is empty; the query
 	// still returns no rows because there are none to offset into.
 	row := s.conn.QueryRowContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -296,23 +517,45 @@ func (s *SQLiteStore) UpdateVideoName(ctx context.Context, id int64, name string
 }
 
 func (s *SQLiteStore) UpdateVideoShowName(ctx context.Context, id int64, showName string) error {
-	_, err := s.conn.ExecContext(ctx, `UPDATE videos SET show_name = ? WHERE id = ?`, showName, id)
-	return err
+	return s.SetExclusiveSystemTag(ctx, id, "show", showName)
 }
 
 func (s *SQLiteStore) UpdateVideoType(ctx context.Context, id int64, videoType string) error {
-	_, err := s.conn.ExecContext(ctx, `UPDATE videos SET video_type = ? WHERE id = ?`, videoType, id)
-	return err
+	return s.SetExclusiveSystemTag(ctx, id, "type", videoType)
 }
 
 func (s *SQLiteStore) ListVideosByType(ctx context.Context, videoType string) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
+		JOIN video_tags vt ON vt.video_id = v.id
+		JOIN tags t ON t.id = vt.tag_id
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
-		WHERE v.video_type = ?
+		WHERE t.name = 'type:' || ?
 		ORDER BY v.directory_path ASC, COALESCE(NULLIF(v.display_name, ''), v.filename) ASC
 	`, videoType)
 	if err != nil {
@@ -323,6 +566,11 @@ func (s *SQLiteStore) ListVideosByType(ctx context.Context, videoType string) ([
 
 func (s *SQLiteStore) UpdateVideoThumbnail(ctx context.Context, videoID int64, thumbnailPath string) error {
 	_, err := s.conn.ExecContext(ctx, `UPDATE videos SET thumbnail_path = ? WHERE id = ?`, thumbnailPath, videoID)
+	return err
+}
+
+func (s *SQLiteStore) UpdateVideoDuration(ctx context.Context, videoID int64, duration float64) error {
+	_, err := s.conn.ExecContext(ctx, `UPDATE videos SET duration_s = ? WHERE id = ?`, duration, videoID)
 	return err
 }
 
@@ -339,20 +587,70 @@ func (s *SQLiteStore) UpdateVideoPath(ctx context.Context, id, dirID int64, dirP
 }
 
 func (s *SQLiteStore) UpdateVideoFields(ctx context.Context, id int64, f VideoFields) error {
-	_, err := s.conn.ExecContext(ctx, `
-		UPDATE videos SET
-			genre=?, season_number=?, episode_number=?,
-			episode_title=?, actors=?, studio=?, channel=?
-		WHERE id=?`,
-		f.Genre, f.SeasonNumber, f.EpisodeNumber,
-		f.EpisodeTitle, f.Actors, f.Studio, f.Channel, id)
-	return err
+	// Structured numeric fields stay as column updates.
+	if _, err := s.conn.ExecContext(ctx,
+		`UPDATE videos SET season_number=?, episode_number=?, episode_title=? WHERE id=?`,
+		f.SeasonNumber, f.EpisodeNumber, f.EpisodeTitle, id); err != nil {
+		return err
+	}
+	// season: tag mirrors the season_number column for sidebar filtering.
+	seasonVal := ""
+	if f.SeasonNumber > 0 {
+		seasonVal = strconv.Itoa(f.SeasonNumber)
+	}
+	if err := s.SetExclusiveSystemTag(ctx, id, "season", seasonVal); err != nil {
+		return err
+	}
+	if err := s.SetExclusiveSystemTag(ctx, id, "genre", f.Genre); err != nil {
+		return err
+	}
+	if err := s.SetExclusiveSystemTag(ctx, id, "studio", f.Studio); err != nil {
+		return err
+	}
+	if err := s.SetExclusiveSystemTag(ctx, id, "channel", f.Channel); err != nil {
+		return err
+	}
+	// Actors: split on comma, one tag per actor.
+	actors := splitActors(f.Actors)
+	return s.SetMultiSystemTag(ctx, id, "actor", actors)
+}
+
+func splitActors(actors string) []string {
+	var result []string
+	for _, a := range strings.Split(actors, ",") {
+		if s := strings.TrimSpace(a); s != "" {
+			result = append(result, s)
+		}
+	}
+	return result
 }
 
 func (s *SQLiteStore) ListVideosByMinRating(ctx context.Context, minRating int) ([]Video, error) {
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -372,16 +670,44 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 		// Wrap in FTS5 phrase quotes so spaces and punctuation are treated
 		// literally (equivalent to LIKE '%query%' with the trigram tokenizer).
 		ftsQuery := `"` + strings.ReplaceAll(query, `"`, `""`) + `"`
+		escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 		rows, err := s.conn.QueryContext(ctx, `
-			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-			       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+			SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+			       v.rating, v.original_filename,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+			       v.season_number,
+			       v.episode_number,
+			       v.episode_title,
+			       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+			       v.thumbnail_path, v.duration_s,
 			       wh.watched_at
 			FROM videos v
 			JOIN videos_fts ON videos_fts.rowid = v.id
 			LEFT JOIN watch_history wh ON v.id = wh.video_id
 			WHERE videos_fts MATCH ?
+			   OR EXISTS (
+			      SELECT 1 FROM video_tags vt2
+			      JOIN tags t2 ON t2.id = vt2.tag_id
+			      WHERE vt2.video_id = v.id AND LOWER(t2.name) LIKE LOWER(?) ESCAPE '\'
+			   )
 			ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename) ASC
-		`, ftsQuery)
+		`, ftsQuery, "%"+escaped+"%")
 		if err == nil {
 			return scanVideos(rows)
 		}
@@ -390,14 +716,41 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 	// LIKE fallback: escape special chars so they are treated literally.
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.conn.QueryContext(ctx, `
-		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name, v.show_name, v.rating, v.original_filename,
-		       v.genre, v.season_number, v.episode_number, v.episode_title, v.actors, v.studio, v.channel, v.video_type,
+		SELECT v.id, v.filename, v.directory_id, v.directory_path, v.display_name,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'show:%' LIMIT 1) AS show_name,
+		       v.rating, v.original_filename,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'genre:%' LIMIT 1) AS genre,
+		       v.season_number,
+		       v.episode_number,
+		       v.episode_title,
+		       (SELECT GROUP_CONCAT(SUBSTR(t.name, INSTR(t.name,':')+1), ', ')
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'actor:%') AS actors,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'studio:%' LIMIT 1) AS studio,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'channel:%' LIMIT 1) AS channel,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       v.thumbnail_path, v.duration_s,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
 		WHERE LOWER(COALESCE(NULLIF(v.display_name, ''), v.filename)) LIKE LOWER(?) ESCAPE '\'
+		   OR EXISTS (
+		      SELECT 1 FROM video_tags vt2
+		      JOIN tags t2 ON t2.id = vt2.tag_id
+		      WHERE vt2.video_id = v.id AND LOWER(t2.name) LIKE LOWER(?) ESCAPE '\'
+		   )
 		ORDER BY COALESCE(NULLIF(v.display_name, ''), v.filename) ASC
-	`, "%"+escaped+"%")
+	`, "%"+escaped+"%", "%"+escaped+"%")
 	if err != nil {
 		return nil, err
 	}
@@ -470,15 +823,68 @@ func (s *SQLiteStore) ListTagsByVideo(ctx context.Context, videoID int64) ([]Tag
 	return tags, rows.Err()
 }
 
+// SetExclusiveSystemTag removes all tags with prefix "namespace:" from the video
+// and upserts "namespace:value". Empty value just removes existing tags.
+func (s *SQLiteStore) SetExclusiveSystemTag(ctx context.Context, videoID int64, namespace, value string) error {
+	// Remove existing tags for this namespace from this video.
+	if _, err := s.conn.ExecContext(ctx, `
+		DELETE FROM video_tags WHERE video_id = ? AND tag_id IN (
+			SELECT id FROM tags WHERE name LIKE ?
+		)`, videoID, namespace+":%"); err != nil {
+		return err
+	}
+	if value == "" {
+		return nil
+	}
+	name := namespace + ":" + value
+	if _, err := s.conn.ExecContext(ctx,
+		`INSERT OR IGNORE INTO tags (name) VALUES (?)`, name); err != nil {
+		return err
+	}
+	_, err := s.conn.ExecContext(ctx,
+		`INSERT OR IGNORE INTO video_tags (video_id, tag_id)
+		 SELECT ?, id FROM tags WHERE name = ?`, videoID, name)
+	return err
+}
+
+// SetMultiSystemTag removes all tags with prefix "namespace:" then adds one tag
+// per value in values (empty strings skipped).
+func (s *SQLiteStore) SetMultiSystemTag(ctx context.Context, videoID int64, namespace string, values []string) error {
+	// Remove all existing tags for this namespace from this video.
+	if _, err := s.conn.ExecContext(ctx, `
+		DELETE FROM video_tags WHERE video_id = ? AND tag_id IN (
+			SELECT id FROM tags WHERE name LIKE ?
+		)`, videoID, namespace+":%"); err != nil {
+		return err
+	}
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		name := namespace + ":" + value
+		if _, err := s.conn.ExecContext(ctx,
+			`INSERT OR IGNORE INTO tags (name) VALUES (?)`, name); err != nil {
+			return err
+		}
+		if _, err := s.conn.ExecContext(ctx,
+			`INSERT OR IGNORE INTO video_tags (video_id, tag_id)
+			 SELECT ?, id FROM tags WHERE name = ?`, videoID, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // --- scan helpers ---
 
 func scanVideoRow(row *sql.Row) (Video, error) {
 	var v Video
 	var dirID sql.NullInt64
-	var watchedAt sql.NullString
+	var showName, genre, actors, studio, channel, videoType, thumbnailPath, watchedAt sql.NullString
 	if err := row.Scan(
-		&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &v.ShowName, &v.Rating, &v.OriginalFilename,
-		&v.Genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &v.Actors, &v.Studio, &v.Channel, &v.VideoType,
+		&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &showName, &v.Rating, &v.OriginalFilename,
+		&genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &actors, &studio, &channel, &videoType,
+		&thumbnailPath, &v.DurationS,
 		&watchedAt,
 	); err != nil {
 		return Video{}, err
@@ -486,6 +892,13 @@ func scanVideoRow(row *sql.Row) (Video, error) {
 	if dirID.Valid {
 		v.DirectoryID = dirID.Int64
 	}
+	v.ShowName = showName.String
+	v.Genre = genre.String
+	v.Actors = actors.String
+	v.Studio = studio.String
+	v.Channel = channel.String
+	v.VideoType = videoType.String
+	v.ThumbnailPath = thumbnailPath.String
 	if watchedAt.Valid {
 		v.WatchedAt = watchedAt.String
 	}
@@ -498,10 +911,11 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 	for rows.Next() {
 		var v Video
 		var dirID sql.NullInt64
-		var watchedAt sql.NullString
+		var showName, genre, actors, studio, channel, videoType, thumbnailPath, watchedAt sql.NullString
 		if err := rows.Scan(
-			&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &v.ShowName, &v.Rating, &v.OriginalFilename,
-			&v.Genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &v.Actors, &v.Studio, &v.Channel, &v.VideoType,
+			&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &showName, &v.Rating, &v.OriginalFilename,
+			&genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &actors, &studio, &channel, &videoType,
+			&thumbnailPath, &v.DurationS,
 			&watchedAt,
 		); err != nil {
 			return nil, err
@@ -509,6 +923,13 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 		if dirID.Valid {
 			v.DirectoryID = dirID.Int64
 		}
+		v.ShowName = showName.String
+		v.Genre = genre.String
+		v.Actors = actors.String
+		v.Studio = studio.String
+		v.Channel = channel.String
+		v.VideoType = videoType.String
+		v.ThumbnailPath = thumbnailPath.String
 		if watchedAt.Valid {
 			v.WatchedAt = watchedAt.String
 		}

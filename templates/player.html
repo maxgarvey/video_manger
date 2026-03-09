@@ -25,24 +25,228 @@
   </form>
 </div>
 {{else}}
-<video id="vid-{{.Video.ID}}" controls autoplay style="width:100%;height:100%;display:block;object-fit:contain"
-  data-video-id="{{.Video.ID}}">
-  <source src="/video/{{.Video.ID}}">
-  Your browser does not support the video tag.
-</video>
+<!-- Flex-column wrapper fills the tab-pane so strips can sit below the video -->
+<div style="position:absolute;inset:0;display:flex;flex-direction:column">
+
+  <!-- Video area: takes all available height -->
+  <div style="flex:1;min-height:0;position:relative">
+    <!-- Filter wrapper: apply CSS filter here, not on <video>, to avoid GPU crash -->
+    <div id="vid-wrap-{{.Video.ID}}" style="width:100%;height:100%">
+      <video id="vid-{{.Video.ID}}" controls autoplay
+        style="width:100%;height:100%;display:block;object-fit:contain"
+        data-video-id="{{.Video.ID}}">
+        <source src="/video/{{.Video.ID}}">
+        {{if .HasSubtitles}}<track kind="subtitles" src="/videos/{{.Video.ID}}/subtitles" srclang="en" label="English" default>{{end}}
+        Your browser does not support the video tag.
+      </video>
+    </div>
+
+    <!-- Tags overlay: top-right of video, fades in on hover -->
+    {{if .Tags}}
+    <div id="player-overlay-top">
+      <div style="display:flex;gap:0.25rem;flex-wrap:wrap;justify-content:flex-end">
+        {{range .Tags}}
+        <span style="font-size:0.72rem;background:rgba(255,255,255,0.15);border-radius:10px;padding:0.1rem 0.45rem;color:#ddd">{{.Name}}</span>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+
+    <!-- MTV-style lower-third overlay -->
+    <div id="player-overlay">
+      <div class="mtv-card">
+        {{/* Line 1: Show name (big) or title if no show */}}
+        <div class="mtv-show">{{if .Video.ShowName}}{{.Video.ShowName}}{{else}}{{.Video.Title}}{{end}}{{if eq .Video.Rating 2}} ★{{else if eq .Video.Rating 1}} ♥{{end}}</div>
+
+        {{/* Line 2: Episode title (or video title when show is set) */}}
+        {{if and .Video.ShowName .Video.Title}}
+        <div class="mtv-title">"{{.Video.Title}}"</div>
+        {{else if .Video.EpisodeTitle}}
+        <div class="mtv-title">"{{.Video.EpisodeTitle}}"</div>
+        {{end}}
+
+        {{/* Line 3: Season / Episode */}}
+        {{if or (gt .Video.SeasonNumber 0) (gt .Video.EpisodeNumber 0)}}
+        <div class="mtv-ep">{{if gt .Video.SeasonNumber 0}}Season {{.Video.SeasonNumber}}{{end}}{{if and (gt .Video.SeasonNumber 0) (gt .Video.EpisodeNumber 0)}} · {{end}}{{if gt .Video.EpisodeNumber 0}}Episode {{.Video.EpisodeNumber}}{{end}}</div>
+        {{end}}
+
+        {{/* Line 4: Genre · Channel · Studio */}}
+        {{if or .Video.Genre .Video.Channel .Video.Studio}}
+        <div class="mtv-meta">{{if .Video.Genre}}<span>{{.Video.Genre}}</span>{{end}}{{if .Video.Channel}}<span>{{.Video.Channel}}</span>{{end}}{{if .Video.Studio}}<span>{{.Video.Studio}}</span>{{end}}</div>
+        {{end}}
+
+        {{/* Line 5: Actors (if present) */}}
+        {{if .Video.Actors}}
+        <div class="mtv-meta"><span>{{.Video.Actors}}</span></div>
+        {{end}}
+      </div>
+
+      {{/* Channel bug — bottom right corner */}}
+      {{if .Video.VideoType}}
+      <div class="mtv-bug">{{.Video.VideoType}}</div>
+      {{end}}
+    </div>
+  </div><!-- /video area -->
+
+  <!-- ── Quick-action buttons row — sits flush below the video ───────── -->
+  <div style="display:flex;gap:0.4rem;align-items:center;background:#0a0a0a;padding:0.3rem 0.6rem;border-top:1px solid #1e1e1e;flex-shrink:0">
+    <button class="btn-sm btn-ghost" id="trim-btn-{{.Video.ID}}" style="font-size:0.75rem"
+      onclick="(function(){ var strip=document.getElementById('trim-strip-{{.Video.ID}}'); var btn=document.getElementById('trim-btn-{{.Video.ID}}'); if(strip.style.display==='flex'){ strip.style.display='none'; btn.style.opacity='0.5'; } else { openTrimStrip('{{.Video.ID}}'); btn.style.opacity='1'; } })()"
+      title="Trim video by start/end time"
+    >✂ Trim</button>
+    <button class="btn-sm btn-ghost" id="color-btn-{{.Video.ID}}" style="font-size:0.75rem"
+      onclick="(function(){ var bar=document.getElementById('color-bar-{{.Video.ID}}'); var vis=bar.style.display!=='flex'; bar.style.display=vis?'flex':'none'; document.getElementById('color-btn-{{.Video.ID}}').style.opacity=vis?'1':'0.5'; })()"
+      title="Adjust brightness, contrast, saturation, hue"
+    >◑ Color</button>
+    <button class="btn-sm btn-ghost" id="audio-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.5"
+      onclick="(function(){ var bar=document.getElementById('audio-bar-{{.Video.ID}}'); var vis=bar.style.display!=='block'; bar.style.display=vis?'block':'none'; document.getElementById('audio-btn-{{.Video.ID}}').style.opacity=vis?'1':'0.5'; })()"
+      title="EQ, volume, pan and compression"
+    >♬ Audio</button>
+    <span style="flex:1"></span>
+    <button class="btn-sm" style="font-size:0.75rem"
+      hx-get="/videos/{{.Video.ID}}/quick-label"
+      hx-target="#quick-label-modal"
+      hx-swap="innerHTML"
+      title="Quick label video with title, genre, season, etc."
+    >⊕ Quick label</button>
+    <button class="btn-sm btn-danger" style="font-size:0.75rem"
+      onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='flex'"
+      title="Delete this video"
+    >⌦ Delete…</button>
+  </div>
+
+  <!-- ── Trim strip — appears directly below the video edge ──────────── -->
+  <div id="trim-strip-{{.Video.ID}}"
+       style="display:none;flex-direction:column;gap:0.35rem;background:#0c0c0c;border-top:2px solid #2563eb;padding:0.45rem 0.8rem 0.5rem">
+
+    <div class="section-label" style="color:#2563eb">
+      ✂ Trim — drag handles to select the region to keep
+    </div>
+
+    <!-- Dual-handle range bar (full width = full video width) -->
+    <div id="trim-bar-{{.Video.ID}}" style="position:relative;height:22px;user-select:none">
+      <div style="position:absolute;top:50%;left:0;right:0;height:4px;background:#2a2a2a;border-radius:2px;transform:translateY(-50%)"></div>
+      <div id="trim-region-{{.Video.ID}}" style="position:absolute;top:50%;height:4px;background:#2563eb;border-radius:2px;transform:translateY(-50%);left:0%;right:0%"></div>
+      <input type="range" id="trim-rs-{{.Video.ID}}" min="0" max="1000" value="0" step="1"
+        style="position:absolute;width:100%;top:0;left:0;height:100%;margin:0;opacity:0;cursor:ew-resize;z-index:2"
+        oninput="trimRangeInput('{{.Video.ID}}')">
+      <input type="range" id="trim-re-{{.Video.ID}}" min="0" max="1000" value="1000" step="1"
+        style="position:absolute;width:100%;top:0;left:0;height:100%;margin:0;opacity:0;cursor:ew-resize;z-index:3"
+        oninput="trimRangeInput('{{.Video.ID}}')">
+      <div id="trim-ts-{{.Video.ID}}" style="position:absolute;top:50%;width:10px;height:22px;background:#2563eb;border:2px solid #5a9ef8;border-radius:3px;transform:translate(-50%,-50%);left:0%;pointer-events:none;z-index:4"></div>
+      <div id="trim-te-{{.Video.ID}}" style="position:absolute;top:50%;width:10px;height:22px;background:#2563eb;border:2px solid #5a9ef8;border-radius:3px;transform:translate(-50%,-50%);left:100%;pointer-events:none;z-index:4"></div>
+    </div>
+
+    <!-- Controls row: start input — label — end input — buttons -->
+    <form id="trim-form-{{.Video.ID}}"
+          hx-post="/videos/{{.Video.ID}}/trim"
+          hx-target="#video-list"
+          hx-indicator="#trim-status-{{.Video.ID}}"
+          hx-on::after-request="document.getElementById('trim-strip-{{.Video.ID}}').style.display='none';document.getElementById('trim-btn-{{.Video.ID}}').style.opacity='0.5'"
+          style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem">
+      <input type="text" id="trim-start-{{.Video.ID}}" name="start" value="0"
+        title="Start time (HH:MM:SS, MM:SS, or seconds)"
+        style="width:4.6rem;background:#1a1a1a;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem;font-family:monospace;text-align:center"
+        oninput="trimTextInput('{{.Video.ID}}','start')">
+      <span style="flex:1;text-align:center;color:#2563eb;font-size:0.65rem;letter-spacing:0.06em;user-select:none">— keep →</span>
+      <input type="text" id="trim-end-{{.Video.ID}}" name="end" placeholder="end"
+        title="End time (HH:MM:SS, MM:SS, or seconds) — leave blank to keep to end"
+        style="width:4.6rem;background:#1a1a1a;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem;font-family:monospace;text-align:center"
+        oninput="trimTextInput('{{.Video.ID}}','end')">
+      <button type="submit" class="btn-sm btn-success" style="font-size:0.75rem"
+        hx-confirm="Trim to selected region? A new file will be created.">✂ Trim</button>
+      <button type="button" class="btn-sm btn-ghost" style="font-size:0.75rem"
+        onclick="document.getElementById('trim-strip-{{.Video.ID}}').style.display='none';document.getElementById('trim-btn-{{.Video.ID}}').style.opacity='0.5'">✕</button>
+    </form>
+    <div id="trim-status-{{.Video.ID}}" class="htmx-indicator"
+         style="font-size:0.72rem;color:#888;display:flex;align-items:center;gap:0.3rem">
+      <span class="spinner"></span> Trimming…
+    </div>
+  </div><!-- /trim strip -->
+
+  <!-- ── Color controls bar ──────────────────────────────────────────── -->
+  <div id="color-bar-{{.Video.ID}}"
+       style="display:none;background:#111;padding:0.4rem 0.6rem;gap:0.6rem;flex-wrap:wrap;align-items:center;font-size:0.76rem;color:#888;border-top:1px solid #222">
+    <style>
+      .cc-slider { accent-color:#2563eb; width:80px; vertical-align:middle; cursor:pointer; }
+      .cc-val { color:#ccc; font-family:monospace; font-size:0.72rem; min-width:2.5rem; display:inline-block; text-align:right; }
+    </style>
+    <span style="color:#555;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em">Color</span>
+    <label title="Brightness">☀ <input type="range" class="cc-slider" id="cc-brightness-{{.Video.ID}}" min="0" max="200" value="100" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-brightness-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-brightness-{{.Video.ID}}">100%</span></label>
+    <label title="Contrast">◑ <input type="range" class="cc-slider" id="cc-contrast-{{.Video.ID}}" min="0" max="200" value="100" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-contrast-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-contrast-{{.Video.ID}}">100%</span></label>
+    <label title="Saturation">◎ <input type="range" class="cc-slider" id="cc-saturate-{{.Video.ID}}" min="0" max="300" value="100" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-saturate-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-saturate-{{.Video.ID}}">100%</span></label>
+    <label title="Hue Rotate">↻<input type="range" class="cc-slider" id="cc-hue-{{.Video.ID}}" min="0" max="360" value="0" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-hue-{{.Video.ID}}').textContent=this.value+'°'"><span class="cc-val" id="ccv-hue-{{.Video.ID}}">0°</span></label>
+    <label title="Sepia (Tint)">▒<input type="range" class="cc-slider" id="cc-sepia-{{.Video.ID}}" min="0" max="100" value="0" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-sepia-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-sepia-{{.Video.ID}}">0%</span></label>
+    <button class="btn-sm btn-ghost" style="font-size:0.7rem;padding:0.15rem 0.4rem" onclick="resetVideoFilter('{{.Video.ID}}')">Reset</button>
+  </div><!-- /color bar -->
+
+  <!-- ── Audio controls bar ──────────────────────────────────────────── -->
+  <div id="audio-bar-{{.Video.ID}}"
+       style="display:none;background:#111;padding:0.4rem 0.6rem;border-top:1px solid #222;font-size:0.76rem;color:#888">
+    <!-- Row 1: Volume / Pan / Compressor -->
+    <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center">
+      <span style="color:#555;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em">Audio</span>
+      <label title="Volume (0–200%)">Vol
+        <input type="range" class="cc-slider" id="ac-vol-{{.Video.ID}}" min="0" max="200" value="100"
+          oninput="applyAudio('{{.Video.ID}}');document.getElementById('acv-vol-{{.Video.ID}}').textContent=this.value+'%'">
+        <span class="cc-val" id="acv-vol-{{.Video.ID}}">100%</span>
+      </label>
+      <label title="Stereo pan (L ← 0 → R)">Pan
+        <input type="range" class="cc-slider" id="ac-pan-{{.Video.ID}}" min="-100" max="100" value="0"
+          oninput="applyAudio('{{.Video.ID}}');document.getElementById('acv-pan-{{.Video.ID}}').textContent=this.value">
+        <span class="cc-val" id="acv-pan-{{.Video.ID}}">0</span>
+      </label>
+      <label title="Compressor ratio — 1× = off, higher = more squash">Comp
+        <input type="range" class="cc-slider" id="ac-comp-{{.Video.ID}}" min="1" max="20" value="1" step="0.5"
+          oninput="applyAudio('{{.Video.ID}}');document.getElementById('acv-comp-{{.Video.ID}}').textContent=this.value+'×'">
+        <span class="cc-val" id="acv-comp-{{.Video.ID}}">1×</span>
+      </label>
+      <button class="btn-sm btn-ghost" style="font-size:0.7rem;padding:0.15rem 0.4rem" onclick="resetAudio('{{.Video.ID}}')">Reset</button>
+    </div>
+    <!-- Row 2: 5-band EQ -->
+    <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;margin-top:0.3rem">
+      <span style="color:#555;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em">EQ</span>
+      <label title="Bass shelf (80 Hz)">Bass
+        <input type="range" class="cc-slider" id="ac-bass-{{.Video.ID}}" min="-12" max="12" value="0" step="0.5"
+          oninput="applyAudio('{{.Video.ID}}');document.getElementById('acv-bass-{{.Video.ID}}').textContent=fmtDb(this.value)">
+        <span class="cc-val" id="acv-bass-{{.Video.ID}}">0dB</span>
+      </label>
+      <label title="Low-mid (300 Hz)">Low-mid
+        <input type="range" class="cc-slider" id="ac-lmid-{{.Video.ID}}" min="-12" max="12" value="0" step="0.5"
+          oninput="applyAudio('{{.Video.ID}}');document.getElementById('acv-lmid-{{.Video.ID}}').textContent=fmtDb(this.value)">
+        <span class="cc-val" id="acv-lmid-{{.Video.ID}}">0dB</span>
+      </label>
+      <label title="Mid (1 kHz)">Mid
+        <input type="range" class="cc-slider" id="ac-mid-{{.Video.ID}}" min="-12" max="12" value="0" step="0.5"
+          oninput="applyAudio('{{.Video.ID}}');document.getElementById('acv-mid-{{.Video.ID}}').textContent=fmtDb(this.value)">
+        <span class="cc-val" id="acv-mid-{{.Video.ID}}">0dB</span>
+      </label>
+      <label title="High-mid (4 kHz)">Hi-mid
+        <input type="range" class="cc-slider" id="ac-hmid-{{.Video.ID}}" min="-12" max="12" value="0" step="0.5"
+          oninput="applyAudio('{{.Video.ID}}');document.getElementById('acv-hmid-{{.Video.ID}}').textContent=fmtDb(this.value)">
+        <span class="cc-val" id="acv-hmid-{{.Video.ID}}">0dB</span>
+      </label>
+      <label title="Treble shelf (12 kHz)">Treble
+        <input type="range" class="cc-slider" id="ac-treble-{{.Video.ID}}" min="-12" max="12" value="0" step="0.5"
+          oninput="applyAudio('{{.Video.ID}}');document.getElementById('acv-treble-{{.Video.ID}}').textContent=fmtDb(this.value)">
+        <span class="cc-val" id="acv-treble-{{.Video.ID}}">0dB</span>
+      </label>
+    </div>
+  </div><!-- /audio bar -->
+
+</div><!-- /flex column wrapper -->
+
 <script>
+// ── Progress save ──────────────────────────────────────────────────────
 (function () {
   var vid = document.getElementById('vid-{{.Video.ID}}');
   var videoID = '{{.Video.ID}}';
   var saveTimer = null;
-
   function saveProgress() {
     if (vid.currentTime < 1) return;
     navigator.sendBeacon('/videos/' + videoID + '/progress',
       new URLSearchParams({ position: vid.currentTime }));
   }
-
-  // Restore last position once metadata is loaded.
   fetch('/videos/' + videoID + '/progress')
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -52,94 +256,255 @@
         }, { once: true });
       }
     });
-
-  // Save on pause and before page unload.
   vid.addEventListener('pause', saveProgress);
   window.addEventListener('beforeunload', saveProgress);
-
-  // Save periodically while playing (every 5s).
-  vid.addEventListener('play', function() {
-    saveTimer = setInterval(saveProgress, 5000);
-  });
-  vid.addEventListener('pause', function() {
-    clearInterval(saveTimer);
-  });
+  vid.addEventListener('play',  function() { saveTimer = setInterval(saveProgress, 5000); });
+  vid.addEventListener('pause', function() { clearInterval(saveTimer); });
 })();
-</script>
 
-<!-- Color controls bar (collapsed by default) -->
-<div id="color-bar-{{.Video.ID}}" style="display:none;background:#111;padding:0.4rem 0.6rem;gap:0.6rem;flex-wrap:wrap;align-items:center;font-size:0.76rem;color:#888;border-top:1px solid #222">
-  <style>
-    .cc-slider { accent-color:#2563eb; width:80px; vertical-align:middle; cursor:pointer; }
-    .cc-val { color:#ccc; font-family:monospace; font-size:0.72rem; min-width:2.5rem; display:inline-block; text-align:right; }
-  </style>
-  <span style="color:#555;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em">Color</span>
-  <label title="Brightness">☀ <input type="range" class="cc-slider" id="cc-brightness-{{.Video.ID}}" min="0" max="200" value="100" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-brightness-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-brightness-{{.Video.ID}}">100%</span></label>
-  <label title="Contrast">◑ <input type="range" class="cc-slider" id="cc-contrast-{{.Video.ID}}" min="0" max="200" value="100" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-contrast-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-contrast-{{.Video.ID}}">100%</span></label>
-  <label title="Saturation">🎨 <input type="range" class="cc-slider" id="cc-saturate-{{.Video.ID}}" min="0" max="300" value="100" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-saturate-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-saturate-{{.Video.ID}}">100%</span></label>
-  <label title="Hue Rotate">〇 <input type="range" class="cc-slider" id="cc-hue-{{.Video.ID}}" min="0" max="360" value="0" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-hue-{{.Video.ID}}').textContent=this.value+'°'"><span class="cc-val" id="ccv-hue-{{.Video.ID}}">0°</span></label>
-  <label title="Sepia (Tint)">🟤 <input type="range" class="cc-slider" id="cc-sepia-{{.Video.ID}}" min="0" max="100" value="0" oninput="applyVideoFilter('{{.Video.ID}}');document.getElementById('ccv-sepia-{{.Video.ID}}').textContent=this.value+'%'"><span class="cc-val" id="ccv-sepia-{{.Video.ID}}">0%</span></label>
-  <button class="btn-sm btn-ghost" style="font-size:0.7rem;padding:0.15rem 0.4rem" onclick="resetVideoFilter('{{.Video.ID}}')">Reset</button>
-</div>
-<script>
+// ── Color filter ───────────────────────────────────────────────────────
 function applyVideoFilter(id) {
-  var v = document.getElementById('vid-'+id);
-  if (!v) return;
+  var w = document.getElementById('vid-wrap-'+id);
+  if (!w) return;
   var b = document.getElementById('cc-brightness-'+id).value;
   var c = document.getElementById('cc-contrast-'+id).value;
   var s = document.getElementById('cc-saturate-'+id).value;
   var h = document.getElementById('cc-hue-'+id).value;
   var p = document.getElementById('cc-sepia-'+id).value;
-  v.style.filter = 'brightness('+b+'%) contrast('+c+'%) saturate('+s+'%) hue-rotate('+h+'deg) sepia('+p+'%)';
+  w.style.filter = 'brightness('+b+'%) contrast('+c+'%) saturate('+s+'%) hue-rotate('+h+'deg) sepia('+p+'%)';
   try { localStorage.setItem('vf-'+id, JSON.stringify({b:b,c:c,s:s,h:h,p:p})); } catch(e){}
 }
 function resetVideoFilter(id) {
   ['brightness','contrast','saturate','hue','sepia'].forEach(function(k,i){
-    var def = [100,100,100,0,0][i];
     var el = document.getElementById('cc-'+k+'-'+id);
-    if (el) el.value = def;
+    if (el) el.value = [100,100,100,0,0][i];
   });
-  document.getElementById('ccv-brightness-'+id).textContent='100%';
-  document.getElementById('ccv-contrast-'+id).textContent='100%';
-  document.getElementById('ccv-saturate-'+id).textContent='100%';
+  ['brightness','contrast','saturate'].forEach(function(k){ document.getElementById('ccv-'+k+'-'+id).textContent='100%'; });
   document.getElementById('ccv-hue-'+id).textContent='0°';
   document.getElementById('ccv-sepia-'+id).textContent='0%';
-  var v = document.getElementById('vid-'+id);
-  if (v) v.style.filter = '';
+  var w = document.getElementById('vid-wrap-'+id);
+  if (w) w.style.filter = '';
   try { localStorage.removeItem('vf-'+id); } catch(e){}
 }
 (function(){
   var id = '{{.Video.ID}}';
   try {
     var stored = JSON.parse(localStorage.getItem('vf-'+id) || 'null');
-    if (stored) {
-      var map = {brightness:stored.b, contrast:stored.c, saturate:stored.s, hue:stored.h, sepia:stored.p};
-      var labels = {brightness:'%', contrast:'%', saturate:'%', hue:'°', sepia:'%'};
-      Object.keys(map).forEach(function(k){
-        var el = document.getElementById('cc-'+k+'-'+id);
-        if (el) el.value = map[k];
-        var lbl = document.getElementById('ccv-'+k+'-'+id);
-        if (lbl) lbl.textContent = map[k]+labels[k];
-      });
-      applyVideoFilter(id);
-    }
+    if (!stored) return;
+    var map = {brightness:stored.b,contrast:stored.c,saturate:stored.s,hue:stored.h,sepia:stored.p};
+    var labels = {brightness:'%',contrast:'%',saturate:'%',hue:'°',sepia:'%'};
+    Object.keys(map).forEach(function(k){
+      var el = document.getElementById('cc-'+k+'-'+id); if (el) el.value = map[k];
+      var lb = document.getElementById('ccv-'+k+'-'+id); if (lb) lb.textContent = map[k]+labels[k];
+    });
+    applyVideoFilter(id);
   } catch(e){}
 })();
-</script>
 
-<!-- Title overlay — fades in when hovering the player -->
-<div id="player-overlay">
-  <div style="font-size:1.05rem;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.9)">
-    {{if eq .Video.Rating 2}}⭐ {{else if eq .Video.Rating 1}}👍 {{end}}{{.Video.Title}}
-  </div>
-  {{if .Tags}}
-  <div style="display:flex;gap:0.25rem;flex-wrap:wrap;margin-top:0.35rem">
-    {{range .Tags}}
-    <span style="font-size:0.75rem;background:rgba(255,255,255,0.15);border-radius:10px;padding:0.1rem 0.45rem;color:#ddd">{{.Name}}</span>
-    {{end}}
-  </div>
-  {{end}}
-</div>
+// ── Audio processing (Web Audio API) ────────────────────────────────────
+(function () {
+  var id = '{{.Video.ID}}';
+  // Shared node registry across all open tabs.
+  if (!window._audioNodes) window._audioNodes = {};
+
+  // Format a dB value: "+3.0dB" / "-2.5dB" / "0dB"
+  window.fmtDb = function(v) {
+    var n = parseFloat(v);
+    if (n === 0) return '0dB';
+    return (n > 0 ? '+' : '') + n.toFixed(1) + 'dB';
+  };
+
+  function initNodes(vid_id) {
+    if (window._audioNodes[vid_id]) return window._audioNodes[vid_id];
+    var el = document.getElementById('vid-' + vid_id);
+    if (!el) return null;
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var gain = ctx.createGain();
+      // 5-band EQ: low shelf → peaking × 3 → high shelf
+      var eqSpecs = [
+        {type:'lowshelf',  freq:80},
+        {type:'peaking',   freq:300,  Q:1.0},
+        {type:'peaking',   freq:1000, Q:1.0},
+        {type:'peaking',   freq:4000, Q:1.0},
+        {type:'highshelf', freq:12000},
+      ];
+      var bands = eqSpecs.map(function(s) {
+        var f = ctx.createBiquadFilter();
+        f.type = s.type;
+        f.frequency.value = s.freq;
+        if (s.Q) f.Q.value = s.Q;
+        f.gain.value = 0;
+        return f;
+      });
+      var comp = ctx.createDynamicsCompressor();
+      comp.knee.value = 30; comp.attack.value = 0.003; comp.release.value = 0.25;
+      comp.ratio.value = 1; comp.threshold.value = 0;
+      var panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+
+      // Chain: src → gain → eq[0..4] → comp → [panner] → out
+      var chain = [gain].concat(bands).concat([comp]);
+      if (panner) chain.push(panner);
+      for (var i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i+1]);
+      chain[chain.length - 1].connect(ctx.destination);
+      ctx.createMediaElementSource(el).connect(chain[0]);
+
+      var nodes = {ctx:ctx, gain:gain, bands:bands, comp:comp, panner:panner};
+      window._audioNodes[vid_id] = nodes;
+      return nodes;
+    } catch(e) { return null; }
+  }
+
+  window.applyAudio = function(vid_id) {
+    var n = initNodes(vid_id);
+    if (!n) return;
+    if (n.ctx.state === 'suspended') n.ctx.resume();
+    n.gain.gain.value = document.getElementById('ac-vol-' + vid_id).value / 100;
+    ['bass','lmid','mid','hmid','treble'].forEach(function(k, i) {
+      n.bands[i].gain.value = parseFloat(document.getElementById('ac-' + k + '-' + vid_id).value);
+    });
+    var ratio = parseFloat(document.getElementById('ac-comp-' + vid_id).value);
+    n.comp.ratio.value = ratio;
+    n.comp.threshold.value = ratio > 1 ? -24 : 0;
+    if (n.panner) n.panner.pan.value = document.getElementById('ac-pan-' + vid_id).value / 100;
+    // Persist to localStorage
+    try {
+      var state = {};
+      ['vol','pan','comp','bass','lmid','mid','hmid','treble'].forEach(function(k) {
+        var el = document.getElementById('ac-' + k + '-' + vid_id);
+        if (el) state[k] = el.value;
+      });
+      localStorage.setItem('va-' + vid_id, JSON.stringify(state));
+    } catch(e) {}
+  };
+
+  window.resetAudio = function(vid_id) {
+    var defs = {vol:100, pan:0, comp:1, bass:0, lmid:0, mid:0, hmid:0, treble:0};
+    Object.keys(defs).forEach(function(k) {
+      var el = document.getElementById('ac-' + k + '-' + vid_id);
+      if (el) el.value = defs[k];
+    });
+    ['vol','pan','comp','bass','lmid','mid','hmid','treble'].forEach(function(k) {
+      var lb = document.getElementById('acv-' + k + '-' + vid_id);
+      if (!lb) return;
+      if (k==='vol') lb.textContent='100%';
+      else if (k==='pan') lb.textContent='0';
+      else if (k==='comp') lb.textContent='1×';
+      else lb.textContent='0dB';
+    });
+    window.applyAudio(vid_id);
+    try { localStorage.removeItem('va-' + vid_id); } catch(e) {}
+  };
+
+  // Restore persisted settings into sliders (audio init stays lazy until first play/interaction)
+  (function restore() {
+    try {
+      var stored = JSON.parse(localStorage.getItem('va-' + id) || 'null');
+      if (!stored) return;
+      ['vol','pan','comp','bass','lmid','mid','hmid','treble'].forEach(function(k) {
+        if (stored[k] == null) return;
+        var el = document.getElementById('ac-' + k + '-' + id);
+        if (el) el.value = stored[k];
+        var lb = document.getElementById('acv-' + k + '-' + id);
+        if (!lb) return;
+        if (k==='vol') lb.textContent = stored[k] + '%';
+        else if (k==='pan') lb.textContent = stored[k];
+        else if (k==='comp') lb.textContent = stored[k] + '×';
+        else lb.textContent = window.fmtDb(stored[k]);
+      });
+      // Show the button as "active" if any non-default setting is stored
+      var nonDefault = Object.keys(stored).some(function(k) {
+        return parseFloat(stored[k]) !== ({vol:100,pan:0,comp:1,bass:0,lmid:0,mid:0,hmid:0,treble:0}[k]);
+      });
+      if (nonDefault) document.getElementById('audio-btn-' + id).style.opacity = '1';
+    } catch(e) {}
+  })();
+
+  // Apply saved audio settings on first play (AudioContext requires user gesture)
+  document.getElementById('vid-' + id).addEventListener('play', function() {
+    try {
+      if (localStorage.getItem('va-' + id)) window.applyAudio(id);
+    } catch(e) {}
+  }, {once: true});
+})();
+
+// ── Trim strip ─────────────────────────────────────────────────────────
+var TRIM_STEPS = 1000;
+
+function trimParseSecs(v) {
+  v = (v||'').trim(); if (!v) return NaN;
+  var p = v.split(':');
+  if (p.length===3) return (+p[0])*3600+(+p[1])*60+(+p[2]);
+  if (p.length===2) return (+p[0])*60+(+p[1]);
+  return +p[0];
+}
+function trimFmt(s) {
+  s = Math.round(s); var m=Math.floor(s/60), sc=s%60;
+  return m+':'+(sc<10?'0':'')+sc;
+}
+function trimDur(id) {
+  var v = document.getElementById('vid-'+id);
+  return (v && isFinite(v.duration) && v.duration>0) ? v.duration : 0;
+}
+function trimUpdateBar(id, startSec, endSec) {
+  var dur = trimDur(id); if (dur<=0) return;
+  var s = Math.max(0, Math.min(startSec/dur, 1));
+  var e = Math.max(0, Math.min(endSec/dur, 1));
+  document.getElementById('trim-region-'+id).style.left  = (s*100)+'%';
+  document.getElementById('trim-region-'+id).style.right = ((1-e)*100)+'%';
+  document.getElementById('trim-ts-'+id).style.left = (s*100)+'%';
+  document.getElementById('trim-te-'+id).style.left = (e*100)+'%';
+  document.getElementById('trim-rs-'+id).value = Math.round(s*TRIM_STEPS);
+  document.getElementById('trim-re-'+id).value = Math.round(e*TRIM_STEPS);
+}
+function trimRangeInput(id) {
+  var dur = trimDur(id); if (dur<=0) return;
+  var rs = +document.getElementById('trim-rs-'+id).value;
+  var re = +document.getElementById('trim-re-'+id).value;
+  if (rs >= re) { rs = re-1; document.getElementById('trim-rs-'+id).value = rs; }
+  var startSec = (rs/TRIM_STEPS)*dur, endSec = (re/TRIM_STEPS)*dur;
+  document.getElementById('trim-start-'+id).value = trimFmt(startSec);
+  document.getElementById('trim-end-'+id).value   = trimFmt(endSec);
+  trimUpdateBar(id, startSec, endSec);
+  var active = document.activeElement && document.activeElement.id;
+  var vid = document.getElementById('vid-'+id);
+  if (vid) vid.currentTime = (active==='trim-re-'+id) ? endSec : startSec;
+}
+function trimTextInput(id, which) {
+  var dur = trimDur(id);
+  var startSec = trimParseSecs(document.getElementById('trim-start-'+id).value);
+  var endSec   = trimParseSecs(document.getElementById('trim-end-'+id).value);
+  if (isNaN(startSec)) startSec = 0;
+  if (isNaN(endSec))   endSec   = dur;
+  trimUpdateBar(id, startSec, endSec);
+  var vid = document.getElementById('vid-'+id);
+  if (vid) vid.currentTime = (which==='end') ? endSec : startSec;
+}
+function openTrimStrip(id) {
+  var strip = document.getElementById('trim-strip-'+id);
+  strip.style.display = 'flex';
+  var vid = document.getElementById('vid-'+id);
+  if (!vid) return;
+  // Auto-set start/end based on playback state (items #2 and #9)
+  if (!vid.paused) {
+    vid.pause();
+    document.getElementById('trim-start-'+id).value = Math.floor(vid.currentTime);
+  } else if (vid.duration > 0 && vid.currentTime / vid.duration > 0.7) {
+    document.getElementById('trim-end-'+id).value = Math.floor(vid.currentTime);
+  }
+  // Sync bar — init once metadata is available
+  function doInit() {
+    var dur = trimDur(id); if (dur <= 0) return;
+    var startSec = trimParseSecs(document.getElementById('trim-start-'+id).value) || 0;
+    var endEl = document.getElementById('trim-end-'+id);
+    var endSec = endEl.value ? trimParseSecs(endEl.value) : dur;
+    if (isNaN(endSec)) endSec = dur;
+    trimUpdateBar(id, startSec, endSec);
+  }
+  if (vid.readyState >= 1 && isFinite(vid.duration)) { doInit(); }
+  else { vid.addEventListener('loadedmetadata', doInit, {once:true}); }
+}
+</script>
 {{end}}
 
 <!-- Out-of-band: populate the info panel overlay -->
@@ -157,10 +522,6 @@ function resetVideoFilter(id) {
       hx-target="#video-list"
       title="Remove watch record for this video"
     >✕ Clear watched</button>
-    <button class="btn-sm btn-danger" style="margin-left:auto;font-size:0.75rem"
-      onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='flex'"
-      title="Delete this video"
-    >🗑 Delete…</button>
   </div>
 
   <!-- Delete confirmation (hidden until Delete… is clicked) -->
@@ -194,7 +555,7 @@ function resetVideoFilter(id) {
         hx-swap="outerHTML"
         title="Like"
         {{if ge .Video.Rating 1}}style="background:#2a4a2a;border-color:#4a9a4a;color:#8f8"{{end}}
-      >👍{{if ge .Video.Rating 1}} Liked{{end}}</button>
+      >♥{{if ge .Video.Rating 1}} Liked{{end}}</button>
       <button class="btn-sm"
         hx-post="/videos/{{.Video.ID}}/rating"
         hx-vals='{"rating": "{{if eq .Video.Rating 2}}0{{else}}2{{end}}"}'
@@ -202,12 +563,12 @@ function resetVideoFilter(id) {
         hx-swap="outerHTML"
         title="Favourite"
         {{if eq .Video.Rating 2}}style="background:#4a3a00;border-color:#c8a000;color:#fc0"{{end}}
-      >⭐{{if eq .Video.Rating 2}} Fav{{end}}</button>
+      >★{{if eq .Video.Rating 2}} Fav{{end}}</button>
     </div>
     <!-- Video type selector -->
     <div id="video-type-{{.Video.ID}}" style="display:flex;align-items:center;gap:0.3rem">
       <form hx-post="/videos/{{.Video.ID}}/type" hx-target="#video-type-{{.Video.ID}}" hx-swap="outerHTML">
-        <select name="type" onchange="this.form.submit()" style="font-size:0.82rem;background:#222;border:1px solid #444;color:#eee;padding:0.2rem 0.4rem;border-radius:4px">
+        <select name="type" onchange="htmx.trigger(this.closest('form'),'submit')" style="font-size:0.82rem;background:#222;border:1px solid #444;color:#eee;padding:0.2rem 0.4rem;border-radius:4px">
           <option value="">Type…</option>
           {{range ValidVideoTypes}}
             <option value="{{.}}" {{if eq $.Video.VideoType .}}selected{{end}}>{{.}}</option>
@@ -219,35 +580,44 @@ function resetVideoFilter(id) {
   </div>
 
   <!-- Name editor -->
-  <div style="display:flex;align-items:center;gap:0.5rem">
+  <div style="display:flex;align-items:center;gap:0.5rem;min-width:0">
     <span id="video-title-{{.Video.ID}}" style="font-weight:bold;font-size:0.95rem;flex-shrink:0">{{.Video.Title}}</span>
-    <form hx-put="/videos/{{.Video.ID}}/name" hx-target="#video-title-{{.Video.ID}}" style="display:flex;gap:0.4rem;flex:1">
-      <input type="text" name="name" value="{{.Video.DisplayName}}" placeholder="{{.Video.Filename}}"
-        class="input-dark" style="flex:1;padding:0.3rem 0.5rem;font-size:0.85rem">
-      <button type="submit" class="btn-sm">Rename</button>
+    <button id="rename-btn-{{.Video.ID}}" class="btn-sm" style="font-size:0.75rem;flex-shrink:0"
+      onclick="(function(){
+        document.getElementById('rename-btn-{{.Video.ID}}').style.display='none';
+        document.getElementById('rename-form-{{.Video.ID}}').style.display='flex';
+        document.getElementById('rename-input-{{.Video.ID}}').focus();
+      })()">Edit</button>
+    <form id="rename-form-{{.Video.ID}}"
+      hx-put="/videos/{{.Video.ID}}/name"
+      hx-target="#video-title-{{.Video.ID}}"
+      hx-on::after-request="(function(){
+        document.getElementById('rename-form-{{.Video.ID}}').style.display='none';
+        document.getElementById('rename-btn-{{.Video.ID}}').style.display='';
+      })()"
+      style="display:none;gap:0.4rem;flex:1">
+      <input id="rename-input-{{.Video.ID}}" type="text" name="name"
+        value="{{.Video.DisplayName}}" placeholder="{{.Video.Filename}}"
+        class="input-dark" style="flex:1;padding:0.3rem 0.5rem;font-size:0.85rem"
+        onkeydown="if(event.key==='Escape'){
+          document.getElementById('rename-form-{{.Video.ID}}').style.display='none';
+          document.getElementById('rename-btn-{{.Video.ID}}').style.display='';
+        }">
+      <button type="submit" class="btn-sm">Save</button>
+      <button type="button" class="btn-sm" style="color:#aaa"
+        onclick="document.getElementById('rename-form-{{.Video.ID}}').style.display='none';
+                 document.getElementById('rename-btn-{{.Video.ID}}').style.display=''">✕</button>
     </form>
-    <button class="btn-sm"
-      hx-get="/videos/{{.Video.ID}}/quick-label"
-      hx-target="body"
-      hx-swap="beforeend"
-      title="Quick label video with title, genre, season, etc."
-    >🏷 Quick label</button>
   </div>
   {{if and .Video.OriginalFilename (ne .Video.OriginalFilename .Video.Filename)}}
   <div style="font-size:0.75rem;color:#666" title="Filename at time of import">Original: {{.Video.OriginalFilename}}</div>
   {{end}}
 
   <!-- Tags -->
-  <div id="video-tags-{{.Video.ID}}" style="display:flex;flex-wrap:wrap;gap:0.3rem">
-    {{range .Tags}}
-    <span style="display:inline-flex;align-items:center;gap:0.25rem;background:#333;border:1px solid #555;border-radius:12px;padding:0.2rem 0.5rem;font-size:0.8rem">
-      {{.Name}}
-      <button class="btn-icon" hx-delete="/videos/{{$.Video.ID}}/tags/{{.ID}}" hx-target="#video-tags-{{$.Video.ID}}">✕</button>
-    </span>
-    {{else}}
-    <span style="color:#555;font-size:0.8rem">No tags</span>
-    {{end}}
-  </div>
+  <div id="video-tags-{{.Video.ID}}" style="display:flex;flex-wrap:wrap;gap:0.3rem"
+       hx-get="/videos/{{.Video.ID}}/tags"
+       hx-trigger="load, videoLabelled[detail.id=={{.Video.ID}}] from:body"
+       hx-swap="innerHTML"></div>
 
   <!-- Add tag -->
   <form hx-post="/videos/{{.Video.ID}}/tags" hx-target="#video-tags-{{.Video.ID}}" style="display:flex;gap:0.4rem">
@@ -260,39 +630,39 @@ function resetVideoFilter(id) {
   </form>
 
   <!-- File metadata — loads async so the player opens immediately -->
-  <div id="file-meta-{{.Video.ID}}"
-       hx-get="/videos/{{.Video.ID}}/metadata"
-       hx-trigger="load"></div>
+  <details>
+    <summary style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:#555;user-select:none;cursor:pointer;padding:0.2rem 0">File info</summary>
+    <div id="file-meta-{{.Video.ID}}"
+         hx-get="/videos/{{.Video.ID}}/metadata"
+         hx-trigger="load, videoLabelled[detail.id=={{.Video.ID}}] from:body"></div>
+  </details>
 
   <!-- Thumbnail -->
   <div style="padding-top:0.25rem">
-    {{if .Video.ThumbnailPath}}
-    <div style="display:flex;gap:0.4rem;align-items:flex-start">
-      <img src="/videos/{{.Video.ID}}/thumbnail" alt="Thumbnail" style="width:80px;height:auto;border:1px solid #444;border-radius:4px">
-      <button class="btn-sm" style="font-size:0.78rem"
-        hx-post="/videos/{{.Video.ID}}/thumbnail"
-        hx-target="#thumb-status-{{.Video.ID}}"
-        hx-swap="innerHTML"
-        title="Generate new thumbnail at random position"
-      >🔄 Regenerate</button>
+    <div id="thumb-wrap-{{.Video.ID}}" style="margin-bottom:0.3rem">
+      {{if .Video.ThumbnailPath}}
+      <img id="thumb-img-{{.Video.ID}}" src="/videos/{{.Video.ID}}/thumbnail" alt="Thumbnail"
+        style="width:80px;height:auto;border:1px solid #444;border-radius:4px;display:block">
+      {{end}}
     </div>
-    {{else}}
-    <button class="btn-sm" style="font-size:0.78rem"
-      hx-post="/videos/{{.Video.ID}}/thumbnail"
-      hx-target="#thumb-status-{{.Video.ID}}"
-      hx-swap="innerHTML"
-      title="Generate thumbnail"
-    >🖼️ Generate thumbnail</button>
-    {{end}}
-    <div id="thumb-status-{{.Video.ID}}" style="font-size:0.78rem;color:#888;margin-top:0.2rem"></div>
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <button class="btn-sm" style="font-size:0.78rem"
+        onclick="captureThumb({{.Video.ID}})"
+        title="Capture current frame as thumbnail"
+      >⊟ Capture frame</button>
+      <span id="thumb-status-{{.Video.ID}}" style="font-size:0.78rem;color:#888"></span>
+    </div>
   </div>
 
   <!-- Standardised descriptive fields (genre / season / actors / studio / channel) -->
-  <div id="video-fields-container-{{.Video.ID}}"
-       hx-get="/videos/{{.Video.ID}}/fields"
-       hx-trigger="load"
-       hx-target="#video-fields-container-{{.Video.ID}}"
-       hx-swap="innerHTML"></div>
+  <details>
+    <summary style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:#555;user-select:none;cursor:pointer;padding:0.2rem 0">Details</summary>
+    <div id="video-fields-container-{{.Video.ID}}"
+         hx-get="/videos/{{.Video.ID}}/fields"
+         hx-trigger="load, videoLabelled[detail.id=={{.Video.ID}}] from:body"
+         hx-target="#video-fields-container-{{.Video.ID}}"
+         hx-swap="innerHTML"></div>
+  </details>
 
   <!-- Copy to library -->
   {{if .LibraryPath}}
@@ -314,7 +684,7 @@ function resetVideoFilter(id) {
     <button class="btn-sm" style="font-size:0.78rem"
       onclick="document.getElementById('move-panel-{{.Video.ID}}').style.display='flex'"
       title="Move this file to a different directory"
-    >📂 Move to…</button>
+    >→ Move to…</button>
     <div id="move-panel-{{.Video.ID}}"
       style="display:none;flex-direction:column;gap:0.4rem;margin-top:0.4rem;padding:0.5rem;background:#161e16;border:1px solid #2a4a2a;border-radius:4px">
       <form hx-post="/videos/{{.Video.ID}}/move"
@@ -444,34 +814,22 @@ function startConvert(vid) {
 }
 </script>
 
-  <!-- TMDB Lookup, Share, Trim & Color -->
+  <!-- TMDB Lookup & Share -->
   <div style="display:flex;gap:0.4rem;padding-top:0.25rem;flex-wrap:wrap">
     <button class="btn-sm"
       hx-get="/videos/{{.Video.ID}}/lookup"
       hx-target="#lookup-modal-{{.Video.ID}}"
       hx-swap="innerHTML"
       title="Look up metadata on TMDB"
-    >🔍 Look up</button>
+    >○ Look up</button>
     <button class="btn-sm"
       hx-get="/videos/{{.Video.ID}}/share"
       hx-target="#share-modal-{{.Video.ID}}"
       hx-swap="innerHTML"
       title="Share streaming link"
     >📤 Share</button>
-    <button class="btn-sm"
-      hx-get="/videos/{{.Video.ID}}/trim"
-      hx-target="#trim-modal-{{.Video.ID}}"
-      hx-swap="innerHTML"
-      hx-on::htmx:after-request="(function(){ var vid=document.getElementById('vid-{{.Video.ID}}'); if(!vid) return; var modal='#trim-modal-{{.Video.ID}}'; if(!vid.paused){ vid.pause(); var s=document.querySelector(modal+' input[name=\'start\']'); if(s) s.value=Math.floor(vid.currentTime); } else if(vid.duration>0 && vid.currentTime/vid.duration>0.7){ var e=document.querySelector(modal+' input[name=\'end\']'); if(e) e.value=Math.floor(vid.currentTime); } })()"
-      title="Trim video by start/end time"
-    >✂ Trim</button>
-    <button class="btn-sm btn-ghost" id="color-btn-{{.Video.ID}}"
-      onclick="(function(){ var bar=document.getElementById('color-bar-{{.Video.ID}}'); var vis=bar.style.display!=='flex'; bar.style.display=vis?'flex':'none'; document.getElementById('color-btn-{{.Video.ID}}').style.opacity=vis?'1':'0.5'; })()"
-      title="Adjust brightness, contrast, saturation, hue"
-    >🎨 Color</button>
   </div>
   <div id="lookup-modal-{{.Video.ID}}"></div>
   <div id="share-modal-{{.Video.ID}}"></div>
-  <div id="trim-modal-{{.Video.ID}}"></div>
 
 </div>

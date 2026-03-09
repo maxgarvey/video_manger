@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -202,22 +203,42 @@ func Trim(bgCtx context.Context, sem chan struct{}, src, dst, start, end string)
 	return run(bgCtx, args...)
 }
 
-// GenerateThumbnail extracts a frame from the video at the given position (0-1 relative to duration)
-// and saves it as a JPEG thumbnail.
+// GenerateThumbnail extracts a frame from the video at the given position (0–1
+// relative to duration) and saves it as a JPEG thumbnail.
 func GenerateThumbnail(src, dst string, position float64) error {
-	// Clamp position to 0-1 range
 	if position < 0 {
 		position = 0
 	} else if position > 1 {
 		position = 1
 	}
+
+	// Determine duration via ffprobe so we can pass an absolute seek time.
+	seekSecs := 0.0
+	if out, err := exec.Command("ffprobe", //nolint:gosec
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_entries", "format=duration",
+		src,
+	).Output(); err == nil {
+		var result struct {
+			Format struct {
+				Duration string `json:"duration"`
+			} `json:"format"`
+		}
+		if json.Unmarshal(out, &result) == nil {
+			if d, _ := strconv.ParseFloat(result.Format.Duration, 64); d > 0 {
+				seekSecs = d * position
+			}
+		}
+	}
+
 	args := []string{
+		"-ss", fmt.Sprintf("%.3f", seekSecs), // seek before -i for speed
 		"-i", src,
-		"-ss", fmt.Sprintf("%.2f%%", position*100), // Seek to percentage of duration
-		"-vf", "scale=320:-1", // Scale to 320px wide, maintain aspect
-		"-vframes", "1", // Extract only 1 frame
-		"-q:v", "2", // Quality (1-31, lower is better)
-		"-y", // Overwrite output
+		"-vf", "scale=320:-1",
+		"-vframes", "1",
+		"-q:v", "2",
+		"-y",
 		dst,
 	}
 	return run(context.Background(), args...)
