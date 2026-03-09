@@ -1,101 +1,96 @@
-# video_manger
+```
+ ╔══════════════════════════════╗
+ ║  ▶  v i d e o _ m a n g e r ║
+ ╚══════════════════════════════╝
+```
+
+A self-hosted Go web server that turns a directory of video files into a
+browser-based media library — no external media players, no cloud, no fuss.
 
 [![CI](https://github.com/maxgarvey/video_manger/actions/workflows/ci.yml/badge.svg)](https://github.com/maxgarvey/video_manger/actions/workflows/ci.yml)
 
-A localhost web application for serving and playing videos in the browser.
+---
 
-## Overview
+## What it does
 
-`video_manger` is a Go web server that runs locally and streams your video files through a browser-based player. Point it at a directory, open your browser, and watch — no external media players needed.
+Point it at a folder. Open a browser. Watch your videos.
 
-Directories and video metadata (custom names, tags) are persisted in a local SQLite database. If `ffprobe`/`ffmpeg` are installed, native file metadata is read on playback and can be edited and written back to the file through the UI.
+- **Full-window player** with overlay controls; nothing visible until you hover
+- **Library sidebar** — directory list, tag filters, search, video list
+- **Metadata** — rename videos, tag them, edit embedded file metadata (title, show, season/episode, genre, actors) via ffmpeg without re-encoding
+- **Watch history** — remembers where you left off; resumes on next play
+- **Organisation** — groups TV episodes by show and season automatically
+- **Conversion** — transcode to H.264/H.265/VP9 or remux to MKV from the UI
+- **Trimming** — clip a time range out of any video (stream copy, no re-encode)
+- **Thumbnails** — auto-generated at a random seek point via ffmpeg on sync
+- **yt-dlp integration** — paste a URL, download directly into the library
+- **Roku channel** — browse and stream over your LAN via the `roku/` BrightScript channel
+- **JSON API** — `/api/*` endpoints for external clients (shows, seasons, episodes, tags, recently watched)
 
-## Usage
+---
+
+## Quick start
 
 ```bash
-go run main.go -dir /path/to/videos -port 8080
+# build
+go build -o video_manger .
+
+# run (ffmpeg/ffprobe optional but recommended)
+./video_manger -db video_manger.db -dir /path/to/videos
 ```
 
-Then open `http://localhost:8080` in your browser.
+Open `http://localhost:8080`.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-dir` | _(none)_ | Video directory to register on first run (optional) |
-| `-db` | `video_manger.db` | Path to the SQLite database file |
+| `-dir` | — | Video directory to register on first run |
+| `-db` | `video_manger.db` | SQLite database path |
 | `-port` | `8080` | Port to listen on |
+| `-password` | — | Bcrypt-hash a password to enable basic auth |
 
-Directories can also be added and removed from the UI at any time.
+Directories can be added and removed from the UI at any time. Removing a
+directory offers the choice to keep or delete the files on disk.
 
-## Features
+**Keyboard shortcuts:** `L` library · `I` info panel · `Esc` close all
 
-- **Full-window player** — video fills the entire viewport; all controls appear as translucent overlays on hover
-- **Library sidebar** — slides in from the left; lists directories, tag filters, and the video list with search
-- **Info panel** — slides up from the bottom; shows the name editor, tags, and file metadata for the current video
-- **Search** — type in the Videos section to filter the list in real time (matches display name or filename)
-- **Custom names** — rename any video with a display name (stored in DB, written to the file's title tag if ffmpeg is available)
-- **Tags** — add/remove tags per video; synced to the file's `keywords` metadata field
-- **Filter by tag** — click a tag in the sidebar to filter the video list
-- **Edit file metadata** — view and edit embedded metadata (title, description, genre, show, network, episode ID, season/episode number, date, comment) via ffmpeg — no re-encoding
-- **Delete videos** — remove from the library only, or delete the file from disk too
-- **Multiple directories** — register as many directories as you like; removing one offers the choice to remove from library only (videos remain accessible with their path intact) or delete all video files from disk too
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `L` | Toggle library sidebar |
-| `I` | Toggle info panel |
-| `Esc` | Close all panels |
-
-Shortcuts are suppressed when an input or text area is focused.
-
-## Supported Formats
-
-`.mp4`, `.webm`, `.ogg`, `.mov`, `.mkv`, `.avi`
-
-## Optional: ffmpeg / ffprobe
-
-Install [ffmpeg](https://ffmpeg.org/download.html) to enable metadata read/write. Without it, the app works fully — metadata features are silently skipped.
-
-```bash
-# macOS
-brew install ffmpeg
-```
-
-## Development
-
-```bash
-# Run tests (all packages, with race detector)
-go test ./... -race
-
-# Regenerate sqlc DB layer after changing db/schema.sql or db/query.sql
-sqlc generate
-
-# Build binary
-go build -o video_manger .
-```
+---
 
 ## Architecture
 
 ```
-main.go           — HTTP server, routes, handlers (server struct)
-store/            — Store interface + SQLite implementation
-  store.go        — Backend-agnostic interface and model types
-  sqlite.go       — SQLite implementation via sqlc-generated db/ package
-db/               — sqlc-generated code (schema.sql + query.sql → Go)
-metadata/         — ffprobe read and ffmpeg write helpers
-cmd/populate/     — one-time script to bulk-tag episodes via TVMaze API
-templates/        — htmx-powered HTML partials (embedded in binary)
+video_manger/
+├── main.go                 entry point, flags, startup
+├── server.go               server struct, route table, session auth
+├── handlers_*.go           HTTP handlers grouped by feature area
+├── library.go              directory sync, show/type inference, sidecar JSON
+├── store/
+│   ├── store.go            Store interface and model types
+│   ├── sqlite.go           SQLite implementation
+│   └── migrations/         SQL migration files (applied automatically)
+├── metadata/               ffprobe read + ffmpeg write helpers
+├── transcode/              ffmpeg conversion, trim, thumbnail generation
+├── templates/              HTMX-powered HTML partials (embedded in binary)
+└── roku/                   BrightScript Roku channel (see roku/README.md)
 ```
 
-The `store.Store` interface makes the persistence layer swappable — a different backend (e.g. Postgres) just needs to implement the interface.
+**Request flow:** `chi` router → auth middleware → handler → `store.Store` →
+SQLite. Partial-page updates are driven by HTMX; the server returns HTML
+fragments, not JSON (except the `/api/*` routes for external clients).
 
-## Stack
+**Key dependencies**
 
-- **[chi](https://github.com/go-chi/chi)** — idiomatic Go router (similar API to gorilla/mux, actively maintained)
-- **[htmx](https://htmx.org)** — dynamic UI via HTML attributes, no JS framework
-- **[sqlc](https://sqlc.dev)** — type-safe Go from SQL; generated code committed, no runtime dependency
-- **[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)** — pure Go SQLite driver, no CGo
-- **`net/http`** — range request support for video seeking
-- **`embed`** — HTML templates compiled into the binary
-- **ffmpeg / ffprobe** — optional, for native file metadata read/write
+| | |
+|---|---|
+| [chi](https://github.com/go-chi/chi) | HTTP router |
+| [htmx](https://htmx.org) | Dynamic UI without a JS framework |
+| [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) | Pure-Go SQLite (no CGo) |
+| ffmpeg / ffprobe | Optional — metadata, conversion, thumbnails |
+
+---
+
+## Development
+
+```bash
+go test ./... -race   # full test suite with race detector
+go build -o video_manger .
+```
