@@ -130,12 +130,13 @@ Sub loadMenu()
     m.titleLabel.text = "Video Manger"
     m.statusLabel.text = ""
 
-    labels = ["Recently Watched", "TV Shows", "Movies", "All Videos", "Random", "Change Server"]
+    labels = ["Recently Watched", "TV Shows", "Movies", "All Videos", "Search", "Random", "Change Server"]
     m.items = [
         {menuAction: "recent"},
         {menuAction: "shows"},
         {menuAction: "videos", videoType: "Movie"},
         {menuAction: "videos", videoType: ""},
+        {menuAction: "search"},
         {menuAction: "random"},
         {menuAction: "changeServer"}
     ]
@@ -353,6 +354,12 @@ Sub handleMenuSelect(item As Object)
                 videoType: item.videoType,
                 serverURL: serverURL
             }
+        }
+    Else If action = "search"
+        m.top.navAction = {
+            type: "push",
+            comp: "Search",
+            params: {serverURL: serverURL}
         }
     Else If action = "random"
         ' Fetch a random video asynchronously then play it.

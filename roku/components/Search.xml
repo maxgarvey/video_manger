@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Search.xml
+  Full-text search screen.  The user types a query with the Keyboard widget
+  and presses PLAY to fetch results from /api/videos?q=<query>.
+
+  Interface fields:
+    serverURL  (string)     – base URL of the Go server
+    navAction  (assocarray) – signals navigation events to MainScene
+    isActive   (boolean)    – set by MainScene after AppendChild so we can
+                              call SetFocus once the node is in the scene tree
+-->
+<component name="Search" extends="Group">
+    <interface>
+        <field id="serverURL" type="string"     value="" />
+        <field id="navAction" type="assocarray" alwaysNotify="true" />
+        <field id="isActive"  type="boolean"    value="false" onChange="onActivated" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/components/Search.brs" />
+
+    <children>
+        <!-- Title -->
+        <Label
+            id="titleLabel"
+            translation="[760, 40]"
+            font="font:LargeBoldSystemFont"
+            color="0xFFFFFFFF"
+            text="Search" />
+
+        <!-- Inline keyboard for query entry -->
+        <Keyboard
+            id="keyboard"
+            translation="[340, 100]" />
+
+        <!-- Hint: PLAY to search, BACK to go back -->
+        <Label
+            id="hintLabel"
+            translation="[340, 490]"
+            font="font:SmallSystemFont"
+            color="0x888888FF"
+            text="▶  PLAY = search     ←  BACK = menu" />
+
+        <!-- Status line: "Searching…", result count, or error -->
+        <Label
+            id="statusLabel"
+            translation="[90, 545]"
+            font="font:SmallSystemFont"
+            color="0xAAAAAAFF"
+            text="" />
+
+        <!-- Results list -->
+        <LabelList
+            id="list"
+            translation="[90, 590]"
+            itemSize="[1740, 60]"
+            itemSpacing="[0, 4]"
+            numRows="7"
+            focusedColor="0xFFFFFFFF"
+            color="0xCCCCCCFF"
+            drawFocusFeedback="true" />
+    </children>
+</component>
