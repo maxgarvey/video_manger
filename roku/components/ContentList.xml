@@ -44,7 +44,7 @@
             color="0xAAAAAAFF"
             text="" />
 
-        <!-- Primary list -->
+        <!-- Primary list – used for menu / shows / seasons -->
         <LabelList
             id="list"
             translation="[90, 160]"
@@ -56,5 +56,18 @@
             focusBitmapUri=""
             focusFootprintBitmapUri=""
             drawFocusFeedback="true" />
+
+        <!-- Thumbnail grid – used for episodes / videos / recent (single column) -->
+        <MarkupGrid
+            id="thumbGrid"
+            translation="[90, 160]"
+            itemComponentName="VideoItem"
+            itemSize="[1740, 100]"
+            itemSpacing="[0, 4]"
+            numColumns="1"
+            numRows="8"
+            visible="false"
+            focusBitmapUri=""
+            focusFootprintBitmapUri="" />
     </children>
 </component>

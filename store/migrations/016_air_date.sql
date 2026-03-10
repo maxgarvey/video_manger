@@ -1,0 +1,1 @@
+ALTER TABLE videos ADD COLUMN air_date TEXT NOT NULL DEFAULT '';

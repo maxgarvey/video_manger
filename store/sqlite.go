@@ -157,7 +157,7 @@ func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, dirPath stri
 		          (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		           WHERE vt.video_id=id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		          thumbnail_path, duration_s,
+		          thumbnail_path, duration_s, air_date,
 		          NULL AS watched_at
 	`, filename, dirID, dirPath, filename)
 	return scanVideoRow(row)
@@ -188,7 +188,7 @@ func (s *SQLiteStore) ListVideos(ctx context.Context) ([]Video, error) {
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -231,7 +231,7 @@ func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 		        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		JOIN video_tags vt ON v.id = vt.video_id
@@ -270,7 +270,7 @@ func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -308,7 +308,7 @@ func (s *SQLiteStore) GetVideo(ctx context.Context, id int64) (Video, error) {
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -347,7 +347,7 @@ func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -384,7 +384,7 @@ func (s *SQLiteStore) ListVideosByShow(ctx context.Context, showName string) ([]
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 		        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		JOIN video_tags vt ON vt.video_id = v.id
@@ -428,7 +428,7 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 			        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-			       v.thumbnail_path, v.duration_s,
+			       v.thumbnail_path, v.duration_s, v.air_date,
 			       wh.watched_at
 			FROM videos v
 			JOIN video_tags vt ON v.id = vt.video_id
@@ -462,7 +462,7 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 			        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-			       v.thumbnail_path, v.duration_s,
+			       v.thumbnail_path, v.duration_s, v.air_date,
 			       wh.watched_at
 			FROM videos v
 			LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -502,7 +502,7 @@ func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -549,7 +549,7 @@ func (s *SQLiteStore) ListVideosByType(ctx context.Context, videoType string) ([
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 		        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		JOIN video_tags vt ON vt.video_id = v.id
@@ -589,8 +589,8 @@ func (s *SQLiteStore) UpdateVideoPath(ctx context.Context, id, dirID int64, dirP
 func (s *SQLiteStore) UpdateVideoFields(ctx context.Context, id int64, f VideoFields) error {
 	// Structured numeric fields stay as column updates.
 	if _, err := s.conn.ExecContext(ctx,
-		`UPDATE videos SET season_number=?, episode_number=?, episode_title=? WHERE id=?`,
-		f.SeasonNumber, f.EpisodeNumber, f.EpisodeTitle, id); err != nil {
+		`UPDATE videos SET season_number=?, episode_number=?, episode_title=?, air_date=? WHERE id=?`,
+		f.SeasonNumber, f.EpisodeNumber, f.EpisodeTitle, f.AirDate, id); err != nil {
 		return err
 	}
 	// season: tag mirrors the season_number column for sidebar filtering.
@@ -650,7 +650,7 @@ func (s *SQLiteStore) ListVideosByMinRating(ctx context.Context, minRating int) 
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -695,7 +695,7 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 			        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-			       v.thumbnail_path, v.duration_s,
+			       v.thumbnail_path, v.duration_s, v.air_date,
 			       wh.watched_at
 			FROM videos v
 			JOIN videos_fts ON videos_fts.rowid = v.id
@@ -739,7 +739,7 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
-		       v.thumbnail_path, v.duration_s,
+		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -880,11 +880,11 @@ func (s *SQLiteStore) SetMultiSystemTag(ctx context.Context, videoID int64, name
 func scanVideoRow(row *sql.Row) (Video, error) {
 	var v Video
 	var dirID sql.NullInt64
-	var showName, genre, actors, studio, channel, videoType, thumbnailPath, watchedAt sql.NullString
+	var showName, genre, actors, studio, channel, videoType, thumbnailPath, watchedAt, airDate sql.NullString
 	if err := row.Scan(
 		&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &showName, &v.Rating, &v.OriginalFilename,
 		&genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &actors, &studio, &channel, &videoType,
-		&thumbnailPath, &v.DurationS,
+		&thumbnailPath, &v.DurationS, &airDate,
 		&watchedAt,
 	); err != nil {
 		return Video{}, err
@@ -899,6 +899,7 @@ func scanVideoRow(row *sql.Row) (Video, error) {
 	v.Channel = channel.String
 	v.VideoType = videoType.String
 	v.ThumbnailPath = thumbnailPath.String
+	v.AirDate = airDate.String
 	if watchedAt.Valid {
 		v.WatchedAt = watchedAt.String
 	}
@@ -911,11 +912,11 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 	for rows.Next() {
 		var v Video
 		var dirID sql.NullInt64
-		var showName, genre, actors, studio, channel, videoType, thumbnailPath, watchedAt sql.NullString
+		var showName, genre, actors, studio, channel, videoType, thumbnailPath, watchedAt, airDate sql.NullString
 		if err := rows.Scan(
 			&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &showName, &v.Rating, &v.OriginalFilename,
 			&genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &actors, &studio, &channel, &videoType,
-			&thumbnailPath, &v.DurationS,
+			&thumbnailPath, &v.DurationS, &airDate,
 			&watchedAt,
 		); err != nil {
 			return nil, err
@@ -930,6 +931,7 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 		v.Channel = channel.String
 		v.VideoType = videoType.String
 		v.ThumbnailPath = thumbnailPath.String
+		v.AirDate = airDate.String
 		if watchedAt.Valid {
 			v.WatchedAt = watchedAt.String
 		}

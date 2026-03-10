@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/maxgarvey/video_manger/metadata"
+	"github.com/maxgarvey/video_manger/store"
 	"github.com/maxgarvey/video_manger/transcode"
 )
 
@@ -212,7 +213,50 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 
 	// Upsert the new file synchronously so the client can open it immediately.
 	if newVid, err := s.store.UpsertVideo(r.Context(), video.DirectoryID, dir, dstName); err == nil {
-		titleJSON, _ := json.Marshal(dstName)
+		ctx := r.Context()
+
+		// Copy structured fields from the source video.
+		fields := store.VideoFields{
+			Genre:         video.Genre,
+			SeasonNumber:  video.SeasonNumber,
+			EpisodeNumber: video.EpisodeNumber,
+			EpisodeTitle:  video.EpisodeTitle,
+			Actors:        video.Actors,
+			Studio:        video.Studio,
+			Channel:       video.Channel,
+			AirDate:       video.AirDate,
+		}
+		_ = s.store.UpdateVideoFields(ctx, newVid.ID, fields)
+
+		// Copy display name (append " (trim)" if name was set).
+		if video.DisplayName != "" {
+			_ = s.store.UpdateVideoName(ctx, newVid.ID, video.DisplayName+" (trim)")
+		}
+
+		// Copy show name and video type.
+		if video.ShowName != "" {
+			_ = s.store.UpdateVideoShowName(ctx, newVid.ID, video.ShowName)
+		}
+		if video.VideoType != "" {
+			_ = s.store.UpdateVideoType(ctx, newVid.ID, video.VideoType)
+		}
+
+		// Copy user-applied tags (skip system tags managed by VideoFields).
+		if tags, err := s.store.ListTagsByVideo(ctx, video.ID); err == nil {
+			for _, t := range tags {
+				// System tags (namespace:value) are set via UpdateVideoFields above.
+				if !strings.Contains(t.Name, ":") {
+					if tagRec, err := s.store.UpsertTag(ctx, t.Name); err == nil {
+						_ = s.store.TagVideo(ctx, newVid.ID, tagRec.ID)
+					}
+				}
+			}
+		}
+
+		titleJSON, _ := json.Marshal(newVid.DisplayName)
+		if newVid.DisplayName == "" {
+			titleJSON, _ = json.Marshal(dstName)
+		}
 		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"trimComplete":{"videoId":%d,"title":%s}}`, newVid.ID, titleJSON))
 	}
 

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  VideoItem.xml
+  ItemComponent for the MarkupGrid in ContentList.
+  Displays a thumbnail on the left and a title label on the right.
+  Fields set by MarkupGrid automatically:
+    itemContent  (node)  – ContentNode with .title and .HDGRIDPOSTERURL
+    focusPercent (float) – 0.0 = unfocused, 1.0 = fully focused
+-->
+<component name="VideoItem" extends="Group">
+    <interface>
+        <field id="itemContent"  type="node"  onChange="onContentSet" />
+        <field id="focusPercent" type="float" value="0.0" onChange="onFocusChange" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/components/VideoItem.brs" />
+
+    <children>
+        <!-- Focus highlight background -->
+        <Rectangle id="focusBg" translation="[0, 0]" width="1740" height="100" color="0x00000000" />
+
+        <!-- Thumbnail (16:9, 160×90) -->
+        <Poster
+            id="thumb"
+            translation="[10, 5]"
+            width="160"
+            height="90"
+            loadingBitmapUri=""
+            failedBitmapUri="" />
+
+        <!-- Title label, vertically centred -->
+        <Label
+            id="titleLbl"
+            translation="[184, 35]"
+            width="1536"
+            color="0xCCCCCCFF"
+            font="font:MediumSystemFont"
+            text="" />
+    </children>
+</component>

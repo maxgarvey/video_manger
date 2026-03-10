@@ -1,31 +1,39 @@
 ' components/Search.brs
 '
-' Full-text search screen.
+' Full-text search screen with live search-as-you-type.
 '
 ' UX flow:
-'   1. Keyboard starts focused.  User types query (OK = add char).
-'   2. PLAY submits the query → fetches /api/videos?q=<query> via HttpTask.
-'   3. Results populate the LabelList; focus moves to the list automatically.
-'   4. User navigates with D-pad, OK plays the selected video.
-'   5. BACK from the list returns focus to the keyboard for a new search.
+'   1. Keyboard starts focused.  Each keystroke restarts a 500 ms debounce timer.
+'   2. When the timer fires, the current query is sent to /api/videos?q=<query>.
+'   3. PLAY submits immediately (skips the debounce wait).
+'   4. Results populate the thumbnail grid; focus stays on the keyboard so the
+'      user can keep refining the query without pressing any extra buttons.
+'   5. D-pad Down / navigating into the grid → OK plays the selected video.
 '   6. BACK from the keyboard fires navAction {type:"back"} to MainScene.
+'
+' The server handles partial matching:
+'   – ≥ 3 chars: FTS5 trigram (substring match across display_name, filename, tags)
+'   – 1–2 chars: LIKE fallback (%term%)
 
 Sub init()
-    m.keyboard    = m.top.FindNode("keyboard")
-    m.list        = m.top.FindNode("list")
-    m.statusLabel = m.top.FindNode("statusLabel")
+    m.keyboard      = m.top.FindNode("keyboard")
+    m.thumbGrid     = m.top.FindNode("thumbGrid")
+    m.statusLabel   = m.top.FindNode("statusLabel")
+    m.debounceTimer = m.top.FindNode("debounceTimer")
 
     m.items       = []
     m.fetchTask   = Invalid
-    m.listFocused = False
+    m.gridFocused = False
 
-    m.list.ObserveField("itemSelected", "onItemSelected")
+    m.thumbGrid.ObserveField("itemSelected",    "onItemSelected")
+    m.keyboard.ObserveField("text",             "onTextChange")
+    m.debounceTimer.ObserveField("fire",        "onDebounceTimer")
 End Sub
 
 ' Called by MainScene after AppendChild — safe to call SetFocus here.
 Sub onActivated()
     m.keyboard.SetFocus(True)
-    m.listFocused = False
+    m.gridFocused = False
 End Sub
 
 ' ── Key handling ──────────────────────────────────────────────────────────────
@@ -33,33 +41,56 @@ End Sub
 Function onKeyEvent(key As String, press As Boolean) As Boolean
     If Not press Then Return False
 
+    ' PLAY = search immediately, bypassing the debounce wait.
     If key = "play"
+        m.debounceTimer.control = "stop"
         doSearch()
         Return True
     End If
 
     If key = "back"
-        If m.listFocused
-            ' Return focus to keyboard so the user can refine the query.
-            m.keyboard.SetFocus(True)
-            m.listFocused = False
-        Else
-            m.top.navAction = {type: "back"}
-        End If
+        m.top.navAction = {type: "back"}
         Return True
     End If
 
     Return False
 End Function
 
+' ── Live search ───────────────────────────────────────────────────────────────
+
+Sub onTextChange()
+    query = m.keyboard.text
+    If query = Invalid Then query = ""
+    query = query.Trim()
+
+    If query = ""
+        ' Clear results and cancel any pending search.
+        m.debounceTimer.control = "stop"
+        If m.fetchTask <> Invalid
+            m.fetchTask.control = "STOP"
+            m.fetchTask = Invalid
+        End If
+        m.statusLabel.text = ""
+        m.thumbGrid.visible = False
+        Return
+    End If
+
+    ' Reset the debounce window on every keystroke.
+    m.debounceTimer.control = "stop"
+    m.debounceTimer.control = "start"
+End Sub
+
+Sub onDebounceTimer()
+    doSearch()
+End Sub
+
 ' ── Search ────────────────────────────────────────────────────────────────────
 
 Sub doSearch()
-    query = m.keyboard.text.Trim()
-    If query = "" Or query = Invalid
-        m.statusLabel.text = "Enter a search term first."
-        Return
-    End If
+    query = m.keyboard.text
+    If query = Invalid Then query = ""
+    query = query.Trim()
+    If query = "" Then Return
 
     ' Cancel any in-flight fetch.
     If m.fetchTask <> Invalid
@@ -68,8 +99,6 @@ Sub doSearch()
     End If
 
     m.statusLabel.text = "Searching…"
-    m.items = []
-    populateList([])
 
     url = m.top.serverURL + "/api/videos?q=" + urlEncode(query)
 
@@ -89,12 +118,13 @@ Sub onFetchDone()
 
     If data = Invalid Or data.Count() = 0
         m.statusLabel.text = "No results."
-        populateList([])
+        m.thumbGrid.visible = False
         Return
     End If
 
-    labels = []
-    m.items = []
+    labels    = []
+    thumbURLs = []
+    m.items   = []
     For Each v In data
         label = v.title
         If v.duration_s <> Invalid And v.duration_s > 0
@@ -102,35 +132,40 @@ Sub onFetchDone()
         End If
         labels.Push(label)
         m.items.Push(v)
+
+        thumbURL = ""
+        If v.thumbnail_url <> Invalid And v.thumbnail_url <> ""
+            thumbURL = m.top.serverURL + v.thumbnail_url
+        End If
+        thumbURLs.Push(thumbURL)
     End For
 
+    count  = data.Count()
     suffix = "s"
-    If data.Count() = 1 Then suffix = ""
-    m.statusLabel.text = data.Count().ToStr() + " result" + suffix
-    populateList(labels)
+    If count = 1 Then suffix = ""
+    m.statusLabel.text = count.ToStr() + " result" + suffix
 
-    ' Move focus to the results list automatically.
-    m.list.SetFocus(True)
-    m.listFocused = True
+    root = CreateObject("roSGNode", "ContentNode")
+    For i = 0 To labels.Count() - 1
+        item = root.CreateChild("ContentNode")
+        item.title = labels[i]
+        If thumbURLs[i] <> ""
+            item.HDGRIDPOSTERURL = thumbURLs[i]
+        End If
+    End For
+    m.thumbGrid.content = root
+    m.thumbGrid.visible = True
 End Sub
 
 Sub onFetchError()
     m.statusLabel.text = "Error: " + m.fetchTask.errMsg
+    m.thumbGrid.visible = False
 End Sub
 
-' ── List helpers ──────────────────────────────────────────────────────────────
-
-Sub populateList(labels As Object)
-    root = CreateObject("roSGNode", "ContentNode")
-    For Each label In labels
-        item = root.CreateChild("ContentNode")
-        item.title = label
-    End For
-    m.list.content = root
-End Sub
+' ── Selection ─────────────────────────────────────────────────────────────────
 
 Sub onItemSelected()
-    idx = m.list.itemSelected
+    idx = m.thumbGrid.itemSelected
     If idx < 0 Or idx >= m.items.Count() Then Return
     m.top.navAction = {type: "play", videoData: m.items[idx]}
 End Sub

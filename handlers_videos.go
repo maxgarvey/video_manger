@@ -745,6 +745,7 @@ func (s *server) handleQuickLabelSubmit(w http.ResponseWriter, r *http.Request) 
 		Actors:        r.FormValue("actors"),
 		Studio:        r.FormValue("studio"),
 		Channel:       r.FormValue("channel"),
+		AirDate:       r.FormValue("air_date"),
 	}
 	if err := s.store.UpdateVideoFields(r.Context(), video.ID, fields); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

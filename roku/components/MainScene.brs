@@ -101,10 +101,8 @@ Sub popView()
     m.top.RemoveChild(topNode)
 
     If m.stack.Count() = 0
-        ' No more views – exit the channel.
-        ' m.top IS the Scene node in MainScene.brs, so Exit() on it closes
-        ' the channel and returns the user to the Roku home screen.
-        m.top.Exit()
+        ' No more views – exit the channel back to the Roku home screen.
+        m.top.exitChannel = True
         Return
     End If
 

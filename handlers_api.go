@@ -45,6 +45,7 @@ type apiVideo struct {
 	Channel      string `json:"channel,omitempty"`
 	Studio       string `json:"studio,omitempty"`
 	Actors       string `json:"actors,omitempty"`
+	AirDate      string `json:"air_date,omitempty"`
 	Type         string `json:"type,omitempty"`
 	Rating       int     `json:"rating"`
 	WatchedAt    string  `json:"watched_at,omitempty"`
@@ -95,6 +96,7 @@ func videoToAPI(v store.Video) apiVideo {
 		Channel:      v.Channel,
 		Studio:       v.Studio,
 		Actors:       v.Actors,
+		AirDate:      v.AirDate,
 		Type:         v.VideoType,
 		Rating:    v.Rating,
 		WatchedAt: v.WatchedAt,

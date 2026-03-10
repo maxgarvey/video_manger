@@ -4,21 +4,28 @@
 ' UI render thread is never blocked.
 
 Sub init()
-    m.items       = []
-    m.pendingMode = ""
-    m.fetchTask   = Invalid
-    m.randomTask  = Invalid
+    m.items        = []
+    m.pendingMode  = ""
+    m.fetchTask    = Invalid
+    m.randomTask   = Invalid
+    m.useThumbGrid = False
 
     m.list        = m.top.FindNode("list")
+    m.thumbGrid   = m.top.FindNode("thumbGrid")
     m.titleLabel  = m.top.FindNode("titleLabel")
     m.statusLabel = m.top.FindNode("statusLabel")
 
-    m.list.ObserveField("itemSelected", "onItemSelected")
+    m.list.ObserveField("itemSelected",      "onItemSelected")
+    m.thumbGrid.ObserveField("itemSelected", "onThumbGridSelected")
 End Sub
 
 ' Called by MainScene after AppendChild — safe to call SetFocus here.
 Sub onActivated()
-    m.list.SetFocus(True)
+    If m.useThumbGrid
+        m.thumbGrid.SetFocus(True)
+    Else
+        m.list.SetFocus(True)
+    End If
 End Sub
 
 ' ── Field change handlers ─────────────────────────────────────────────────────
@@ -206,8 +213,9 @@ Sub processEpisodes(data As Dynamic)
         Return
     End If
 
-    labels = []
-    m.items = []
+    labels    = []
+    thumbURLs = []
+    m.items   = []
     For Each ep In data
         label = "E" + Right("0" + ep.episode.ToStr(), 2)
         If ep.episode_title <> "" And ep.episode_title <> Invalid
@@ -220,10 +228,15 @@ Sub processEpisodes(data As Dynamic)
         End If
         labels.Push(label)
         m.items.Push(ep)
+        thumbURL = ""
+        If ep.thumbnail_url <> Invalid And ep.thumbnail_url <> ""
+            thumbURL = m.top.serverURL + ep.thumbnail_url
+        End If
+        thumbURLs.Push(thumbURL)
     End For
 
     m.statusLabel.text = ""
-    populateList(labels)
+    populateThumbGrid(labels, thumbURLs)
 End Sub
 
 Sub processVideos(data As Dynamic)
@@ -240,8 +253,9 @@ Sub processVideos(data As Dynamic)
         Return
     End If
 
-    labels = []
-    m.items = []
+    labels    = []
+    thumbURLs = []
+    m.items   = []
     For Each v In data
         label = v.title
         If v.duration_s <> Invalid And v.duration_s > 0
@@ -249,10 +263,15 @@ Sub processVideos(data As Dynamic)
         End If
         labels.Push(label)
         m.items.Push(v)
+        thumbURL = ""
+        If v.thumbnail_url <> Invalid And v.thumbnail_url <> ""
+            thumbURL = m.top.serverURL + v.thumbnail_url
+        End If
+        thumbURLs.Push(thumbURL)
     End For
 
     m.statusLabel.text = ""
-    populateList(labels)
+    populateThumbGrid(labels, thumbURLs)
 End Sub
 
 Sub processRecent(data As Dynamic)
@@ -263,8 +282,9 @@ Sub processRecent(data As Dynamic)
         Return
     End If
 
-    labels = []
-    m.items = []
+    labels    = []
+    thumbURLs = []
+    m.items   = []
     For Each entry In data
         label = entry.title
         If entry.position_s <> Invalid And entry.position_s > 30
@@ -272,10 +292,15 @@ Sub processRecent(data As Dynamic)
         End If
         labels.Push(label)
         m.items.Push(entry)
+        thumbURL = ""
+        If entry.thumbnail_url <> Invalid And entry.thumbnail_url <> ""
+            thumbURL = m.top.serverURL + entry.thumbnail_url
+        End If
+        thumbURLs.Push(thumbURL)
     End For
 
     m.statusLabel.text = ""
-    populateList(labels)
+    populateThumbGrid(labels, thumbURLs)
 End Sub
 
 ' ── List helpers ──────────────────────────────────────────────────────────────
@@ -287,7 +312,29 @@ Sub populateList(labels As Object)
         item.title = label
     End For
     m.list.content = root
+    m.list.visible = True
+    m.thumbGrid.visible = False
+    m.useThumbGrid = False
     m.list.SetFocus(True)
+End Sub
+
+' Populate the thumbnail grid for video-item modes (episodes, videos, recent).
+' labels    – array of display strings
+' thumbURLs – array of full thumbnail URL strings (empty string = no thumbnail)
+Sub populateThumbGrid(labels As Object, thumbURLs As Object)
+    root = CreateObject("roSGNode", "ContentNode")
+    For i = 0 To labels.Count() - 1
+        item = root.CreateChild("ContentNode")
+        item.title = labels[i]
+        If i < thumbURLs.Count() And thumbURLs[i] <> ""
+            item.HDGRIDPOSTERURL = thumbURLs[i]
+        End If
+    End For
+    m.thumbGrid.content = root
+    m.thumbGrid.visible = True
+    m.list.visible = False
+    m.useThumbGrid = True
+    m.thumbGrid.SetFocus(True)
 End Sub
 
 ' ── Selection handler ─────────────────────────────────────────────────────────
@@ -327,6 +374,13 @@ Sub onItemSelected()
     Else If mode = "episodes" Or mode = "videos" Or mode = "recent"
         m.top.navAction = {type: "play", videoData: item}
     End If
+End Sub
+
+' Thumbnail grid selection – only used for modes that play videos directly.
+Sub onThumbGridSelected()
+    idx = m.thumbGrid.itemSelected
+    If idx < 0 Or idx >= m.items.Count() Then Return
+    m.top.navAction = {type: "play", videoData: m.items[idx]}
 End Sub
 
 Sub handleMenuSelect(item As Object)

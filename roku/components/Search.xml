@@ -34,13 +34,8 @@
             id="keyboard"
             translation="[340, 100]" />
 
-        <!-- Hint: PLAY to search, BACK to go back -->
-        <Label
-            id="hintLabel"
-            translation="[340, 490]"
-            font="font:SmallSystemFont"
-            color="0x888888FF"
-            text="▶  PLAY = search     ←  BACK = menu" />
+        <!-- Debounce timer: fires search 500 ms after the last keystroke -->
+        <Timer id="debounceTimer" duration="0.5" repeat="false" />
 
         <!-- Status line: "Searching…", result count, or error -->
         <Label
@@ -50,15 +45,17 @@
             color="0xAAAAAAFF"
             text="" />
 
-        <!-- Results list -->
-        <LabelList
-            id="list"
+        <!-- Results: thumbnail grid (single column, shown after a search) -->
+        <MarkupGrid
+            id="thumbGrid"
             translation="[90, 590]"
-            itemSize="[1740, 60]"
+            itemComponentName="VideoItem"
+            itemSize="[1740, 100]"
             itemSpacing="[0, 4]"
-            numRows="7"
-            focusedColor="0xFFFFFFFF"
-            color="0xCCCCCCFF"
-            drawFocusFeedback="true" />
+            numColumns="1"
+            numRows="4"
+            visible="false"
+            focusBitmapUri=""
+            focusFootprintBitmapUri="" />
     </children>
 </component>

@@ -31,6 +31,7 @@ type Video struct {
 	Actors        string
 	Studio        string
 	Channel       string
+	AirDate       string  // original air/release date, e.g. "2023-04-15" (optional)
 	ThumbnailPath string  // relative or absolute path to thumbnail image
 	DurationS     float64 // total duration in seconds; 0 means unknown
 	// WatchedAt holds the last watch timestamp (SQLite datetime string, empty if never watched).
@@ -47,6 +48,7 @@ type VideoFields struct {
 	Actors        string
 	Studio        string
 	Channel       string
+	AirDate       string
 }
 
 // VideoTypes maps the canonical type string to a display color (used by UI).
@@ -84,7 +86,7 @@ func IsValidVideoType(t string) bool {
 // HasFields reports whether any standardised field is populated.
 func (v Video) HasFields() bool {
 	return v.Genre != "" || v.SeasonNumber > 0 || v.EpisodeNumber > 0 ||
-		v.EpisodeTitle != "" || v.Actors != "" || v.Studio != "" || v.Channel != ""
+		v.EpisodeTitle != "" || v.Actors != "" || v.Studio != "" || v.Channel != "" || v.AirDate != ""
 }
 
 // Title returns the display name if set, otherwise the filename.

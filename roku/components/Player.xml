@@ -9,8 +9,10 @@
     navAction  (assocarray, alwaysNotify) – signals navigation events to MainScene
 
   Children:
-    Video  – the Roku built-in video player node
-    Timer  – fires every 10 s to POST watch progress
+    Video       – the Roku built-in video player node
+    Timer       – fires every 10 s to POST watch progress
+    overlayTimer – one-shot 5 s timer to auto-dismiss the info overlay
+    infoOverlay – MTV-style metadata + rating overlay, shown on Up
 -->
 <component name="Player" extends="Group">
     <interface>
@@ -26,10 +28,139 @@
     <children>
         <Video id="video" />
 
-        <!--
-          Timer fires every 10 seconds to save watch progress.
-          duration is in seconds; repeat keeps it firing indefinitely.
-        -->
+        <!-- Fires every 10 s to POST watch progress and refresh overlay position. -->
         <Timer id="progressTimer" duration="10" repeat="true" />
+
+        <!-- One-shot timer: auto-hides the info overlay after 5 s of inactivity. -->
+        <Timer id="overlayTimer" duration="5" repeat="false" />
+
+        <!--
+          MTV-style info/rating overlay – shown when the user presses Up.
+          Sits at the bottom third of the screen, rendered on top of the video.
+        -->
+        <Group id="infoOverlay" visible="false">
+
+            <!-- Translucent dark bar -->
+            <Rectangle
+                id="overlayBg"
+                translation="[0, 756]"
+                width="1920"
+                height="324"
+                color="0x000000D4" />
+
+            <!-- ── Left column: video metadata ─────────────────────────── -->
+
+            <!-- Line 1: Show name or video title (large) -->
+            <Label
+                id="ovShow"
+                translation="[60, 772]"
+                width="1380"
+                font="font:LargeBoldSystemFont"
+                color="0xFFFFFFFF"
+                text="" />
+
+            <!-- Line 2: Episode title in quotes -->
+            <Label
+                id="ovTitle"
+                translation="[60, 824]"
+                width="1380"
+                font="font:MediumSystemFont"
+                color="0xDDDDDDFF"
+                text="" />
+
+            <!-- Line 3: Season · Episode -->
+            <Label
+                id="ovEp"
+                translation="[60, 862]"
+                width="1380"
+                font="font:SmallSystemFont"
+                color="0xAAAAAAAA"
+                text="" />
+
+            <!-- Line 4: Genre / Channel / Studio -->
+            <Label
+                id="ovMeta"
+                translation="[60, 896]"
+                width="1380"
+                font="font:SmallSystemFont"
+                color="0x888888FF"
+                text="" />
+
+            <!-- Line 5: Actors -->
+            <Label
+                id="ovActors"
+                translation="[60, 928]"
+                width="1380"
+                font="font:SmallSystemFont"
+                color="0x888888FF"
+                text="" />
+
+            <!-- Progress bar background -->
+            <Rectangle
+                id="ovProgressBg"
+                translation="[60, 1008]"
+                width="1380"
+                height="5"
+                color="0x333333FF" />
+
+            <!-- Progress bar fill (width set dynamically) -->
+            <Rectangle
+                id="ovProgressFill"
+                translation="[60, 1008]"
+                width="0"
+                height="5"
+                color="0xCCCCCCFF" />
+
+            <!-- Position / duration label -->
+            <Label
+                id="ovPosition"
+                translation="[60, 1020]"
+                width="600"
+                font="font:SmallSystemFont"
+                color="0x666666FF"
+                text="" />
+
+            <!-- ── Right column: rating buttons ───────────────────────── -->
+
+            <!-- ♥ Like button -->
+            <Rectangle
+                id="likeBtnBg"
+                translation="[1500, 788]"
+                width="360"
+                height="64"
+                color="0x1e1e1eFF" />
+            <Label
+                id="likeBtnLbl"
+                translation="[1516, 804]"
+                width="328"
+                font="font:MediumBoldSystemFont"
+                color="0x888888FF"
+                text="↑  Like" />
+
+            <!-- ★ Favourite button -->
+            <Rectangle
+                id="favBtnBg"
+                translation="[1500, 872]"
+                width="360"
+                height="64"
+                color="0x1e1e1eFF" />
+            <Label
+                id="favBtnLbl"
+                translation="[1516, 888]"
+                width="328"
+                font="font:MediumBoldSystemFont"
+                color="0x888888FF"
+                text="★  Fav" />
+
+            <!-- Hint: navigation keys -->
+            <Label
+                id="ovHint"
+                translation="[1500, 952]"
+                width="360"
+                font="font:SmallSystemFont"
+                color="0x555555FF"
+                text="←  →  select    OK  toggle" />
+
+        </Group>
     </children>
 </component>
