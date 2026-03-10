@@ -536,7 +536,12 @@ loop:
 		sse.Event("downloadError", job.err.Error())
 	} else {
 		if job.videoID > 0 {
-			sse.Event("videoReady", strconv.FormatInt(job.videoID, 10))
+			title := ""
+			if v, err := s.store.GetVideo(r.Context(), job.videoID); err == nil {
+				title = v.Title()
+			}
+			data, _ := json.Marshal(map[string]any{"id": job.videoID, "title": title})
+			sse.Event("videoReady", string(data))
 		}
 		sse.Event("done", "")
 	}

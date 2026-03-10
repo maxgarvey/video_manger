@@ -594,6 +594,12 @@ function openTrimStrip(id) {
       hx-on::after-request="(function(){
         document.getElementById('rename-form-{{.Video.ID}}').style.display='none';
         document.getElementById('rename-btn-{{.Video.ID}}').style.display='';
+        var newTitle = document.getElementById('video-title-{{.Video.ID}}').textContent.trim();
+        if (typeof videoTabs !== 'undefined' && videoTabs[{{.Video.ID}}]) {
+          var lbl = videoTabs[{{.Video.ID}}].tabBtn.querySelector('.tab-label');
+          if (lbl) lbl.textContent = newTitle;
+          videoTabs[{{.Video.ID}}].tabBtn.title = newTitle;
+        }
       })()"
       style="display:none;gap:0.4rem;flex:1">
       <input id="rename-input-{{.Video.ID}}" type="text" name="name"

@@ -32,10 +32,12 @@
   };
 
   es.addEventListener('videoReady', function(e) {
-    var videoID = e.data.trim();
-    if (videoID) {
-      window.open('/play/' + videoID, '_blank');
-    }
+    try {
+      var data = JSON.parse(e.data);
+      if (data.id && typeof openTab === 'function') {
+        openTab(data.id, data.title || 'Video ' + data.id);
+      }
+    } catch(_) {}
   });
 
   es.addEventListener('done', function() {
