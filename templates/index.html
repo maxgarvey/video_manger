@@ -1217,35 +1217,64 @@
       document.getElementById('ctx-menu').style.display = 'none';
     }
 
+    // Use capture phase so this runs before any onclick/HTMX handlers on
+    // the underlying element — prevents accidental ✕ clicks etc. when
+    // the user clicks outside to dismiss the menu.
     document.addEventListener('click', function(e) {
-      if (!document.getElementById('ctx-menu').contains(e.target)) hideCtxMenu();
-    });
+      var menu = document.getElementById('ctx-menu');
+      if (menu.style.display === 'none') return;
+      if (!menu.contains(e.target)) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        hideCtxMenu();
+      }
+    }, true);
     document.addEventListener('keydown', function(e) { if (e.key === 'Escape') hideCtxMenu(); });
 
     // ── Move ──────────────────────────────────────────────────────────
     function ctxMoveToggle() {
       var panel = document.getElementById('ctx-move-panel');
       document.getElementById('ctx-del-panel').style.display = 'none';
+      document.getElementById('ctx-tag-panel').style.display = 'none';
       if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
       panel.innerHTML = '<div class="ctx-item" style="color:#555;cursor:default">Loading…</div>';
       panel.style.display = 'block';
       fetch('/api/directories')
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
         .then(function(dirs) {
           panel.innerHTML = '';
+          if (!dirs.length) {
+            panel.innerHTML = '<div class="ctx-item" style="color:#555;cursor:default">No directories registered</div>';
+            return;
+          }
           dirs.forEach(function(d) {
-            if (String(d.id) === String(_ctx.dirID)) return;
+            var isCurrent = String(d.id) === String(_ctx.dirID);
             var btn = document.createElement('button');
             btn.className = 'ctx-item';
             btn.style.cssText = 'width:100%;text-align:left;padding-left:1.4rem';
             btn.title = d.path;
-            btn.textContent = '⊞ ' + (d.path.split('/').filter(Boolean).pop() || d.path);
-            btn.onclick = function() { ctxDoMove(d.id); };
+            var label = d.path.split('/').filter(Boolean).pop() || d.path;
+            if (isCurrent) {
+              btn.textContent = label;
+              var cur = document.createElement('span');
+              cur.textContent = ' (current)';
+              cur.style.cssText = 'color:#555;font-size:0.72em';
+              btn.appendChild(cur);
+              btn.disabled = true;
+              btn.style.opacity = '0.45';
+              btn.style.cursor = 'default';
+            } else {
+              btn.textContent = '⊞ ' + label;
+              btn.onclick = function() { ctxDoMove(d.id); };
+            }
             panel.appendChild(btn);
           });
-          if (!panel.children.length) {
-            panel.innerHTML = '<div class="ctx-item" style="color:#555;cursor:default">No other directories</div>';
-          }
+        })
+        .catch(function(err) {
+          panel.innerHTML = '<div class="ctx-item" style="color:#f87;cursor:default">Failed to load: ' + err.message + '</div>';
         });
     }
 
@@ -1255,11 +1284,14 @@
       var form = new FormData();
       form.append('dir_id', dirID);
       fetch('/videos/' + id + '/move', {method: 'POST', body: form})
-        .then(function(r) { return r.text(); })
-        .then(function(html) {
-          document.getElementById('video-list').innerHTML = html;
-          htmx.process(document.getElementById('video-list'));
-        });
+        .then(function(r) {
+          if (!r.ok) return r.text().then(function(t) { alert('Move failed: ' + t); });
+          return r.text().then(function(html) {
+            document.getElementById('video-list').innerHTML = html;
+            htmx.process(document.getElementById('video-list'));
+          });
+        })
+        .catch(function(err) { alert('Move failed: ' + err.message); });
     }
 
     // ── Tag ───────────────────────────────────────────────────────────
