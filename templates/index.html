@@ -523,7 +523,7 @@
         <option value="{{$type}}">{{$type}}</option>
         {{end}}
       </select>
-      <div id="tag-filters" hx-get="/tags" hx-trigger="load" style="display:contents"></div>
+      <div id="tag-filters" hx-get="/tags" hx-trigger="load" style="display:contents" hx-on::after-settle="checkTagMoreBtn()"></div>
       <button class="btn-sm" hx-get="/videos" hx-target="#video-list"
         onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value='';document.getElementById('active-rating').value='';document.getElementById('active-type').value='';document.getElementById('type-filter').value='';updateRatingBtns();updateTagBtns()"
         style="border-radius:12px;margin-left:auto">Show all</button>
@@ -1075,6 +1075,14 @@
     <img id="thumb-float-img" alt="" style="display:block;max-width:200px;max-height:150px;border-radius:3px">
   </div>
 
+  <!-- ── Tag "…More" popup ─────────────────────────────────────────── -->
+  <div id="tag-more-popup" style="display:none;position:fixed;z-index:9998;background:#1c1c1c;border:1px solid #383838;border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,0.75);width:260px;padding:0.5rem 0.55rem">
+    <input id="tag-more-search" type="text" placeholder="Filter tags…" autocomplete="off"
+      style="width:100%;background:#141414;border:1px solid #444;color:#eee;padding:0.3rem 0.5rem;border-radius:5px;font-size:0.8rem;box-sizing:border-box;margin-bottom:0.4rem;outline:none"
+      oninput="tagMoreFilter(this.value)">
+    <div id="tag-more-list" style="max-height:210px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:0.25rem"></div>
+  </div>
+
   <!-- ── Right-click context menu ────────────────────────────────────── -->
   <div id="ctx-menu" style="display:none;position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #383838;border-radius:7px;box-shadow:0 8px 28px rgba(0,0,0,0.75);min-width:210px;overflow:hidden">
     <div id="ctx-title" style="padding:0.35rem 0.75rem;font-size:0.72rem;color:#666;border-bottom:1px solid #2a2a2a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;user-select:none"></div>
@@ -1324,6 +1332,99 @@
       panel.style.display = panel.style.display !== 'none' ? 'none' : 'block';
     }
 
+    // ── Tag "…More" popup ──────────────────────────────────────────────
+    var _tagMoreData = [];
+
+    function checkTagMoreBtn() {
+      var list = document.querySelector('.tag-filter-list');
+      var wrap = document.getElementById('tag-more-wrap');
+      if (!list || !wrap) return;
+      wrap.style.display = list.scrollHeight > list.clientHeight + 2 ? 'flex' : 'none';
+    }
+
+    function tagMoreOpen(e) {
+      e.stopPropagation();
+      var popup = document.getElementById('tag-more-popup');
+      if (popup.style.display !== 'none') { popup.style.display = 'none'; return; }
+
+      var btn = document.getElementById('tag-more-btn');
+      var r = btn.getBoundingClientRect();
+      popup.style.left = r.left + 'px';
+      popup.style.top  = (r.bottom + 5) + 'px';
+      popup.style.display = 'block';
+
+      var input = document.getElementById('tag-more-search');
+      input.value = '';
+      input.focus();
+
+      fetch('/api/tags')
+        .then(function(r) { return r.json(); })
+        .then(function(tags) {
+          _tagMoreData = tags.sort(function(a, b) { return a.name.localeCompare(b.name); });
+          tagMoreRender(_tagMoreData);
+        });
+
+      // Clamp to viewport after layout
+      requestAnimationFrame(function() {
+        var r2 = popup.getBoundingClientRect();
+        if (r2.right  > window.innerWidth  - 4) popup.style.left = (window.innerWidth  - r2.width  - 4) + 'px';
+        if (r2.bottom > window.innerHeight - 4) popup.style.top  = (r.top - r2.height  - 4) + 'px';
+      });
+    }
+
+    function tagMoreFilter(q) {
+      q = q.toLowerCase();
+      tagMoreRender(_tagMoreData.filter(function(t) {
+        return t.name.toLowerCase().indexOf(q) !== -1;
+      }));
+    }
+
+    function tagMoreRender(tags) {
+      var list  = document.getElementById('tag-more-list');
+      var active = document.getElementById('active-tag');
+      list.innerHTML = '';
+      if (!tags.length) {
+        list.innerHTML = '<span style="color:#555;font-size:0.78rem">No tags found</span>';
+        return;
+      }
+      tags.forEach(function(t) {
+        var btn = document.createElement('button');
+        btn.className = 'btn-sm tag-filter-btn';
+        btn.style.borderRadius = '12px';
+        if (active && active.value == t.id) {
+          btn.style.background    = '#1a3a2a';
+          btn.style.borderColor   = '#4a9a4a';
+          btn.style.color         = '#8f8';
+        }
+        // Display namespace tags with dimmed prefix
+        var colon = t.name.indexOf(':');
+        if (colon !== -1) {
+          var ns   = document.createElement('span');
+          ns.style.cssText = 'opacity:0.45;font-size:0.75em';
+          ns.textContent   = t.name.slice(0, colon + 1);
+          var val  = document.createTextNode(t.name.slice(colon + 1));
+          btn.appendChild(ns);
+          btn.appendChild(val);
+        } else {
+          btn.textContent = t.name;
+        }
+        btn.onclick = function() {
+          toggleTagFilter(t.id);
+          document.getElementById('tag-more-popup').style.display = 'none';
+        };
+        list.appendChild(btn);
+      });
+    }
+
+    document.addEventListener('click', function(e) {
+      var popup = document.getElementById('tag-more-popup');
+      var btn   = document.getElementById('tag-more-btn');
+      if (popup && !popup.contains(e.target) && e.target !== btn) {
+        popup.style.display = 'none';
+      }
+    });
+
+    // ── Context menu delete ────────────────────────────────────────────
     function ctxDoDelete(mode) {
       var id = _ctx.id;
       hideCtxMenu();

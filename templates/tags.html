@@ -1,15 +1,21 @@
 {{if .}}
-<div class="tag-filter-list" style="max-height:3.8rem;overflow:hidden">
-  {{range .}}
-  <button class="btn-sm tag-filter-btn"
-    id="tag-btn-{{.ID}}"
-    onclick="toggleTagFilter({{.ID}})"
-    style="border-radius:12px"
-  >{{- $parts := splitTagName .Name -}}
-  {{- if $parts.Namespace -}}<span style="opacity:0.45;font-size:0.75em">{{$parts.Namespace}}:</span>{{$parts.Value}}
-  {{- else -}}{{.Name}}
-  {{- end -}}</button>
-  {{end}}
+<div style="position:relative;width:100%">
+  <div class="tag-filter-list" style="max-height:3.8rem;overflow:hidden">
+    {{range .}}
+    <button class="btn-sm tag-filter-btn"
+      id="tag-btn-{{.ID}}"
+      onclick="toggleTagFilter({{.ID}})"
+      style="border-radius:12px"
+    >{{- $parts := splitTagName .Name -}}
+    {{- if $parts.Namespace -}}<span style="opacity:0.45;font-size:0.75em">{{$parts.Namespace}}:</span>{{$parts.Value}}
+    {{- else -}}{{.Name}}
+    {{- end -}}</button>
+    {{end}}
+  </div>
+  <!-- Shown by JS only when tags overflow the 2-row cap -->
+  <div id="tag-more-wrap" style="position:absolute;bottom:0;right:0;display:none;align-items:center;background:linear-gradient(to right,transparent,#121212 38%);padding:0.1rem 0 0.1rem 1.8rem">
+    <button id="tag-more-btn" class="btn-sm" onclick="tagMoreOpen(event)" style="font-size:0.68rem;border-radius:12px;white-space:nowrap">…More</button>
+  </div>
 </div>
 {{else}}
 <p style="color:#555;font-size:0.8rem">No tags yet.</p>
