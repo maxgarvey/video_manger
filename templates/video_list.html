@@ -1,5 +1,11 @@
 {{define "videoRow"}}
-<li draggable="true" data-video-id="{{.ID}}" style="display:flex;align-items:center;gap:0.2rem">
+<li draggable="true"
+  data-video-id="{{.ID}}"
+  data-dir-id="{{.DirectoryID}}"
+  data-filename="{{.Filename}}"
+  data-dir-path="{{.DirectoryPath}}"
+  oncontextmenu="showCtxMenu(event,this)"
+  style="display:flex;align-items:center;gap:0.2rem">
   <button
     onclick="openTab(Number(this.dataset.id), this.dataset.title)"
     data-id="{{.ID}}"

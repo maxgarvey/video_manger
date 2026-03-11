@@ -387,3 +387,23 @@ func (s *server) handleAPIRecentlyWatched(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, result)
 }
+
+// ── Directories ───────────────────────────────────────────────────────────────
+
+type apiDirectory struct {
+	ID   int64  `json:"id"`
+	Path string `json:"path"`
+}
+
+func (s *server) handleAPIDirectories(w http.ResponseWriter, r *http.Request) {
+	dirs, err := s.store.ListDirectories(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out := make([]apiDirectory, len(dirs))
+	for i, d := range dirs {
+		out[i] = apiDirectory{ID: d.ID, Path: d.Path}
+	}
+	writeJSON(w, out)
+}

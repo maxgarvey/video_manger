@@ -1075,6 +1075,30 @@
     <img id="thumb-float-img" alt="" style="display:block;max-width:200px;max-height:150px;border-radius:3px">
   </div>
 
+  <!-- ── Right-click context menu ────────────────────────────────────── -->
+  <div id="ctx-menu" style="display:none;position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #383838;border-radius:7px;box-shadow:0 8px 28px rgba(0,0,0,0.75);min-width:210px;overflow:hidden">
+    <div id="ctx-title" style="padding:0.35rem 0.75rem;font-size:0.72rem;color:#666;border-bottom:1px solid #2a2a2a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;user-select:none"></div>
+    <div style="padding:0.2rem 0">
+      <button class="ctx-item" onclick="ctxMoveToggle()">⇥ Move to folder…</button>
+      <div id="ctx-move-panel" style="display:none;border-top:1px solid #2a2a2a;border-bottom:1px solid #2a2a2a;max-height:160px;overflow-y:auto"></div>
+      <button class="ctx-item" onclick="ctxRename()">✎ Rename…</button>
+      <div style="border-top:1px solid #2a2a2a;margin:0.15rem 0"></div>
+      <button class="ctx-item" onclick="ctxDeleteToggle()">⌦ Delete…</button>
+      <div id="ctx-del-panel" style="display:none;padding:0.3rem 0.6rem 0.45rem;background:#1a1010;border-top:1px solid #3a2020">
+        <div style="font-size:0.71rem;color:#888;margin-bottom:0.3rem">Choose action:</div>
+        <button class="ctx-item ctx-danger" style="width:100%;text-align:left" onclick="ctxDoDelete('file')">⌦ Delete file from disk</button>
+        <button class="ctx-item" style="width:100%;text-align:left" onclick="ctxDoDelete('db')">✕ Remove from library only</button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .ctx-item { display:block; width:100%; background:none; border:none; color:#ccc; font-size:0.8rem; padding:0.4rem 0.8rem; cursor:pointer; text-align:left; white-space:nowrap; }
+    .ctx-item:hover { background:#2a3a4a; color:#fff; }
+    .ctx-danger { color:#e88; }
+    .ctx-danger:hover { background:#3a1e1e; color:#faa; }
+  </style>
+
   <script>
     // Open the trimmed video in a new tab when trim completes.
     document.body.addEventListener('trimComplete', function(e) {
@@ -1133,6 +1157,125 @@
         })
         .catch(function() {
           if (status) { status.textContent = 'failed'; setTimeout(function(){ status.textContent=''; }, 3000); }
+        });
+    }
+  </script>
+
+  <!-- ── Context menu logic ─────────────────────────────────────────── -->
+  <script>
+    var _ctx = {id: null, dirID: null, filename: null, dirPath: null};
+
+    function showCtxMenu(e, li) {
+      e.preventDefault();
+      e.stopPropagation();
+      _ctx.id       = li.dataset.videoId;
+      _ctx.dirID    = li.dataset.dirId;
+      _ctx.filename = li.dataset.filename;
+      _ctx.dirPath  = li.dataset.dirPath;
+
+      var titleEl = li.querySelector('[data-title]');
+      document.getElementById('ctx-title').textContent = titleEl ? titleEl.dataset.title : _ctx.filename;
+
+      // Reset sub-panels
+      document.getElementById('ctx-move-panel').style.display = 'none';
+      document.getElementById('ctx-del-panel').style.display  = 'none';
+
+      var menu = document.getElementById('ctx-menu');
+      menu.style.left = e.clientX + 'px';
+      menu.style.top  = e.clientY + 'px';
+      menu.style.display = 'block';
+
+      // Clamp to viewport after layout
+      requestAnimationFrame(function() {
+        var r = menu.getBoundingClientRect();
+        if (r.right  > window.innerWidth  - 4) menu.style.left = (e.clientX - r.width)  + 'px';
+        if (r.bottom > window.innerHeight - 4) menu.style.top  = (e.clientY - r.height) + 'px';
+      });
+    }
+
+    function hideCtxMenu() {
+      document.getElementById('ctx-menu').style.display = 'none';
+    }
+
+    document.addEventListener('click', function(e) {
+      if (!document.getElementById('ctx-menu').contains(e.target)) hideCtxMenu();
+    });
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') hideCtxMenu(); });
+
+    // ── Move ──────────────────────────────────────────────────────────
+    function ctxMoveToggle() {
+      var panel = document.getElementById('ctx-move-panel');
+      document.getElementById('ctx-del-panel').style.display = 'none';
+      if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+      panel.innerHTML = '<div class="ctx-item" style="color:#555;cursor:default">Loading…</div>';
+      panel.style.display = 'block';
+      fetch('/api/directories')
+        .then(function(r) { return r.json(); })
+        .then(function(dirs) {
+          panel.innerHTML = '';
+          dirs.forEach(function(d) {
+            if (String(d.id) === String(_ctx.dirID)) return;
+            var btn = document.createElement('button');
+            btn.className = 'ctx-item';
+            btn.style.cssText = 'width:100%;text-align:left;padding-left:1.4rem';
+            btn.title = d.path;
+            btn.textContent = '⊞ ' + (d.path.split('/').filter(Boolean).pop() || d.path);
+            btn.onclick = function() { ctxDoMove(d.id); };
+            panel.appendChild(btn);
+          });
+          if (!panel.children.length) {
+            panel.innerHTML = '<div class="ctx-item" style="color:#555;cursor:default">No other directories</div>';
+          }
+        });
+    }
+
+    function ctxDoMove(dirID) {
+      var id = _ctx.id;
+      hideCtxMenu();
+      var form = new FormData();
+      form.append('dir_id', dirID);
+      fetch('/videos/' + id + '/move', {method: 'POST', body: form})
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          document.getElementById('video-list').innerHTML = html;
+          htmx.process(document.getElementById('video-list'));
+        });
+    }
+
+    // ── Rename ────────────────────────────────────────────────────────
+    function ctxRename() {
+      var id = _ctx.id, old = _ctx.filename, dir = _ctx.dirPath;
+      hideCtxMenu();
+      var newName = prompt('Rename to:', old);
+      if (!newName || newName === old) return;
+      var form = new FormData();
+      form.append('name', newName);
+      fetch('/videos/' + id + '/rename', {method: 'POST', body: form})
+        .then(function(r) {
+          if (!r.ok) return r.text().then(function(t) { alert('Rename failed: ' + t); });
+          return r.text().then(function(html) {
+            document.getElementById('video-list').innerHTML = html;
+            htmx.process(document.getElementById('video-list'));
+          });
+        });
+    }
+
+    // ── Delete ────────────────────────────────────────────────────────
+    function ctxDeleteToggle() {
+      var panel = document.getElementById('ctx-del-panel');
+      document.getElementById('ctx-move-panel').style.display = 'none';
+      panel.style.display = panel.style.display !== 'none' ? 'none' : 'block';
+    }
+
+    function ctxDoDelete(mode) {
+      var id = _ctx.id;
+      hideCtxMenu();
+      var url = '/videos/' + id + (mode === 'file' ? '/file' : '');
+      fetch(url, {method: 'DELETE'})
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          document.getElementById('video-list').innerHTML = html;
+          htmx.process(document.getElementById('video-list'));
         });
     }
   </script>

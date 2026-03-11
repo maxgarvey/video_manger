@@ -464,6 +464,41 @@ func (s *server) handleCopyToLibrary(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<span style="color:#4a9a4a;font-size:0.8rem">✓ Copied to %s</span>`, dstName)
 }
 
+// handleRenameVideo renames a video file on disk and updates the DB.
+// Form field: name=<new_filename_with_extension>
+func (s *server) handleRenameVideo(w http.ResponseWriter, r *http.Request) {
+	video, ok := s.videoOrError(w, r)
+	if !ok {
+		return
+	}
+	newName := strings.TrimSpace(r.FormValue("name"))
+	if newName == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if strings.ContainsAny(newName, "/\\") || strings.Contains(newName, "..") {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
+		return
+	}
+	if newName == video.Filename {
+		s.serveVideoList(w, r)
+		return
+	}
+	src := video.FilePath()
+	dst := filepath.Join(video.DirectoryPath, newName)
+	if err := os.Rename(src, dst); err != nil {
+		http.Error(w, "rename failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.UpdateVideoPath(r.Context(), video.ID, video.DirectoryID, video.DirectoryPath, newName); err != nil {
+		// Best-effort rollback.
+		_ = os.Rename(dst, src)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.serveVideoList(w, r)
+}
+
 // handleMoveVideo moves a video file to a different registered directory.
 // Optional form field "subdir" creates a sub-folder inside the target dir.
 func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {

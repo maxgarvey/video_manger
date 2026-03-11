@@ -219,6 +219,7 @@ func (s *server) routes() http.Handler {
 		r.Delete("/videos/{id}/progress", s.handleClearProgress)
 		r.Post("/videos/{id}/copy-to-library", s.handleCopyToLibrary)
 		r.Post("/videos/{id}/move", s.handleMoveVideo)
+		r.Post("/videos/{id}/rename", s.handleRenameVideo)
 		r.Post("/import/upload", s.handleImportUpload)
 
 		// Rating
@@ -305,6 +306,7 @@ func (s *server) routes() http.Handler {
 		r.Get("/api/tags", s.handleAPIListTags)
 		r.Get("/api/tags/{id}/videos", s.handleAPITagVideos)
 		r.Get("/api/recently-watched", s.handleAPIRecentlyWatched)
+		r.Get("/api/directories", s.handleAPIDirectories)
 	})
 
 	return r
