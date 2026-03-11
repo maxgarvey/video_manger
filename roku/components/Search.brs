@@ -41,20 +41,64 @@ End Sub
 Function onKeyEvent(key As String, press As Boolean) As Boolean
     If Not press Then Return False
 
-    ' PLAY = search immediately, bypassing the debounce wait.
+    ' PLAY = search immediately (keyboard) or play focused item (grid).
     If key = "play"
-        m.debounceTimer.control = "stop"
-        doSearch()
+        If m.gridFocused
+            idx = m.thumbGrid.itemFocused
+            If idx >= 0 And idx < m.items.Count()
+                m.top.navAction = {type: "play", videoData: m.items[idx]}
+            End If
+        Else
+            m.debounceTimer.control = "stop"
+            doSearch()
+        End If
         Return True
     End If
 
+    ' DOWN from keyboard → move focus into results grid (if visible).
+    If key = "down"
+        If Not m.gridFocused And m.thumbGrid.visible And m.items.Count() > 0
+            m.thumbGrid.SetFocus(True)
+            m.gridFocused = True
+            m.statusLabel.text = "OK to play  ·  Up to edit search  ·  Back to cancel"
+            Return True
+        End If
+        Return False
+    End If
+
+    ' UP from grid top row → bubble back to keyboard.
+    If key = "up"
+        If m.gridFocused
+            m.keyboard.SetFocus(True)
+            m.gridFocused = False
+            updateStatusLabel()
+            Return True
+        End If
+        Return False
+    End If
+
+    ' BACK: if in grid return to keyboard; if in keyboard nav away.
     If key = "back"
+        If m.gridFocused
+            m.keyboard.SetFocus(True)
+            m.gridFocused = False
+            updateStatusLabel()
+            Return True
+        End If
         m.top.navAction = {type: "back"}
         Return True
     End If
 
     Return False
 End Function
+
+Sub updateStatusLabel()
+    count = m.items.Count()
+    If count = 0 Then Return
+    suffix = "s"
+    If count = 1 Then suffix = ""
+    m.statusLabel.text = count.ToStr() + " result" + suffix + " — Down to browse"
+End Sub
 
 ' ── Live search ───────────────────────────────────────────────────────────────
 
@@ -72,6 +116,11 @@ Sub onTextChange()
         End If
         m.statusLabel.text = ""
         m.thumbGrid.visible = False
+        m.items = []
+        If m.gridFocused
+            m.keyboard.SetFocus(True)
+            m.gridFocused = False
+        End If
         Return
     End If
 
@@ -143,7 +192,7 @@ Sub onFetchDone()
     count  = data.Count()
     suffix = "s"
     If count = 1 Then suffix = ""
-    m.statusLabel.text = count.ToStr() + " result" + suffix
+    m.statusLabel.text = count.ToStr() + " result" + suffix + " — Down to browse"
 
     root = CreateObject("roSGNode", "ContentNode")
     For i = 0 To labels.Count() - 1
