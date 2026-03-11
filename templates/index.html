@@ -144,6 +144,7 @@
       flex-shrink: 0;
       background: rgba(18, 18, 18, 0.72);
       flex-wrap: wrap;
+      position: relative;
     }
     body.add-content-open #add-content-panel { display: flex; }
     body.add-content-open #add-content-btn { background: #2a3a2a; border-color: #4a7a4a; color: #8f8; }
@@ -530,6 +531,11 @@
 
     <!-- Add-content panel (collapsible) -->
     <div id="add-content-panel">
+      <button onclick="document.body.classList.remove('add-content-open')"
+        title="Close"
+        style="position:absolute;top:0.4rem;right:0.5rem;background:none;border:none;color:#555;font-size:1rem;line-height:1;cursor:pointer;padding:0.1rem 0.3rem;border-radius:3px"
+        onmouseover="this.style.color='#ccc'" onmouseout="this.style.color='#555'"
+      >✕</button>
 
       <!-- Directories -->
       <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:0.4rem">

@@ -4419,3 +4419,448 @@ func TestHandleLogout_NoCookieIsHarmless(t *testing.T) {
 		t.Fatalf("expected redirect from logout, got %d", rec.Code)
 	}
 }
+
+// --- New tests appended below ---
+
+// 5. handleVideoTags
+func TestHandleVideoTags(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	// Add a tag directly through the store.
+	tag, _ := srv.store.UpsertTag(ctx, "drama")
+	srv.store.TagVideo(ctx, v.ID, tag.ID) //nolint:errcheck
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/tags", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "drama") {
+		t.Error("expected tag name in video tags response")
+	}
+}
+
+func TestHandleVideoTags_NotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/9999/tags", nil)
+	srv.routes().ServeHTTP(rec, req)
+	// Handler calls parseIDParam which is OK, then calls store.ListTagsByVideo
+	// which succeeds on a nonexistent video (just returns empty slice), so 200.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for nonexistent video tags, got %d", rec.Code)
+	}
+}
+
+// 6. Air date field end-to-end through quick-label handler
+func TestHandleQuickLabelSubmit_AirDate(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	form := url.Values{
+		"air_date": {"2023-04-15"},
+		"genre":    {"Drama"},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/quick-label", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	got, err := srv.store.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo: %v", err)
+	}
+	if got.AirDate != "2023-04-15" {
+		t.Errorf("AirDate = %q, want 2023-04-15", got.AirDate)
+	}
+}
+
+// 7. Trim metadata copy tests
+// These use a stub ffmpeg that creates the output file and exits 0.
+func makeFfmpegStub(t *testing.T) string {
+	t.Helper()
+	bin := t.TempDir()
+	stub := filepath.Join(bin, "ffmpeg")
+	stubScript := "#!/bin/sh\nfor last; do true; done\n: > \"$last\"\n"
+	if err := os.WriteFile(stub, []byte(stubScript), 0755); err != nil {
+		t.Fatalf("write ffmpeg stub: %v", err)
+	}
+	return bin
+}
+
+func TestHandleTrim_CopiesVideoFields(t *testing.T) {
+	bin := makeFfmpegStub(t)
+	t.Setenv("PATH", bin)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "clip.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
+
+	// Set fields on the source video.
+	fields := store.VideoFields{
+		Genre:         "Action",
+		SeasonNumber:  2,
+		EpisodeNumber: 5,
+		EpisodeTitle:  "The Pilot",
+		Actors:        "Tom Hanks",
+		Studio:        "WB",
+		Channel:       "HBO",
+		AirDate:       "2023-01-01",
+	}
+	if err := srv.store.UpdateVideoFields(ctx, v.ID, fields); err != nil {
+		t.Fatalf("UpdateVideoFields: %v", err)
+	}
+
+	form := url.Values{"start": {"0"}, "end": {"5"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/trim", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Find the trimmed video in the DB.
+	videos, err := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("ListVideosByDirectory: %v", err)
+	}
+	if len(videos) < 2 {
+		t.Fatalf("expected >= 2 videos (original + trim), got %d", len(videos))
+	}
+	var trimmed store.Video
+	for _, vid := range videos {
+		if strings.Contains(vid.Filename, "_trim") {
+			trimmed = vid
+			break
+		}
+	}
+	if trimmed.ID == 0 {
+		t.Fatal("trimmed video not found in DB")
+	}
+
+	if trimmed.Genre != "Action" {
+		t.Errorf("Genre = %q, want Action", trimmed.Genre)
+	}
+	if trimmed.SeasonNumber != 2 {
+		t.Errorf("SeasonNumber = %d, want 2", trimmed.SeasonNumber)
+	}
+	if trimmed.EpisodeNumber != 5 {
+		t.Errorf("EpisodeNumber = %d, want 5", trimmed.EpisodeNumber)
+	}
+	if trimmed.EpisodeTitle != "The Pilot" {
+		t.Errorf("EpisodeTitle = %q, want 'The Pilot'", trimmed.EpisodeTitle)
+	}
+	if trimmed.Studio != "WB" {
+		t.Errorf("Studio = %q, want WB", trimmed.Studio)
+	}
+	if trimmed.Channel != "HBO" {
+		t.Errorf("Channel = %q, want HBO", trimmed.Channel)
+	}
+	if trimmed.AirDate != "2023-01-01" {
+		t.Errorf("AirDate = %q, want 2023-01-01", trimmed.AirDate)
+	}
+}
+
+func TestHandleTrim_CopiesDisplayNameWithSuffix(t *testing.T) {
+	bin := makeFfmpegStub(t)
+	t.Setenv("PATH", bin)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "clip.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
+
+	// Set a display name on the source video.
+	if err := srv.store.UpdateVideoName(ctx, v.ID, "My Great Film"); err != nil {
+		t.Fatalf("UpdateVideoName: %v", err)
+	}
+
+	form := url.Values{"start": {"0"}, "end": {"5"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/trim", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	videos, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	var trimmed store.Video
+	for _, vid := range videos {
+		if strings.Contains(vid.Filename, "_trim") {
+			trimmed = vid
+			break
+		}
+	}
+	if trimmed.ID == 0 {
+		t.Fatal("trimmed video not found")
+	}
+	if trimmed.DisplayName != "My Great Film (trim)" {
+		t.Errorf("DisplayName = %q, want 'My Great Film (trim)'", trimmed.DisplayName)
+	}
+}
+
+func TestHandleTrim_CopiesShowName(t *testing.T) {
+	bin := makeFfmpegStub(t)
+	t.Setenv("PATH", bin)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ep.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "ep.mp4")
+
+	if err := srv.store.UpdateVideoShowName(ctx, v.ID, "Breaking Bad"); err != nil {
+		t.Fatalf("UpdateVideoShowName: %v", err)
+	}
+
+	form := url.Values{"start": {"0"}, "end": {"5"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/trim", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	videos, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	var trimmed store.Video
+	for _, vid := range videos {
+		if strings.Contains(vid.Filename, "_trim") {
+			trimmed = vid
+			break
+		}
+	}
+	if trimmed.ID == 0 {
+		t.Fatal("trimmed video not found")
+	}
+	if trimmed.ShowName != "Breaking Bad" {
+		t.Errorf("ShowName = %q, want 'Breaking Bad'", trimmed.ShowName)
+	}
+}
+
+func TestHandleTrim_CopiesVideoType(t *testing.T) {
+	bin := makeFfmpegStub(t)
+	t.Setenv("PATH", bin)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "doc.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "doc.mp4")
+
+	if err := srv.store.UpdateVideoType(ctx, v.ID, "Movie"); err != nil {
+		t.Fatalf("UpdateVideoType: %v", err)
+	}
+
+	form := url.Values{"start": {"0"}, "end": {"5"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/trim", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	videos, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	var trimmed store.Video
+	for _, vid := range videos {
+		if strings.Contains(vid.Filename, "_trim") {
+			trimmed = vid
+			break
+		}
+	}
+	if trimmed.ID == 0 {
+		t.Fatal("trimmed video not found")
+	}
+	if trimmed.VideoType != "Movie" {
+		t.Errorf("VideoType = %q, want Movie", trimmed.VideoType)
+	}
+}
+
+func TestHandleTrim_CopiesUserTagsNotSystemTags(t *testing.T) {
+	bin := makeFfmpegStub(t)
+	t.Setenv("PATH", bin)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "doc.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "doc.mp4")
+
+	// Add a user tag and a system tag (system tag has ":" in its name).
+	// The system tag "custom:value" will NOT be one that UpdateVideoFields would create,
+	// so we can verify the loop in handleTrim skips copying it.
+	userTag, _ := srv.store.UpsertTag(ctx, "favorites")
+	systemTag, _ := srv.store.UpsertTag(ctx, "custom:system-tag")
+	srv.store.TagVideo(ctx, v.ID, userTag.ID)   //nolint:errcheck
+	srv.store.TagVideo(ctx, v.ID, systemTag.ID) //nolint:errcheck
+
+	form := url.Values{"start": {"0"}, "end": {"5"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/trim", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	videos, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	var trimmed store.Video
+	for _, vid := range videos {
+		if strings.Contains(vid.Filename, "_trim") {
+			trimmed = vid
+			break
+		}
+	}
+	if trimmed.ID == 0 {
+		t.Fatal("trimmed video not found")
+	}
+
+	trimmedTags, err := srv.store.ListTagsByVideo(ctx, trimmed.ID)
+	if err != nil {
+		t.Fatalf("ListTagsByVideo: %v", err)
+	}
+	tagNames := make(map[string]bool)
+	for _, tg := range trimmedTags {
+		tagNames[tg.Name] = true
+	}
+
+	// User tag must be copied.
+	if !tagNames["favorites"] {
+		t.Error("expected user tag 'favorites' to be copied to trimmed video")
+	}
+	// System tag (containing ":") must NOT be directly copied via the tag loop.
+	if tagNames["custom:system-tag"] {
+		t.Error("system tag 'custom:system-tag' should not be directly copied to trimmed video")
+	}
+}
+
+// 12. handleTrim with no end time (start only — trims to end of file)
+func TestHandleTrim_NoEndTime(t *testing.T) {
+	bin := makeFfmpegStub(t)
+	t.Setenv("PATH", bin)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "long.mp4"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, dir)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "long.mp4")
+
+	// Only start, no end — handler sets end="" which means Trim to EOF.
+	form := url.Values{"start": {"30"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/videos/"+itoa(v.ID)+"/trim", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// Trimmed video must appear in DB.
+	videos, _ := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if len(videos) < 2 {
+		t.Errorf("expected >= 2 videos after trim-to-end, got %d", len(videos))
+	}
+}
+
+// 13. Concurrent sync — two simultaneous startSyncDir calls on the same directory
+func TestConcurrentSync_NoPanic(t *testing.T) {
+	root := t.TempDir()
+	for i := range 5 {
+		name := fmt.Sprintf("vid%d.mp4", i)
+		os.WriteFile(filepath.Join(root, name), []byte("fake"), 0644) //nolint:errcheck
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, root)
+
+	// Call syncDir directly (synchronous) twice back-to-back to verify
+	// idempotency under rapid re-invocations.  startSyncDir is async and
+	// skips re-entry via syncingDirs, so we exercise the locking/skipping
+	// path by calling it twice in quick succession.
+	done := make(chan struct{}, 2)
+	go func() {
+		defer func() { done <- struct{}{} }()
+		srv.syncDir(d)
+	}()
+	go func() {
+		defer func() { done <- struct{}{} }()
+		srv.syncDir(d)
+	}()
+	<-done
+	<-done
+
+	// DB should have exactly 5 videos (no duplicates, no panics).
+	videos, err := srv.store.ListVideosByDirectory(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("ListVideosByDirectory: %v", err)
+	}
+	if len(videos) != 5 {
+		t.Errorf("expected 5 videos after concurrent sync, got %d", len(videos))
+	}
+}
+
+// 14. Search with Unicode
+func TestHandleVideoSearch_Unicode(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "Résumé.mp4")           //nolint:errcheck
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "日本語ビデオ.mp4")           //nolint:errcheck
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "emoji_🎬.mp4")          //nolint:errcheck
+
+	for _, q := range []string{"Résumé", "日本語", "🎬", "café"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/videos?q="+url.QueryEscape(q), nil)
+		srv.routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("query %q: expected 200, got %d", q, rec.Code)
+		}
+	}
+}

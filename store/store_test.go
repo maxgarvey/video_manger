@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/maxgarvey/video_manger/store"
@@ -137,5 +138,82 @@ func TestValidVideoTypes_NoDuplicates(t *testing.T) {
 		if count > 1 {
 			t.Errorf("ValidVideoTypes: %q appears %d times", typ, count)
 		}
+	}
+}
+
+// --- 15. UpdateVideoFields with AirDate ---
+
+func TestUpdateVideoFields_AirDate(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	dir, err := s.AddDirectory(ctx, "/videos")
+	if err != nil {
+		t.Fatalf("AddDirectory: %v", err)
+	}
+	v, err := s.UpsertVideo(ctx, dir.ID, dir.Path, "film.mp4")
+	if err != nil {
+		t.Fatalf("UpsertVideo: %v", err)
+	}
+
+	fields := store.VideoFields{
+		Genre:   "Drama",
+		AirDate: "2023-04-15",
+	}
+	if err := s.UpdateVideoFields(ctx, v.ID, fields); err != nil {
+		t.Fatalf("UpdateVideoFields: %v", err)
+	}
+
+	got, err := s.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo: %v", err)
+	}
+	if got.AirDate != "2023-04-15" {
+		t.Errorf("AirDate = %q, want 2023-04-15", got.AirDate)
+	}
+	if got.Genre != "Drama" {
+		t.Errorf("Genre = %q, want Drama", got.Genre)
+	}
+}
+
+// --- 16. UpdateVideoFields clears air_date when set to empty string ---
+
+func TestUpdateVideoFields_ClearsAirDate(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	dir, err := s.AddDirectory(ctx, "/videos")
+	if err != nil {
+		t.Fatalf("AddDirectory: %v", err)
+	}
+	v, err := s.UpsertVideo(ctx, dir.ID, dir.Path, "film.mp4")
+	if err != nil {
+		t.Fatalf("UpsertVideo: %v", err)
+	}
+
+	// First set a value.
+	if err := s.UpdateVideoFields(ctx, v.ID, store.VideoFields{AirDate: "2023-04-15"}); err != nil {
+		t.Fatalf("UpdateVideoFields (set): %v", err)
+	}
+
+	// Now clear it by passing an empty string.
+	if err := s.UpdateVideoFields(ctx, v.ID, store.VideoFields{AirDate: ""}); err != nil {
+		t.Fatalf("UpdateVideoFields (clear): %v", err)
+	}
+
+	got, err := s.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo: %v", err)
+	}
+	if got.AirDate != "" {
+		t.Errorf("AirDate = %q after clear, want empty string", got.AirDate)
+	}
+}
+
+// --- Video.HasFields with AirDate ---
+
+func TestHasFields_AirDate(t *testing.T) {
+	if !(store.Video{AirDate: "2023-04-15"}).HasFields() {
+		t.Error("Video{AirDate}.HasFields() should be true")
 	}
 }
