@@ -157,6 +157,9 @@ func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, dirPath stri
 		          (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		           WHERE vt.video_id=id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		          (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		           WHERE vt.video_id=id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		          thumbnail_path, duration_s, air_date,
 		          NULL AS watched_at
 	`, filename, dirID, dirPath, filename)
@@ -188,6 +191,9 @@ func (s *SQLiteStore) ListVideos(ctx context.Context) ([]Video, error) {
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -231,6 +237,9 @@ func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 		        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -270,6 +279,9 @@ func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -308,6 +320,9 @@ func (s *SQLiteStore) GetVideo(ctx context.Context, id int64) (Video, error) {
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -347,6 +362,9 @@ func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -384,6 +402,9 @@ func (s *SQLiteStore) ListVideosByShow(ctx context.Context, showName string) ([]
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 		        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -428,6 +449,9 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 			        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+			        WHERE vt2.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 			       v.thumbnail_path, v.duration_s, v.air_date,
 			       wh.watched_at
 			FROM videos v
@@ -462,6 +486,9 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 			        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 			       v.thumbnail_path, v.duration_s, v.air_date,
 			       wh.watched_at
 			FROM videos v
@@ -502,6 +529,9 @@ func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -549,6 +579,9 @@ func (s *SQLiteStore) ListVideosByType(ctx context.Context, videoType string) ([
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 		        WHERE vt2.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
+		        WHERE vt2.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -617,7 +650,7 @@ func (s *SQLiteStore) UpdateVideoFields(ctx context.Context, id int64, f VideoFi
 
 func splitActors(actors string) []string {
 	var result []string
-	for _, a := range strings.Split(actors, ",") {
+	for a := range strings.SplitSeq(actors, ",") {
 		if s := strings.TrimSpace(a); s != "" {
 			result = append(result, s)
 		}
@@ -650,6 +683,9 @@ func (s *SQLiteStore) ListVideosByMinRating(ctx context.Context, minRating int) 
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -695,6 +731,9 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 			        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+			       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+			        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 			       v.thumbnail_path, v.duration_s, v.air_date,
 			       wh.watched_at
 			FROM videos v
@@ -739,6 +778,9 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'type:%' LIMIT 1) AS video_type,
+		       (SELECT SUBSTR(t.name, INSTR(t.name,':')+1)
+		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
+		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
 		       wh.watched_at
 		FROM videos v
@@ -880,10 +922,11 @@ func (s *SQLiteStore) SetMultiSystemTag(ctx context.Context, videoID int64, name
 func scanVideoRow(row *sql.Row) (Video, error) {
 	var v Video
 	var dirID sql.NullInt64
-	var showName, genre, actors, studio, channel, videoType, thumbnailPath, watchedAt, airDate sql.NullString
+	var showName, genre, actors, studio, channel, videoType, colorLabel, thumbnailPath, watchedAt, airDate sql.NullString
 	if err := row.Scan(
 		&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &showName, &v.Rating, &v.OriginalFilename,
 		&genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &actors, &studio, &channel, &videoType,
+		&colorLabel,
 		&thumbnailPath, &v.DurationS, &airDate,
 		&watchedAt,
 	); err != nil {
@@ -898,6 +941,7 @@ func scanVideoRow(row *sql.Row) (Video, error) {
 	v.Studio = studio.String
 	v.Channel = channel.String
 	v.VideoType = videoType.String
+	v.ColorLabel = colorLabel.String
 	v.ThumbnailPath = thumbnailPath.String
 	v.AirDate = airDate.String
 	if watchedAt.Valid {
@@ -912,10 +956,11 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 	for rows.Next() {
 		var v Video
 		var dirID sql.NullInt64
-		var showName, genre, actors, studio, channel, videoType, thumbnailPath, watchedAt, airDate sql.NullString
+		var showName, genre, actors, studio, channel, videoType, colorLabel, thumbnailPath, watchedAt, airDate sql.NullString
 		if err := rows.Scan(
 			&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &showName, &v.Rating, &v.OriginalFilename,
 			&genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &actors, &studio, &channel, &videoType,
+			&colorLabel,
 			&thumbnailPath, &v.DurationS, &airDate,
 			&watchedAt,
 		); err != nil {
@@ -930,6 +975,7 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 		v.Studio = studio.String
 		v.Channel = channel.String
 		v.VideoType = videoType.String
+		v.ColorLabel = colorLabel.String
 		v.ThumbnailPath = thumbnailPath.String
 		v.AirDate = airDate.String
 		if watchedAt.Valid {

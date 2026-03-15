@@ -113,12 +113,31 @@ func inferVideoType(filename string, seasonNum, _ int, tags []string) string {
 // If ffprobe is available, native title is read and used to pre-populate
 // display_name for videos that don't yet have one set.
 func (s *server) syncDir(d store.Directory) {
+	// Build a set of other registered directory paths so we don't walk into
+	// them when d is a parent directory. That would incorrectly reassign
+	// directory_id for videos that belong to a registered child directory.
+	otherDirs := make(map[string]bool)
+	if allDirs, err := s.store.ListDirectories(context.Background()); err == nil {
+		for _, rd := range allDirs {
+			if rd.ID != d.ID {
+				otherDirs[filepath.Clean(rd.Path)] = true
+			}
+		}
+	}
+
 	if err := filepath.WalkDir(d.Path, func(path string, de fs.DirEntry, err error) error {
 		if err != nil {
 			slog.Warn("sync walk error", "path", path, "err", err)
 			return nil // keep walking
 		}
-		if de.IsDir() || !isVideoFile(de.Name()) {
+		if de.IsDir() {
+			// Skip subdirectories that are themselves registered directories.
+			if path != d.Path && otherDirs[filepath.Clean(path)] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isVideoFile(de.Name()) {
 			return nil
 		}
 		dir := filepath.Dir(path)

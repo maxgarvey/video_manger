@@ -46,6 +46,16 @@ var templates = template.Must(template.New("").Funcs(template.FuncMap{
 		slog.Warn("unknown video type in template", "type", videoType)
 		return "#ef4444" // red for error/unknown
 	},
+	"labelColor": func(label string) string {
+		if label == "" {
+			return ""
+		}
+		if c, ok := store.VideoLabelColors[label]; ok {
+			return c
+		}
+		return ""
+	},
+	"ValidColorLabels": func() map[string]string { return store.VideoLabelColors },
 	"add": func(a, b int) int { return a + b },
 	"mul": func(a, b int) int { return a * b },
 	"ext": func(filename string) string {

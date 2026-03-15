@@ -351,14 +351,8 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 	total := len(videos)
-	start := (page - 1) * limit
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
+	start := min((page-1)*limit, total)
+	end := min(start+limit, total)
 	pageVideos := videos[start:end]
 
 	// WatchedAt is embedded in each Video via SQL LEFT JOIN; no separate query needed.
@@ -661,6 +655,30 @@ func (s *server) handleSetVideoType(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"videoLabelled":{"id":%d}}`, video.ID))
 	render(w, "video_type_badge.html", updated)
+}
+
+// ── Color Label ───────────────────────────────────────────────────────────────
+
+func (s *server) handleSetVideoColor(w http.ResponseWriter, r *http.Request) {
+	video, ok := s.videoOrError(w, r)
+	if !ok {
+		return
+	}
+	color := strings.TrimSpace(r.FormValue("color"))
+	if !store.IsValidColorLabel(color) {
+		http.Error(w, "invalid color", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "color", color); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	updated, err := s.store.GetVideo(r.Context(), video.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	render(w, "color_label.html", updated)
 }
 
 // ── Share panel ───────────────────────────────────────────────────────────────

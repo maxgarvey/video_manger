@@ -5,7 +5,7 @@
   data-filename="{{.Filename}}"
   data-dir-path="{{.DirectoryPath}}"
   oncontextmenu="showCtxMenu(event,this)"
-  style="display:flex;align-items:center;gap:0.2rem">
+  style="display:flex;align-items:center;gap:0.2rem{{if .ColorLabel}};border-left:3px solid {{labelColor .ColorLabel}};padding-left:0.25rem{{end}}">
   <button
     onclick="openTab(Number(this.dataset.id), this.dataset.title)"
     data-id="{{.ID}}"

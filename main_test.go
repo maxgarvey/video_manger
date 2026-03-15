@@ -4845,6 +4845,289 @@ func TestConcurrentSync_NoPanic(t *testing.T) {
 	}
 }
 
+// --- handleSetVideoColor ---
+
+func TestHandleSetVideoColor_SetColor(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	body := strings.NewReader(url.Values{"color": {"red"}}.Encode())
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/color", v.ID), body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	got, _ := srv.store.GetVideo(ctx, v.ID)
+	if got.ColorLabel != "red" {
+		t.Errorf("ColorLabel = %q, want red", got.ColorLabel)
+	}
+}
+
+func TestHandleSetVideoColor_UpdateColor(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	for _, color := range []string{"red", "blue"} {
+		body := strings.NewReader(url.Values{"color": {color}}.Encode())
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/color", v.ID), body)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		srv.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("color=%s: expected 200, got %d", color, rec.Code)
+		}
+	}
+	got, _ := srv.store.GetVideo(ctx, v.ID)
+	if got.ColorLabel != "blue" {
+		t.Errorf("ColorLabel = %q after update, want blue", got.ColorLabel)
+	}
+}
+
+func TestHandleSetVideoColor_ClearColor(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	// set then clear
+	for _, color := range []string{"green", ""} {
+		body := strings.NewReader(url.Values{"color": {color}}.Encode())
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/color", v.ID), body)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		srv.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("color=%q: expected 200, got %d: %s", color, rec.Code, rec.Body.String())
+		}
+	}
+	got, _ := srv.store.GetVideo(ctx, v.ID)
+	if got.ColorLabel != "" {
+		t.Errorf("ColorLabel = %q after clear, want empty", got.ColorLabel)
+	}
+}
+
+func TestHandleSetVideoColor_InvalidColor(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+
+	body := strings.NewReader(url.Values{"color": {"pink"}}.Encode())
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/color", v.ID), body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "invalid color") {
+		t.Errorf("expected 'invalid color' in response, got: %s", rec.Body.String())
+	}
+}
+
+// --- handleRenameVideo ---
+
+func TestHandleRenameVideo_RenamesFile(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "original.mp4")
+	os.WriteFile(src, []byte("fake"), 0644) //nolint:errcheck
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, root)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, root, "original.mp4")
+
+	body := strings.NewReader(url.Values{"name": {"renamed.mp4"}}.Encode())
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/rename", v.ID), body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "renamed.mp4")); err != nil {
+		t.Error("renamed file not found on disk")
+	}
+	if _, err := os.Stat(src); err == nil {
+		t.Error("original file still exists after rename")
+	}
+	got, _ := srv.store.GetVideo(ctx, v.ID)
+	if got.Filename != "renamed.mp4" {
+		t.Errorf("DB Filename = %q, want renamed.mp4", got.Filename)
+	}
+}
+
+func TestHandleRenameVideo_SameName(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "clip.mp4"), []byte("fake"), 0644) //nolint:errcheck
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, root)
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, root, "clip.mp4")
+
+	body := strings.NewReader(url.Values{"name": {"clip.mp4"}}.Encode())
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/rename", v.ID), body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	// file should still be there unchanged
+	if _, err := os.Stat(filepath.Join(root, "clip.mp4")); err != nil {
+		t.Error("file disappeared after same-name rename")
+	}
+}
+
+func TestHandleRenameVideo_EmptyName(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
+
+	body := strings.NewReader(url.Values{"name": {""}}.Encode())
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/rename", v.ID), body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleRenameVideo_InvalidFilename(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, "/videos")
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "clip.mp4")
+
+	for _, badName := range []string{"../escape.mp4", "sub/dir.mp4", "back\\slash.mp4"} {
+		body := strings.NewReader(url.Values{"name": {badName}}.Encode())
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/videos/%d/rename", v.ID), body)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		srv.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("name=%q: expected 400, got %d", badName, rec.Code)
+		}
+	}
+}
+
+// --- handleAPIDirectories ---
+
+func TestHandleAPIDirectories_Empty(t *testing.T) {
+	srv := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/directories", nil)
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var dirs []struct {
+		ID   int64  `json:"id"`
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&dirs); err != nil {
+		t.Fatalf("decode JSON: %v", err)
+	}
+	if len(dirs) != 0 {
+		t.Errorf("expected empty list, got %d entries", len(dirs))
+	}
+}
+
+func TestHandleAPIDirectories_WithDirs(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	srv.store.AddDirectory(ctx, "/videos/movies") //nolint:errcheck
+	srv.store.AddDirectory(ctx, "/videos/tv")     //nolint:errcheck
+
+	req := httptest.NewRequest(http.MethodGet, "/api/directories", nil)
+	rec := httptest.NewRecorder()
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var dirs []struct {
+		ID   int64  `json:"id"`
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&dirs); err != nil {
+		t.Fatalf("decode JSON: %v", err)
+	}
+	if len(dirs) != 2 {
+		t.Errorf("expected 2 directories, got %d", len(dirs))
+	}
+	paths := make(map[string]bool)
+	for _, d := range dirs {
+		paths[d.Path] = true
+		if d.ID == 0 {
+			t.Errorf("directory %q has zero ID", d.Path)
+		}
+	}
+	if !paths["/videos/movies"] || !paths["/videos/tv"] {
+		t.Errorf("missing expected paths, got %v", paths)
+	}
+}
+
+// --- syncDir parent-child skip ---
+
+func TestSyncDir_SkipsRegisteredSubdirectory(t *testing.T) {
+	// Create a parent directory with one video and a subdirectory (child) with another.
+	root := t.TempDir()
+	child := filepath.Join(root, "movies")
+	os.Mkdir(child, 0755) //nolint:errcheck
+	os.WriteFile(filepath.Join(root, "standalone.mp4"), []byte("fake"), 0644)   //nolint:errcheck
+	os.WriteFile(filepath.Join(child, "blockbuster.mp4"), []byte("fake"), 0644) //nolint:errcheck
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	// Register both as separate directories.
+	parentDir, _ := srv.store.AddDirectory(ctx, root)
+	childDir, _ := srv.store.AddDirectory(ctx, child)
+
+	// Sync child first so blockbuster.mp4 gets childDir.ID.
+	srv.syncDir(childDir)
+	childVideos, _ := srv.store.ListVideosByDirectory(ctx, childDir.ID)
+	if len(childVideos) != 1 || childVideos[0].Filename != "blockbuster.mp4" {
+		t.Fatalf("child sync: expected 1 video, got %v", childVideos)
+	}
+	childVideoID := childVideos[0].ID
+
+	// Now sync the parent. It must NOT recurse into child and must NOT
+	// reassign blockbuster.mp4 to the parent's directory_id.
+	srv.syncDir(parentDir)
+
+	// blockbuster.mp4 must still belong to childDir.
+	got, err := srv.store.GetVideo(ctx, childVideoID)
+	if err != nil {
+		t.Fatalf("GetVideo: %v", err)
+	}
+	if got.DirectoryID != childDir.ID {
+		t.Errorf("blockbuster.mp4 DirectoryID = %d, want child dir %d (parent sync must not override)", got.DirectoryID, childDir.ID)
+	}
+
+	// Parent must have exactly its own video (standalone.mp4).
+	parentVideos, _ := srv.store.ListVideosByDirectory(ctx, parentDir.ID)
+	if len(parentVideos) != 1 || parentVideos[0].Filename != "standalone.mp4" {
+		t.Errorf("parent sync: expected [standalone.mp4], got %v", parentVideos)
+	}
+}
+
 // 14. Search with Unicode
 func TestHandleVideoSearch_Unicode(t *testing.T) {
 	srv := newTestServer(t)

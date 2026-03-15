@@ -217,3 +217,31 @@ func TestHasFields_AirDate(t *testing.T) {
 		t.Error("Video{AirDate}.HasFields() should be true")
 	}
 }
+
+// --- IsValidColorLabel ---
+
+func TestIsValidColorLabel_EmptyIsValid(t *testing.T) {
+	if !store.IsValidColorLabel("") {
+		t.Error("empty string should be valid (means unset)")
+	}
+}
+
+func TestIsValidColorLabel_KnownColors(t *testing.T) {
+	for _, c := range []string{"red", "orange", "yellow", "green", "blue", "purple"} {
+		if !store.IsValidColorLabel(c) {
+			t.Errorf("IsValidColorLabel(%q) = false, want true", c)
+		}
+	}
+}
+
+func TestIsValidColorLabel_UnknownColor(t *testing.T) {
+	if store.IsValidColorLabel("pink") {
+		t.Error("IsValidColorLabel(pink) = true, want false")
+	}
+}
+
+func TestIsValidColorLabel_CaseSensitive(t *testing.T) {
+	if store.IsValidColorLabel("Red") {
+		t.Error("IsValidColorLabel(Red) = true, want false (case-sensitive)")
+	}
+}

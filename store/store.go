@@ -34,6 +34,7 @@ type Video struct {
 	AirDate       string  // original air/release date, e.g. "2023-04-15" (optional)
 	ThumbnailPath string  // relative or absolute path to thumbnail image
 	DurationS     float64 // total duration in seconds; 0 means unknown
+	ColorLabel    string  // color label: red, orange, yellow, green, blue, purple, or empty
 	// WatchedAt holds the last watch timestamp (SQLite datetime string, empty if never watched).
 	// Populated by list queries via LEFT JOIN watch_history — do not set manually.
 	WatchedAt string
@@ -49,6 +50,25 @@ type VideoFields struct {
 	Studio        string
 	Channel       string
 	AirDate       string
+}
+
+// VideoLabelColors maps color label names to hex values used by the UI.
+var VideoLabelColors = map[string]string{
+	"red":    "#dc2626",
+	"orange": "#ea580c",
+	"yellow": "#ca8a04",
+	"green":  "#16a34a",
+	"blue":   "#2563eb",
+	"purple": "#9333ea",
+}
+
+// IsValidColorLabel reports whether the provided color label string is known.
+func IsValidColorLabel(c string) bool {
+	if c == "" {
+		return true // empty means unset
+	}
+	_, ok := VideoLabelColors[c]
+	return ok
 }
 
 // VideoTypes maps the canonical type string to a display color (used by UI).

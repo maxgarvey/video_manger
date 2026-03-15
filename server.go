@@ -226,6 +226,8 @@ func (s *server) routes() http.Handler {
 		r.Post("/videos/{id}/rating", s.handleSetRating)
 		// Video Type
 		r.Post("/videos/{id}/type", s.handleSetVideoType)
+		// Color label
+		r.Post("/videos/{id}/color", s.handleSetVideoColor)
 
 		// Export / convert
 		r.Post("/videos/{id}/export/usb", s.handleExportUSB)

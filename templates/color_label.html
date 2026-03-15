@@ -1,0 +1,19 @@
+<div id="color-label-{{.ID}}" style="display:flex;gap:0.3rem;align-items:center">
+  {{$cur := .ColorLabel}}
+  {{range $name, $hex := ValidColorLabels}}
+  <form hx-post="/videos/{{$.ID}}/color" hx-target="#color-label-{{$.ID}}" hx-swap="outerHTML" style="display:contents">
+    <input type="hidden" name="color" value="{{if eq $cur $name}}{{else}}{{$name}}{{end}}">
+    <button type="submit" title="{{$name}}"
+      style="width:1.1rem;height:1.1rem;border-radius:50%;border:2px solid {{if eq $cur $name}}#fff{{else}}transparent{{end}};background:{{$hex}};padding:0;cursor:pointer;flex-shrink:0;outline:{{if eq $cur $name}}2px solid {{$hex}}{{else}}none{{end}};outline-offset:1px"
+    ></button>
+  </form>
+  {{end}}
+  {{if $cur}}
+  <form hx-post="/videos/{{.ID}}/color" hx-target="#color-label-{{.ID}}" hx-swap="outerHTML" style="display:contents">
+    <input type="hidden" name="color" value="">
+    <button type="submit" title="Clear color label"
+      style="font-size:0.65rem;color:#555;background:none;border:none;padding:0 0.2rem;cursor:pointer;line-height:1"
+    >✕</button>
+  </form>
+  {{end}}
+</div>

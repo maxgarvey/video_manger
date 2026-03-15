@@ -873,6 +873,26 @@ function floatWidgetDragStart(e, el) {
         {{if eq .Video.Rating 2}}style="background:#4a3a00;border-color:#c8a000;color:#fc0"{{end}}
       >★{{if eq .Video.Rating 2}} Fav{{end}}</button>
     </div>
+    <!-- Color label -->
+    <div id="color-label-{{.Video.ID}}" style="display:flex;gap:0.3rem;align-items:center">
+      {{$cur := .Video.ColorLabel}}
+      {{range $name, $hex := ValidColorLabels}}
+      <form hx-post="/videos/{{$.Video.ID}}/color" hx-target="#color-label-{{$.Video.ID}}" hx-swap="outerHTML" style="display:contents">
+        <input type="hidden" name="color" value="{{if eq $cur $name}}{{else}}{{$name}}{{end}}">
+        <button type="submit" title="{{$name}}"
+          style="width:1.1rem;height:1.1rem;border-radius:50%;border:2px solid {{if eq $cur $name}}#fff{{else}}transparent{{end}};background:{{$hex}};padding:0;cursor:pointer;flex-shrink:0;outline:{{if eq $cur $name}}2px solid {{$hex}}{{else}}none{{end}};outline-offset:1px"
+        ></button>
+      </form>
+      {{end}}
+      {{if $cur}}
+      <form hx-post="/videos/{{$.Video.ID}}/color" hx-target="#color-label-{{$.Video.ID}}" hx-swap="outerHTML" style="display:contents">
+        <input type="hidden" name="color" value="">
+        <button type="submit" title="Clear color label"
+          style="font-size:0.65rem;color:#555;background:none;border:none;padding:0 0.2rem;cursor:pointer;line-height:1"
+        >✕</button>
+      </form>
+      {{end}}
+    </div>
     <!-- Video type selector -->
     <div id="video-type-{{.Video.ID}}" style="display:flex;align-items:center;gap:0.3rem">
       <form hx-post="/videos/{{.Video.ID}}/type" hx-target="#video-type-{{.Video.ID}}" hx-swap="outerHTML">
@@ -1008,7 +1028,7 @@ function floatWidgetDragStart(e, el) {
       <form hx-post="/videos/{{.Video.ID}}/move"
             hx-target="#video-list"
             hx-indicator="#vl-spin"
-            hx-on::after-request="document.getElementById('move-panel-{{.Video.ID}}').style.display='none'"
+            hx-on::after-request="if(event.detail.successful){document.getElementById('move-panel-{{.Video.ID}}').style.display='none';}else{document.getElementById('move-err-{{.Video.ID}}').textContent='Move failed: '+event.detail.xhr.responseText;}"
             style="display:flex;flex-direction:column;gap:0.4rem">
         <label style="font-size:0.72rem;color:#888">Destination directory</label>
         <select name="dir_id" class="input-dark" style="padding:0.3rem 0.5rem;font-size:0.82rem"
@@ -1016,6 +1036,7 @@ function floatWidgetDragStart(e, el) {
         <label style="font-size:0.72rem;color:#888">New sub-folder inside destination (optional)</label>
         <input type="text" name="subdir" placeholder="e.g. Season 2"
           class="input-dark" style="padding:0.3rem 0.5rem;font-size:0.82rem">
+        <div id="move-err-{{.Video.ID}}" style="font-size:0.75rem;color:#f87;min-height:1em"></div>
         <div style="display:flex;gap:0.4rem">
           <button type="submit" class="btn-sm btn-success" style="font-size:0.78rem">Move</button>
           <button type="button" class="btn-sm btn-ghost" style="font-size:0.78rem"
