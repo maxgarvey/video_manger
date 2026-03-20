@@ -38,6 +38,8 @@ type Video struct {
 	// WatchedAt holds the last watch timestamp (SQLite datetime string, empty if never watched).
 	// Populated by list queries via LEFT JOIN watch_history — do not set manually.
 	WatchedAt string
+	// Watched is the authoritative "is watched" flag; use this for all watched/unwatched logic.
+	Watched bool
 }
 
 // VideoFields holds the editable standardised descriptive fields for a video.
@@ -170,6 +172,7 @@ type Store interface {
 	ListVideosByShow(ctx context.Context, showName string) ([]Video, error)
 	GetRandomVideo(ctx context.Context) (Video, error)
 	GetNextUnwatched(ctx context.Context, tagID int64) (Video, error)
+	GetNextUnwatchedFromSearch(ctx context.Context, query string, tagID int64) (Video, error)
 
 	// Session persistence (used when password auth is enabled)
 	SaveSession(ctx context.Context, token string, expiry time.Time) error
@@ -181,6 +184,8 @@ type Store interface {
 	GetSetting(ctx context.Context, key string) (string, error)
 	// SaveSettings atomically writes multiple key-value pairs in a single transaction.
 	SaveSettings(ctx context.Context, pairs map[string]string) error
+	// ListSettingsWithPrefix returns all key→value pairs whose key starts with prefix.
+	ListSettingsWithPrefix(ctx context.Context, prefix string) (map[string]string, error)
 
 	// Watch history
 	RecordWatch(ctx context.Context, videoID int64, position float64) error

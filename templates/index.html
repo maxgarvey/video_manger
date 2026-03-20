@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Video Manger</title>
+  <link rel="icon" href="data:,">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-  <script src="https://unpkg.com/htmx-ext-morph@2.0.1"></script>
   <style>
     :root {
       --bg: #000;          /* page background */
@@ -324,7 +324,10 @@
       max-width: 70vw;
       overflow-x: auto;
       align-items: center;
+      opacity: 0.15;
+      transition: opacity 0.25s ease;
     }
+    #tab-strip:hover { opacity: 1; }
     .tab-btn {
       background: #222;
       border: 1px solid #333;
@@ -342,6 +345,265 @@
     .tab-close { background: #444; border: 1px solid #555; border-radius: 3px; color: #bbb; cursor: pointer; font-size: 0.68rem; padding: 0.08rem 0.28rem; line-height: 1; flex-shrink: 0; }
     .tab-close:hover { background: #7a2222; border-color: #a04040; color: #fff; }
 
+    /* ── Parallel play mode ─────────────────────────────────────────── */
+    /* Mode toggle button in the tab strip */
+    #parallel-mode-btn {
+      background: #1c1c1c;
+      border: 1px solid #333;
+      color: #666;
+      padding: 0.18rem 0.45rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.72rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+      user-select: none;
+      margin-right: 0.2rem;
+    }
+    #parallel-mode-btn:hover { background: #252525; border-color: #484848; color: #999; }
+    #parallel-mode-btn.active { background: #1a2e1a; border-color: #3a6a3a; color: #6f6; }
+    /* In parallel mode: tab-panes becomes a grid, all panes stay visible */
+    body.parallel-mode #tab-panes {
+      display: grid;
+      align-items: stretch;   /* override the base align-items:center */
+      justify-items: stretch; /* override the base justify-content:center */
+    }
+    body.parallel-mode .tab-pane {
+      display: flex !important;
+      position: relative;
+      inset: unset;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+    /* Green outline on the focused pane */
+    body.parallel-mode .tab-pane.active {
+      outline: 2px solid #3a8a3a;
+      outline-offset: -2px;
+    }
+    /* Hide trim, color, and delete controls in parallel mode */
+    body.parallel-mode [id^="trim-btn-"],
+    body.parallel-mode [id^="color-btn-"],
+    body.parallel-mode [id^="trim-strip-"],
+    body.parallel-mode .single-only { display: none !important; }
+    /* Per-pane close button — top-right, fades in on pane hover */
+    .pclose-btn {
+      display: none;
+      position: absolute;
+      top: 0.45rem;
+      right: 0.45rem;
+      z-index: 61;
+      opacity: 0;
+      transition: opacity 0.15s;
+      background: rgba(30,30,30,0.85);
+      border: 1px solid #444;
+      color: #aaa;
+      font-size: 0.72rem;
+      line-height: 1;
+      padding: 0.2rem 0.38rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .pclose-btn:hover { background: rgba(60,60,60,0.95); border-color: #666; color: #fff; }
+    body.parallel-mode .tab-pane .pclose-btn { display: block; }
+    body.parallel-mode .tab-pane:hover .pclose-btn { opacity: 1; }
+    /* Per-pane single-view focus button — top-right, left of close button */
+    .pfocus-btn {
+      display: none;
+      position: absolute;
+      top: 0.45rem;
+      right: 2.6rem;
+      z-index: 61;
+      opacity: 0;
+      transition: opacity 0.15s;
+      background: rgba(30,30,30,0.85);
+      border: 1px solid #444;
+      color: #aaa;
+      font-size: 0.72rem;
+      line-height: 1;
+      padding: 0.2rem 0.38rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .pfocus-btn:hover { background: rgba(20,40,20,0.95); border-color: #3a6a3a; color: #6f6; }
+    body.parallel-mode .tab-pane .pfocus-btn { display: block; }
+    body.parallel-mode .tab-pane:hover .pfocus-btn { opacity: 1; }
+    /* Cast button — only visible when the Roku is actively polling */
+    body.roku-live .roku-cast-btn { display: inline-flex !important; }
+    /* In parallel mode the action bar wraps; hide the flex spacer so buttons
+       pack left and don't end up alone on a wrapped line. */
+    body.parallel-mode .action-bar .action-spacer { display: none; }
+    /* Per-pane delete overlay — bottom-right, fades in on pane hover */
+    .pdel-wrap {
+      display: none;
+      position: absolute;
+      bottom: 0.55rem;
+      right: 0.55rem;
+      z-index: 60;
+    }
+    body.parallel-mode .tab-pane .pdel-wrap { display: block; }
+    .pdel-btn {
+      opacity: 0;
+      transition: opacity 0.15s;
+      background: rgba(60,15,15,0.88);
+      border: 1px solid #7a2a2a;
+      color: #f08080;
+      font-size: 0.7rem;
+      padding: 0.22rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .pdel-btn:hover { background: rgba(100,20,20,0.95); border-color: #a04040; color: #fff; }
+    body.parallel-mode .tab-pane:hover .pdel-btn { opacity: 1; }
+    .pdel-confirm {
+      display: none;
+      flex-direction: column;
+      gap: 0.3rem;
+      position: absolute;
+      bottom: calc(100% + 0.35rem);
+      right: 0;
+      background: rgba(18,8,8,0.97);
+      border: 1px solid #5a2a2a;
+      border-radius: 5px;
+      padding: 0.5rem 0.6rem;
+      min-width: 180px;
+      max-width: min(260px, 90vw);
+      width: max-content;
+    }
+    .pdel-confirm-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pdel-confirm.open { display: flex; }
+    .pdel-confirm-label { font-size: 0.75rem; color: #bbb; margin-bottom: 0.1rem; }
+    .pdel-confirm-btns { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+    /* Compact per-video info cards shown in parallel mode */
+    .pi-card {
+      background: #161616;
+      border: 1px solid #2a2a2a;
+      border-radius: 4px;
+      padding: 0.35rem 0.55rem;
+      min-width: 140px;
+      max-width: 210px;
+      flex: 1;
+      cursor: pointer;
+      transition: border-color 0.1s;
+      overflow: hidden;
+    }
+    .pi-card:hover { border-color: #444; }
+    .pi-card.pi-active { border-color: #3a7a3a; }
+    .pi-card.pi-open { border-color: #484848; max-width: 280px; }
+    .pi-card.pi-active.pi-open { border-color: #3a7a3a; }
+    .pi-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.3rem; }
+    .pi-chevron { font-size: 0.6rem; color: #444; flex-shrink: 0; margin-top: 0.15rem; transition: transform 0.15s; }
+    .pi-card.pi-open .pi-chevron { transform: rotate(180deg); color: #666; }
+    .pi-title { font-size: 0.8rem; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pi-card.pi-open .pi-title { white-space: normal; overflow: visible; }
+    .pi-ep { font-size: 0.68rem; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 0.1rem; }
+    .pi-meta { font-size: 0.65rem; color: #444; margin-top: 0.12rem; }
+    .pi-expand { display: none; margin-top: 0.45rem; padding-top: 0.4rem; border-top: 1px solid #222; }
+    .pi-card.pi-open .pi-expand { display: block; }
+    .pi-field { font-size: 0.68rem; color: #555; margin-top: 0.18rem; }
+    .pi-field b { color: #777; font-weight: normal; }
+    .pi-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    .pi-del-confirm { display: none; margin-top: 0.4rem; padding: 0.35rem 0.4rem; background: #150e0e; border: 1px solid #5a2a2a; border-radius: 3px; }
+    .pi-del-confirm.open { display: block; }
+    .pi-del-confirm-btns { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.3rem; }
+    .pi-move-row { display: none; margin-top: 0.35rem; }
+    .pi-move-row.open { display: block; }
+    .pi-move-err { display: none; font-size: 0.68rem; color: #f87; margin-top: 0.2rem; }
+    /* Moving spinner overlay — covers the whole tab pane during a file move */
+    .pi-moving-overlay {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.72);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 0.6rem; z-index: 30;
+      color: #bbb; font-size: 0.82rem;
+      pointer-events: all;
+    }
+    .pi-moving-spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #333; border-top-color: #aaa;
+      border-radius: 50%;
+      animation: pi-spin 0.75s linear infinite;
+    }
+    @keyframes pi-spin { to { transform: rotate(360deg); } }
+
+    /* ── Parallel progress panel ────────────────────────────────────── */
+    #progress-panel-btn {
+      background: #1c1c1c;
+      border: 1px solid #333;
+      color: #666;
+      padding: 0.18rem 0.45rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.72rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    #progress-panel-btn:hover { background: #252525; border-color: #484848; color: #999; }
+    #progress-panel-btn.active { background: #1a2e1a; border-color: #3a6a3a; color: #6f6; }
+    #parallel-progress-panel {
+      display: none;
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      z-index: 80;
+      flex-direction: column;
+      gap: 0.35rem;
+      padding: 0.55rem 0.75rem;
+      background: rgba(8,8,8,0.90);
+      backdrop-filter: blur(8px);
+      border-top: 1px solid #2a2a2a;
+      max-height: 35%;
+      overflow-y: auto;
+    }
+    body.progress-panel-open.parallel-mode #parallel-progress-panel { display: flex; }
+    .pp-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      min-height: 1.2rem;
+    }
+    .pp-title {
+      color: #aaa;
+      flex-shrink: 0;
+      width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pp-bar {
+      flex: 1;
+      height: 5px;
+      background: #2a2a2a;
+      border-radius: 3px;
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+    }
+    .pp-bar:hover { height: 7px; }
+    .pp-fill {
+      height: 100%;
+      background: #4a9a4a;
+      border-radius: 3px;
+      pointer-events: none;
+    }
+    .pp-time {
+      color: #555;
+      flex-shrink: 0;
+      font-size: 0.68rem;
+      font-variant-numeric: tabular-nums;
+      width: 86px;
+      text-align: right;
+    }
+
     /* ── Player hover overlay ──────────────────────────────────────── */
     #player-overlay {
       position: absolute;
@@ -352,7 +614,7 @@
       transition: opacity 0.25s ease;
       pointer-events: none;
     }
-    .tab-pane:hover #player-overlay { opacity: 1; }
+    .tab-pane.overlay-show #player-overlay { opacity: 1; }
     #player-overlay-top {
       position: absolute;
       top: 0; left: 0; right: 0;
@@ -362,7 +624,7 @@
       transition: opacity 0.25s ease;
       pointer-events: none;
     }
-    .tab-pane:hover #player-overlay-top { opacity: 1; }
+    .tab-pane.overlay-show #player-overlay-top { opacity: 1; }
 
     /* ── MTV-style lower-third card ─────────────────────────────────── */
     .mtv-card {
@@ -442,18 +704,89 @@
     }
     details[open] > summary::before { transform: rotate(90deg); opacity: 1; }
     details[open] > summary { color: #999; }
+
+    /* ── Single-view overlay buttons ────────────────────────────────── */
+    .single-overlay-btns {
+      display: none;
+      position: absolute;
+      top: 0.45rem;
+      right: 0.45rem;
+      z-index: 61;
+      gap: 0.3rem;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    body:not(.parallel-mode) .tab-pane:hover .single-overlay-btns { display: flex; opacity: 1; }
+    .single-overlay-btn {
+      background: rgba(30,30,30,0.85);
+      border: 1px solid #444;
+      color: #aaa;
+      font-size: 0.72rem;
+      line-height: 1;
+      padding: 0.2rem 0.45rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .single-overlay-btn:hover { background: rgba(60,60,60,0.95); border-color: #666; color: #fff; }
+    /* Hide action-bar items replaced by the overlay in single view */
+    body:not(.parallel-mode) .single-hide { display: none !important; }
+    /* Hide the chrome info button in single view — overlay ⓘ is used instead */
+    body:not(.parallel-mode) #info-btn { display: none; }
+
+    /* ── Multi-select mode ───────────────────────────────────────────── */
+    .vid-select-cb { display: none !important; }
+    body.multi-select-mode .vid-select-cb { display: inline-flex !important; }
+    body.multi-select-mode #video-list li { cursor: pointer; }
+    body.multi-select-mode #video-list li.lib-selected { outline: 2px solid #4a9a4a; outline-offset: -1px; border-radius: 3px; }
+    #ms-toolbar {
+      display: none;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.75rem;
+      background: rgba(20,40,20,0.95);
+      border-top: 1px solid #3a6a3a;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+      font-size: 0.8rem;
+    }
+    body.multi-select-mode #ms-toolbar { display: flex; }
+    #ms-select-btn.active { background: #1a2e1a; border-color: #3a6a3a; color: #6f6; }
+
+    /* ── Folder background images (show groups) ─────────────────────── */
+    #video-list details.group-has-bg > summary {
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      border-radius: 3px;
+      position: relative;
+      overflow: hidden;
+    }
+    #video-list details.group-has-bg > summary::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.62);
+      pointer-events: none;
+    }
+    #video-list details.group-has-bg > summary > * { position: relative; z-index: 1; }
   </style>
 </head>
 <body class="info-collapsed">
 
   <!-- Tab strip — only visible when ≥2 tabs are open -->
-  <div id="tab-strip"></div>
+  <div id="tab-strip">
+    <button id="parallel-mode-btn" onclick="toggleParallelMode()" title="Toggle parallel / single play">⊞</button>
+    <button id="progress-panel-btn" onclick="toggleProgressPanel()" title="Toggle progress bars (parallel mode)">≡</button>
+  </div>
 
   <!-- Full-screen player area — tab panes inserted here by JS -->
   <main id="player">
     <div id="tab-panes">
       <p id="tab-placeholder" style="color:#444"></p>
     </div>
+    <!-- Progress bars panel — visible in parallel mode when toggled -->
+    <div id="parallel-progress-panel"></div>
   </main>
 
   <!-- Library toggle button — top left -->
@@ -492,7 +825,11 @@
         title="Open next unwatched video"
         onclick="(function(){
           var tid = document.getElementById('active-tag').value;
-          fetch('/videos/next-unwatched' + (tid ? '?tag_id='+tid : ''))
+          var q   = document.getElementById('video-search').value;
+          var params = [];
+          if (tid) params.push('tag_id=' + tid);
+          if (q)   params.push('q=' + encodeURIComponent(q));
+          fetch('/videos/next-unwatched' + (params.length ? '?' + params.join('&') : ''))
             .then(function(r){ if(!r.ok) throw r; return r.json(); })
             .then(function(d){ openTab(d.id, d.title); })
             .catch(function(){ var n=document.createElement('span');
@@ -505,6 +842,9 @@
       <button id="add-content-btn" class="btn-sm" style="flex-shrink:0;font-size:0.7rem"
         onclick="document.body.classList.toggle('add-content-open')"
         title="Add content">＋ Add content</button>
+      <button id="ms-select-btn" class="btn-sm" style="flex-shrink:0;font-size:0.7rem"
+        onclick="msToggleMode()"
+        title="Multi-select videos">☐ Select</button>
       <button class="btn-icon" onclick="document.body.classList.remove('lib-open')"
         style="font-size:1.2rem;flex-shrink:0"
         title="Close library" aria-label="Close library">✕</button>
@@ -621,12 +961,20 @@
     <!-- Full-width video list -->
     <div id="lib-video-area">
       <div id="video-list"
-           hx-ext="morph"
            hx-get="/videos"
            hx-trigger="load, every 60s, videoRenamed from:body"
-           hx-swap="morph:innerHTML"
+           hx-swap="innerHTML"
            hx-include="#video-search,#active-tag,#active-rating,#active-type"
            hx-indicator="#vl-spin"></div>
+    </div>
+
+    <!-- Multi-select toolbar (visible when multi-select mode is active) -->
+    <div id="ms-toolbar">
+      <span id="ms-count" style="color:#8f8;font-size:0.78rem">0 selected</span>
+      <button class="btn-sm" style="font-size:0.72rem" onclick="msBulkMove()">⇥ Move to…</button>
+      <button class="btn-sm" style="font-size:0.72rem" onclick="msBulkTag()">⊕ Add tag</button>
+      <span id="ms-progress" style="color:#4a9;font-size:0.72rem;margin-left:0.25rem"></span>
+      <button class="btn-sm btn-ghost" style="font-size:0.72rem;margin-left:auto" onclick="msClearSelection()">✕ Clear</button>
     </div>
 
   </aside>
@@ -684,6 +1032,9 @@
 
     // ── Multi-tab player system ─────────────────────────────────────
     const videoTabs = {}; // videoId → { pane, tabBtn }
+    var videoTabOrder = []; // insertion-ordered list of videoIds (numbers)
+    var parallelMode = localStorage.getItem('parallelMode') === '1';
+
 
     function escHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -723,6 +1074,11 @@
       if (placeholder) placeholder.remove();
       document.getElementById('tab-panes').appendChild(pane);
 
+      // In parallel mode, stagger play() to avoid all videos decoding at once.
+      // Capture the current tab count before adding this tab to videoTabs —
+      // that count becomes this tab's stagger index (0 = first, 1 = second, …).
+      var staggerIndex = parallelMode ? videoTabOrder.length : 0;
+
       // Re-execute inline scripts (progress tracking etc.)
       pane.querySelectorAll('script').forEach(function(orig) {
         var s = document.createElement('script');
@@ -731,6 +1087,19 @@
         orig.remove();
       });
       htmx.process(pane);
+
+      // Apply stagger: pause the just-started video and reschedule play().
+      if (parallelMode && staggerIndex > 0) {
+        var vidEl = pane.querySelector('video');
+        if (vidEl) {
+          vidEl.pause();
+          setTimeout(function() {
+            if (!vidEl.paused) return; // user already interacted
+            var p = vidEl.play();
+            if (p) p.catch(function(){});
+          }, staggerIndex * 50);
+        }
+      }
 
       // Create tab button
       var tabBtn = document.createElement('div');
@@ -742,33 +1111,50 @@
         '<button class="tab-close" onclick="event.stopPropagation();closeTab(' + videoId + ')" aria-label="Close tab">✕</button>';
       document.getElementById('tab-strip').appendChild(tabBtn);
 
-      videoTabs[videoId] = { pane: pane, tabBtn: tabBtn };
+      videoTabs[videoId] = { pane: pane, tabBtn: tabBtn, meta: null };
+      videoTabOrder.push(videoId);
+      // Fetch JSON metadata for the parallel info panel
+      fetch('/api/videos/' + videoId).then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(m) {
+          if (m && videoTabs[videoId]) videoTabs[videoId].meta = m;
+          if (effectiveParallel()) buildParallelInfo();
+        }).catch(function(){});
       activateTab(videoId);
       updateTabStrip();
+      if (progressPanelOpen && effectiveParallel()) rebuildProgressPanel();
       document.body.classList.remove('lib-open');
     }
 
+    // Returns true when parallel layout should actually be active.
+    // parallelMode is the user's *preference*; we only engage it when ≥2 tabs are open.
+    function effectiveParallel() { return parallelMode && videoTabOrder.length > 1; }
+
     function activateTab(videoId) {
-      Object.keys(videoTabs).forEach(function(id) {
+      videoTabOrder.forEach(function(id) {
         var t = videoTabs[id];
-        var active = (id == videoId);
+        var active = (id === videoId);
         t.pane.classList.toggle('active', active);
         t.tabBtn.classList.toggle('active', active);
-        if (!active) {
+        // Pause/hide non-active panes in single-view mode.
+        if (!effectiveParallel() && !active) {
           var v = t.pane.querySelector('video');
           if (v && !v.paused) v.pause();
         }
       });
-      // Refresh the info panel to match the newly-active tab.
-      fetch('/play/' + videoId).then(function(r) { return r.text(); }).then(function(html) {
-        var frag = document.createElement('template');
-        frag.innerHTML = html;
-        frag.content.querySelectorAll('[hx-swap-oob]').forEach(function(el) {
-          var target = document.getElementById(el.id);
-          if (target) { target.innerHTML = el.innerHTML; htmx.process(target); }
-          el.remove();
-        });
-      }).catch(function(){});
+      // Refresh info panel: compact cards in parallel mode, full panel in single.
+      if (effectiveParallel()) {
+        buildParallelInfo();
+      } else {
+        fetch('/play/' + videoId).then(function(r) { return r.text(); }).then(function(html) {
+          var frag = document.createElement('template');
+          frag.innerHTML = html;
+          frag.content.querySelectorAll('[hx-swap-oob]').forEach(function(el) {
+            var target = document.getElementById(el.id);
+            if (target) { target.innerHTML = el.innerHTML; htmx.process(target); }
+            el.remove();
+          });
+        }).catch(function(){});
+      }
     }
 
     function closeTab(videoId) {
@@ -780,7 +1166,8 @@
       tab.pane.remove();
       tab.tabBtn.remove();
       delete videoTabs[videoId];
-      var remaining = Object.keys(videoTabs);
+      videoTabOrder = videoTabOrder.filter(function(id) { return id !== videoId; });
+      var remaining = videoTabOrder;
       if (remaining.length > 0) {
         activateTab(remaining[remaining.length - 1]);
       } else {
@@ -788,24 +1175,606 @@
         document.getElementById('info-panel').innerHTML = '<p style="color:#555;font-size:0.82rem">Select a video to see details.</p>';
       }
       updateTabStrip();
+      if (progressPanelOpen && effectiveParallel()) rebuildProgressPanel();
+      if (effectiveParallel()) buildParallelInfo();
     }
 
     function updateTabStrip() {
-      document.getElementById('tab-strip').style.display =
-        Object.keys(videoTabs).length > 1 ? 'flex' : 'none';
+      var count = videoTabOrder.length;
+      document.getElementById('tab-strip').style.display = count > 1 ? 'flex' : 'none';
+      updateParallelLayout();
     }
 
-    // Auto-load a random video on start; show a hint if library is empty.
-    fetch('/random-video').then(function(r) {
-      return r.ok ? r.json() : null;
-    }).then(function(d) {
-      if (d) {
-        openTab(d.id, d.title);
+    function updateParallelLayout() {
+      var count = videoTabOrder.length;
+      var panes = document.getElementById('tab-panes');
+      var btn = document.getElementById('parallel-mode-btn');
+      if (parallelMode && count > 1) {
+        document.body.classList.add('parallel-mode');
+        // columns: 2 for ≤2, 2 for ≤4, 3 for 5+
+        var cols = count <= 2 ? 2 : count <= 4 ? 2 : 3;
+        var rows = Math.ceil(count / cols);
+        panes.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+        panes.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
       } else {
-        var p = document.getElementById('tab-placeholder');
-        if (p) p.textContent = 'Select a video from the library.';
+        document.body.classList.remove('parallel-mode');
+        panes.style.gridTemplateColumns = '';
+        panes.style.gridTemplateRows = '';
+      }
+      if (btn) btn.classList.toggle('active', parallelMode);
+      // sync progress panel visibility whenever layout changes
+      applyProgressPanel();
+      if (effectiveParallel()) {
+        buildParallelInfo();
+      }
+    }
+
+    // Switch to single-view and focus the given video tab.
+    function focusSingleTab(videoId) {
+      parallelMode = false;
+      localStorage.setItem('parallelMode', '0');
+      // Pause all other videos.
+      videoTabOrder.forEach(function(id) {
+        if (id === videoId) return;
+        var v = videoTabs[id] && videoTabs[id].pane.querySelector('video');
+        if (v && !v.paused) v.pause();
+      });
+      updateParallelLayout();
+      activateTab(videoId);
+    }
+
+    function toggleParallelMode() {
+      parallelMode = !parallelMode;
+      localStorage.setItem('parallelMode', parallelMode ? '1' : '0');
+      if (!parallelMode) {
+        // switching to single — pause all but the focused tab
+        var activeId = null;
+        videoTabOrder.forEach(function(id) {
+          var t = videoTabs[id];
+          if (t.tabBtn.classList.contains('active')) { activeId = id; return; }
+          var v = t.pane.querySelector('video');
+          if (v && !v.paused) v.pause();
+        });
+        updateParallelLayout();
+        // restore full info panel for the active tab
+        if (activeId) activateTab(Number(activeId));
+      } else {
+        updateParallelLayout();
+      }
+    }
+
+    // ── Parallel progress panel ──────────────────────────────────────
+    var progressPanelOpen = localStorage.getItem('progressPanel') === '1';
+    var progressPollInterval = null;
+
+    function toggleProgressPanel() {
+      progressPanelOpen = !progressPanelOpen;
+      localStorage.setItem('progressPanel', progressPanelOpen ? '1' : '0');
+      applyProgressPanel();
+    }
+
+    function applyProgressPanel() {
+      var btn = document.getElementById('progress-panel-btn');
+      if (btn) btn.classList.toggle('active', progressPanelOpen);
+      document.body.classList.toggle('progress-panel-open', progressPanelOpen);
+      if (progressPanelOpen && effectiveParallel()) {
+        rebuildProgressPanel();
+        startProgressPoll();
+      } else {
+        stopProgressPoll();
+      }
+    }
+
+    // Cache of { fill, timeEl, video } per id — rebuilt by rebuildProgressPanel.
+    var progressRefs = {};
+
+    function rebuildProgressPanel() {
+      var panel = document.getElementById('parallel-progress-panel');
+      if (!panel) return;
+      panel.innerHTML = '';
+      progressRefs = {};
+      videoTabOrder.forEach(function(id) {
+        var t = videoTabs[id];
+        var title = t.tabBtn.querySelector('.tab-label').textContent;
+        var row = document.createElement('div');
+        row.className = 'pp-row';
+        var fillId = 'pp-fill-' + id;
+        var timeId = 'pp-time-' + id;
+        row.innerHTML =
+          '<span class="pp-title" title="' + escHtml(title) + '">' + escHtml(title) + '</span>' +
+          '<div class="pp-bar" data-vid-id="' + id + '"><div class="pp-fill" id="' + fillId + '" style="width:0%"></div></div>' +
+          '<span class="pp-time" id="' + timeId + '">--:-- / --:--</span>';
+        panel.appendChild(row);
+        progressRefs[id] = {
+          fill: row.querySelector('.pp-fill'),
+          timeEl: row.querySelector('.pp-time'),
+          video: t.pane.querySelector('video')
+        };
+      });
+      // Seek on click
+      panel.querySelectorAll('.pp-bar').forEach(function(bar) {
+        bar.addEventListener('click', function(e) {
+          var ref = progressRefs[bar.dataset.vidId];
+          if (!ref || !ref.video || !ref.video.duration) return;
+          ref.video.currentTime = (e.offsetX / bar.offsetWidth) * ref.video.duration;
+        });
+      });
+    }
+
+    function startProgressPoll() {
+      if (progressPollInterval) return;
+      progressPollInterval = setInterval(tickProgress, 1000);
+    }
+
+    function stopProgressPoll() {
+      clearInterval(progressPollInterval);
+      progressPollInterval = null;
+    }
+
+    function tickProgress() {
+      Object.keys(progressRefs).forEach(function(id) {
+        var ref = progressRefs[id];
+        var v = ref.video;
+        if (!v) return;
+        var pct = v.duration ? (v.currentTime / v.duration * 100) : 0;
+        ref.fill.style.width = pct + '%';
+        ref.timeEl.textContent = fmtTime(v.currentTime) + ' / ' + fmtTime(v.duration || 0);
+      });
+    }
+
+    function fmtTime(s) {
+      if (!isFinite(s) || s < 0) return '--:--';
+      var h = Math.floor(s / 3600);
+      var m = Math.floor((s % 3600) / 60);
+      var sec = Math.floor(s % 60);
+      if (h > 0) return h + ':' + (m < 10 ? '0' : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+      return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    // ── Page Visibility API — pause/resume all videos when tab is hidden ──
+    document.addEventListener('visibilitychange', function() {
+      if (!parallelMode) return;
+      if (document.hidden) {
+        // Browser tab became hidden — pause everything to free decode resources.
+        videoTabOrder.forEach(function(id) {
+          var v = videoTabs[id].pane.querySelector('video');
+          if (v && !v.paused) {
+            v._pausedByVisibility = true;
+            v.pause();
+          }
+        });
+        stopProgressPoll();
+      } else {
+        // Browser tab is visible again — resume only videos we paused.
+        videoTabOrder.forEach(function(id) {
+          var v = videoTabs[id].pane.querySelector('video');
+          if (v && v._pausedByVisibility) {
+            v._pausedByVisibility = false;
+            var p = v.play();
+            if (p) p.catch(function(){});
+          }
+        });
+        if (progressPanelOpen) startProgressPoll();
       }
     });
+
+    var piExpanded = {}; // tracks which card IDs are expanded
+
+    function buildParallelInfo() {
+      var panel = document.getElementById('info-panel');
+      if (!panel) return;
+      panel.innerHTML = '';
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;gap:0.4rem;flex-wrap:wrap;align-items:flex-start;width:100%';
+      videoTabOrder.forEach(function(id) {
+        var t = videoTabs[id];
+        var m = t.meta || {};
+        var isActive = t.tabBtn.classList.contains('active');
+        var isOpen = !!piExpanded[id];
+        var card = document.createElement('div');
+        card.className = 'pi-card' + (isActive ? ' pi-active' : '') + (isOpen ? ' pi-open' : '');
+        card.dataset.piId = id;
+        card.onclick = function(e) {
+          if (e.target.closest('button')) return;
+          piExpanded[id] = !piExpanded[id];
+          activateTab(Number(id)); // rebuilds panel with updated state + updates active outline
+        };
+
+        // Header: title + chevron
+        var prefix = m.rating === 2 ? '★ ' : m.rating === 1 ? '♥ ' : '';
+        var titleText = escHtml(prefix + (m.show || m.title || ''));
+        var html = '<div class="pi-header"><div class="pi-title">' + titleText + '</div><span class="pi-chevron">▾</span></div>';
+
+        // Episode line
+        var epParts = [];
+        if (m.season) epParts.push('S' + m.season);
+        if (m.episode) epParts.push('E' + m.episode);
+        var epLabel = m.episode_title || (m.show && m.title !== m.show ? m.title : '');
+        if (epLabel) epParts.push('\u201c' + epLabel + '\u201d');
+        if (epParts.length) html += '<div class="pi-ep">' + escHtml(epParts.join(' \u00b7 ')) + '</div>';
+
+        // Meta line: type · duration · watched
+        var metaParts = [];
+        if (m.type) metaParts.push(m.type);
+        if (m.duration_s) metaParts.push(fmtTime(m.duration_s));
+        if (m.watched_at) metaParts.push('✓ watched');
+        if (metaParts.length) html += '<div class="pi-meta">' + escHtml(metaParts.join(' \u00b7 ')) + '</div>';
+
+        // Expanded section
+        html += '<div class="pi-expand">';
+
+        // Additional detail fields
+        var fields = [
+          ['Genre',   m.genre],
+          ['Channel', m.channel],
+          ['Studio',  m.studio],
+          ['Actors',  m.actors],
+          ['Aired',   m.air_date],
+        ];
+        fields.forEach(function(f) {
+          if (f[1]) html += '<div class="pi-field"><b>' + escHtml(f[0]) + ':</b> ' + escHtml(f[1]) + '</div>';
+        });
+
+        // Action buttons
+        html += '<div class="pi-actions">' +
+          '<button class="btn-sm" style="font-size:0.7rem" ' +
+            'onclick="htmx.ajax(\'GET\',\'/videos/' + id + '/quick-label\',{target:\'#quick-label-modal\',swap:\'innerHTML\'})">⊕ Quick label</button>' +
+          '<button class="btn-sm pi-move-btn" data-pi-move="' + id + '" style="font-size:0.7rem">↷ Move…</button>' +
+          '<button class="btn-sm btn-danger pi-del-trigger-' + id + '" style="font-size:0.7rem">⌦ Delete…</button>' +
+          '</div>';
+
+        // Move-to-folder row
+        html += '<div class="pi-move-row" data-pi-move="' + id + '">' +
+          '<select class="input-dark" style="font-size:0.72rem;width:100%;padding:0.2rem 0.3rem;margin-top:0.3rem">' +
+            '<option value="">Move to folder…</option>' +
+          '</select>' +
+          '<div class="pi-move-err" data-pi-move="' + id + '"></div>' +
+          '</div>';
+
+        // Delete confirmation
+        html += '<div class="pi-del-confirm" id="pi-del-confirm-' + id + '">' +
+          '<div style="font-size:0.72rem;color:#bbb">Delete <strong>' + escHtml(m.title || m.show || '') + '</strong>?</div>' +
+          '<div class="pi-del-confirm-btns">' +
+          '<button class="btn-sm" style="font-size:0.7rem" onclick="piDelete(' + id + ',false)">Remove</button>' +
+          '<button class="btn-sm btn-danger" style="font-size:0.7rem" onclick="piDelete(' + id + ',true)">Delete file</button>' +
+          '<button class="btn-sm btn-ghost" style="font-size:0.7rem" ' +
+            'onclick="document.getElementById(\'pi-del-confirm-' + id + '\').classList.remove(\'open\')">Cancel</button>' +
+          '</div></div>';
+
+        html += '</div>'; // close pi-expand
+
+        card.innerHTML = html;
+
+        // Wire move button and select after innerHTML is set
+        var moveBtn = card.querySelector('.pi-move-btn[data-pi-move="' + id + '"]');
+        if (moveBtn) {
+          moveBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            piShowMoveSelect(id);
+          });
+        }
+        var moveSel = card.querySelector('.pi-move-row[data-pi-move="' + id + '"] select');
+        if (moveSel) {
+          moveSel.addEventListener('change', function(e) {
+            e.stopPropagation();
+            var dirId = moveSel.value;
+            if (!dirId) return;
+            moveSel.value = '';
+            piMoveVideo(id, dirId);
+          });
+          // Prevent card-click collapsing when interacting with the select
+          moveSel.addEventListener('click', function(e) { e.stopPropagation(); });
+        }
+
+        // Wire delete trigger after innerHTML is set
+        var delTrigger = card.querySelector('.pi-del-trigger-' + id);
+        if (delTrigger) {
+          delTrigger.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var confirm = document.getElementById('pi-del-confirm-' + id);
+            if (confirm) confirm.classList.toggle('open');
+          });
+        }
+
+        wrap.appendChild(card);
+      });
+      panel.appendChild(wrap);
+    }
+
+    // ── Parallel-mode move ───────────────────────────────────────────
+    var piDirsCache = null; // [{id, path}] fetched once from /api/directories
+
+    function piShowMoveSelect(cardId) {
+      var row = document.querySelector('.pi-move-row[data-pi-move="' + cardId + '"]');
+      if (!row) return;
+      if (row.classList.contains('open')) { row.classList.remove('open'); return; }
+      var sel = row.querySelector('select');
+      if (sel.dataset.loaded === '1') { row.classList.add('open'); return; }
+      if (piDirsCache) {
+        piPopulateDirSelect(sel, piDirsCache);
+        row.classList.add('open');
+      } else {
+        fetch('/api/directories').then(function(r) { return r.json(); })
+          .then(function(dirs) {
+            piDirsCache = dirs;
+            piPopulateDirSelect(sel, dirs);
+            row.classList.add('open');
+          }).catch(function() {});
+      }
+    }
+
+    function piPopulateDirSelect(sel, dirs) {
+      sel.innerHTML = '<option value="">Move to folder…</option>';
+      dirs.forEach(function(d) {
+        var opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.path;
+        sel.appendChild(opt);
+      });
+      sel.dataset.loaded = '1';
+    }
+
+    function piMoveVideo(id, dirId) {
+      var tab = videoTabs[id];
+      if (!tab) return;
+      var v = tab.pane.querySelector('video');
+      if (!v) return;
+
+      var savedTime = v.currentTime;
+      v.pause();
+
+      // Beachball overlay on the video pane
+      var overlay = document.createElement('div');
+      overlay.className = 'pi-moving-overlay';
+      overlay.innerHTML = '<div class="pi-moving-spinner"></div><span>Moving file…</span>';
+      tab.pane.appendChild(overlay);
+
+      fetch('/videos/' + id + '/move', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: 'dir_id=' + encodeURIComponent(dirId)
+        })
+        .then(function(r) {
+          return r.text().then(function(t) {
+            if (!r.ok) throw new Error(t || 'Move failed (status ' + r.status + ')');
+          });
+        })
+        .then(function() {
+          // Refresh the sidebar immediately — don't wait for the video to reload.
+          refreshVideoList();
+          overlay.querySelector('span').textContent = 'Reloading…';
+          // Same URL (/video/{id}) now serves from the new path — just reload.
+          v.addEventListener('loadedmetadata', function() {
+            var doPlay = function() {
+              v.play().catch(function(){});
+              overlay.remove();
+              if (effectiveParallel()) buildParallelInfo();
+            };
+            if (savedTime > 0.1) {
+              v.currentTime = savedTime;
+              v.addEventListener('seeked', doPlay, {once: true});
+            } else {
+              doPlay();
+            }
+          }, {once: true});
+          v.load();
+        })
+        .catch(function(err) {
+          overlay.remove();
+          v.play().catch(function(){});
+          var errEl = document.querySelector('.pi-move-err[data-pi-move="' + id + '"]');
+          if (errEl) {
+            errEl.textContent = err.message || 'Move failed';
+            errEl.style.display = 'block';
+            setTimeout(function() { errEl.style.display = 'none'; }, 5000);
+          }
+        });
+    }
+    // ── end parallel-mode move ───────────────────────────────────────
+
+    // Open the single-view move panel and lazily load directory choices.
+    function openMovePanel(id) {
+      var panel = document.getElementById('move-panel-' + id);
+      if (!panel) return;
+      panel.style.display = 'flex';
+      var sel = document.getElementById('move-dir-sel-' + id);
+      if (!sel || sel.dataset.loaded) return;
+      fetch('/api/directories')
+        .then(function(r) { return r.json(); })
+        .then(function(dirs) {
+          sel.innerHTML = '<option value="">Select directory\u2026</option>';
+          dirs.forEach(function(d) {
+            var opt = document.createElement('option');
+            opt.value = d.id;
+            opt.textContent = d.path;
+            sel.appendChild(opt);
+          });
+          sel.dataset.loaded = '1';
+        })
+        .catch(function() { sel.innerHTML = '<option value="">Error loading directories</option>'; });
+    }
+
+    // Submit the single-view move form via fetch and refresh the library list.
+    function submitMoveVideo(id) {
+      var sel = document.getElementById('move-dir-sel-' + id);
+      var dirId = sel ? sel.value : '';
+      if (!dirId) return;
+      var subdir = (document.getElementById('move-subdir-' + id) || {}).value || '';
+      var errEl = document.getElementById('move-err-' + id);
+      if (errEl) errEl.textContent = '';
+
+      // Pause and save position before the move so we can restore after reload.
+      var v = document.getElementById('vid-' + id);
+      var savedTime = v ? v.currentTime : 0;
+      if (v) v.pause();
+
+      var body = 'dir_id=' + encodeURIComponent(dirId);
+      if (subdir) body += '&subdir=' + encodeURIComponent(subdir);
+      fetch('/videos/' + id + '/move', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: body
+      }).then(function(r) {
+        return r.text().then(function(t) {
+          if (!r.ok) throw new Error(t || 'Move failed (status ' + r.status + ')');
+        });
+      }).then(function() {
+        document.getElementById('move-panel-' + id).style.display = 'none';
+        refreshVideoList();
+
+        // Update the on-disk path display.
+        var pathEl = document.getElementById('video-path-' + id);
+        if (pathEl) {
+          var newDir = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+          if (subdir && newDir) newDir = newDir + '/' + subdir;
+          if (newDir) pathEl.textContent = newDir + '/' + pathEl.dataset.filename;
+        }
+
+        // Reload the video from its new server-side path, then restore position.
+        if (v) {
+          v.addEventListener('loadedmetadata', function() {
+            var doPlay = function() { v.play().catch(function(){}); };
+            if (savedTime > 0.1) {
+              v.currentTime = savedTime;
+              v.addEventListener('seeked', doPlay, {once: true});
+            } else {
+              doPlay();
+            }
+          }, {once: true});
+          v.load();
+        }
+      }).catch(function(err) {
+        if (errEl) errEl.textContent = err.message || 'Move failed';
+        // Resume playback if the move failed.
+        if (v && v.paused) v.play().catch(function(){});
+      });
+    }
+
+    // Refresh the video list sidebar preserving current active filters.
+    function refreshVideoList() {
+      var params = [];
+      var searchEl = document.getElementById('video-search');
+      if (searchEl && searchEl.value) params.push('q=' + encodeURIComponent(searchEl.value));
+      var tagEl = document.getElementById('active-tag');
+      if (tagEl && tagEl.value) params.push('tag_id=' + encodeURIComponent(tagEl.value));
+      var ratingEl = document.getElementById('active-rating');
+      if (ratingEl && ratingEl.value) params.push('rating=' + encodeURIComponent(ratingEl.value));
+      var typeEl = document.getElementById('active-type');
+      if (typeEl && typeEl.value) params.push('type=' + encodeURIComponent(typeEl.value));
+      var url = '/videos' + (params.length ? '?' + params.join('&') : '');
+      htmx.ajax('GET', url, {target: '#video-list', swap: 'innerHTML'});
+    }
+
+    // ── Random-video folder prefs ──────────────────────────────────────
+    // Persist which folder groups are included in random video selection.
+    function saveRandDirPrefs() {
+      var cbs = document.querySelectorAll('.rand-dir-cb');
+      var prefs = {};
+      cbs.forEach(function(cb) { prefs[cb.dataset.group] = cb.checked; });
+      try { localStorage.setItem('randDirPrefs', JSON.stringify(prefs)); } catch(_) {}
+    }
+
+    function applyRandDirPrefs() {
+      var prefs;
+      try { prefs = JSON.parse(localStorage.getItem('randDirPrefs') || 'null'); } catch(_) {}
+      if (!prefs) return;
+      document.querySelectorAll('.rand-dir-cb').forEach(function(cb) {
+        if (Object.prototype.hasOwnProperty.call(prefs, cb.dataset.group)) {
+          cb.checked = prefs[cb.dataset.group];
+        }
+      });
+      applyAllFolderPrefBtns();
+    }
+
+    // ── Per-folder play settings (order + auto-advance) ───────────────
+    function getFolderPrefs(group) {
+      try {
+        var s = JSON.parse(localStorage.getItem('folderPrefs_' + group) || 'null');
+        return { shuffle: !!(s && s.shuffle), autoAdvance: !!(s && s.autoAdvance) };
+      } catch(_) { return { shuffle: false, autoAdvance: false }; }
+    }
+
+    function toggleFolderPref(btn) {
+      var group = btn.dataset.group;
+      var key = btn.dataset.pref;
+      var prefs = getFolderPrefs(group);
+      prefs[key] = !prefs[key];
+      try { localStorage.setItem('folderPrefs_' + group, JSON.stringify(prefs)); } catch(_) {}
+      applyFolderPrefBtn(btn, prefs[key]);
+    }
+
+    function applyFolderPrefBtn(btn, active) {
+      btn.style.opacity = active ? '1' : '0.4';
+      btn.style.color = active ? '#6f6' : '#aaa';
+      btn.style.borderColor = active ? '#3a6a3a' : '#333';
+      if (btn.dataset.pref === 'shuffle') {
+        btn.title = active ? 'Play order: shuffle (click for in order)' : 'Play order: in order (click for shuffle)';
+      } else {
+        btn.title = active ? 'Auto-advance: on (click to disable)' : 'Auto-advance: off (click to enable)';
+      }
+    }
+
+    function applyAllFolderPrefBtns() {
+      document.querySelectorAll('.folder-pref-btn').forEach(function(btn) {
+        var prefs = getFolderPrefs(btn.dataset.group);
+        applyFolderPrefBtn(btn, prefs[btn.dataset.pref]);
+      });
+    }
+
+    // Pick a random video from enabled groups, falling back to the server
+    // when all groups are checked (or no checkboxes exist yet).
+    function pickRandomVideo() {
+      var cbs = Array.from(document.querySelectorAll('.rand-dir-cb'));
+      var unchecked = cbs.filter(function(cb) { return !cb.checked; });
+      // If every group is enabled (or no groups visible), use the server endpoint.
+      if (cbs.length === 0 || unchecked.length === 0) {
+        return fetch('/random-video').then(function(r) { return r.ok ? r.json() : null; });
+      }
+      // Collect all video IDs from checked groups only.
+      var ids = [];
+      cbs.forEach(function(cb) {
+        if (!cb.checked) return;
+        var details = cb.closest('details');
+        if (!details) return;
+        details.querySelectorAll('li[data-video-id]').forEach(function(li) {
+          ids.push(parseInt(li.dataset.videoId, 10));
+        });
+      });
+      if (ids.length === 0) {
+        return fetch('/random-video').then(function(r) { return r.ok ? r.json() : null; });
+      }
+      var id = ids[Math.floor(Math.random() * ids.length)];
+      return fetch('/api/videos/' + id).then(function(r) { return r.ok ? r.json() : null; });
+    }
+
+    function piDelete(id, deleteFile) {
+      fetch('/videos/' + id + (deleteFile ? '/file' : ''), {method: 'DELETE'})
+        .then(function(r) {
+          if (r.ok) {
+            delete piExpanded[id];
+            closeTab(id);
+            refreshVideoList();
+          }
+        }).catch(function(){});
+    }
+
+    // Re-apply folder checkbox prefs after every htmx settle that targets #video-list.
+    // This covers the auto-poll (every 60s), refreshVideoList(), tag/rating filters, etc.
+    document.body.addEventListener('htmx:afterSettle', function(evt) {
+      if (evt.target && evt.target.id === 'video-list') applyRandDirPrefs();
+    });
+
+    // Auto-load a random video on start; show a hint if library is empty.
+    document.getElementById('video-list').addEventListener('htmx:afterSettle', function() {
+      pickRandomVideo().then(function(d) {
+        if (d) {
+          openTab(d.id, d.title);
+        } else {
+          var p = document.getElementById('tab-placeholder');
+          if (p) p.textContent = 'Select a video from the library.';
+        }
+      });
+    }, {once: true});
 
     // ── Drag-to-move: video rows → directory targets ─────────────────
     (function () {
@@ -1048,6 +2017,31 @@
     }
 
     // Keyboard shortcuts: L=library  I=scroll-to-info  S=settings  →=random  Esc=close all
+    // ── Roku live-detection ───────────────────────────────────────────
+    // Poll /roku/connected every 4 s. Toggle .roku-live on <body> so the
+    // Cast button appears only when the Roku app is actively running.
+    (function() {
+      function checkRoku() {
+        fetch('/roku/connected').then(function(r) {
+          document.body.classList.toggle('roku-live', r.ok);
+        }).catch(function() {
+          document.body.classList.remove('roku-live');
+        });
+      }
+      checkRoku();
+      setInterval(checkRoku, 4000);
+    })();
+
+    // Returns the <video> element of the active (or only) tab pane.
+    function activeVideo() {
+      var active = document.querySelector('.tab-pane.active');
+      if (!active) active = document.querySelector('.tab-pane');
+      return active ? active.querySelector('video') : null;
+    }
+
+    // Keyboard shortcuts: L=library  I=scroll-to-info  S=settings  →=random  Esc=close all
+    // Space=play/pause  P=parallel  F=fullscreen  M=mute  N=next-unwatched
+    // J=seek-10s  K=seek+10s  ←=seek-5s
     document.addEventListener('keydown', function(e) {
       if (e.target.matches('input, textarea, select') || e.target.isContentEditable) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -1058,11 +2052,37 @@
       } else if (e.key === 's' || e.key === 'S') {
         toggleCfg();
       } else if (e.key === 'ArrowRight') {
-        fetch('/random-video').then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+        pickRandomVideo().then(function(d) {
           if (d) openTab(d.id, d.title);
         });
       } else if (e.key === 'Escape') {
         closeAllPanels();
+      } else if (e.key === ' ') {
+        var v = activeVideo();
+        if (v) { e.preventDefault(); if (v.paused) v.play(); else v.pause(); }
+      } else if (e.key === 'p' || e.key === 'P') {
+        toggleParallelMode();
+      } else if (e.key === 'f' || e.key === 'F') {
+        var v = activeVideo();
+        if (v && v.requestFullscreen) v.requestFullscreen();
+      } else if (e.key === 'm' || e.key === 'M') {
+        var v = activeVideo();
+        if (v) v.muted = !v.muted;
+      } else if (e.key === 'n' || e.key === 'N') {
+        var tid = document.getElementById('active-tag') ? document.getElementById('active-tag').value : '';
+        fetch('/videos/next-unwatched' + (tid ? '?tag_id=' + tid : ''))
+          .then(function(r){ if(!r.ok) throw r; return r.json(); })
+          .then(function(d){ openTab(d.id, d.title); })
+          .catch(function(){});
+      } else if (e.key === 'j' || e.key === 'J') {
+        var v = activeVideo();
+        if (v) v.currentTime = Math.max(0, v.currentTime - 10);
+      } else if (e.key === 'k' || e.key === 'K') {
+        var v = activeVideo();
+        if (v) v.currentTime = v.currentTime + 10;
+      } else if (e.key === 'ArrowLeft') {
+        var v = activeVideo();
+        if (v) { e.preventDefault(); v.currentTime = Math.max(0, v.currentTime - 5); }
       }
     });
   </script>
@@ -1180,6 +2200,159 @@
     }
   </script>
 
+  <!-- ── Multi-select logic ────────────────────────────────────────── -->
+  <script>
+    var _msIDs = new Set();
+
+    function msToggleMode() {
+      var active = document.body.classList.toggle('multi-select-mode');
+      document.getElementById('ms-select-btn').classList.toggle('active', active);
+      if (!active) msClearSelection();
+      document.querySelectorAll('#video-list .vid-select-cb').forEach(function(cb) {
+        cb.style.display = active ? 'inline-flex' : 'none';
+      });
+    }
+
+    function msToggle(id, li) {
+      if (_msIDs.has(id)) {
+        _msIDs.delete(id);
+        li.classList.remove('lib-selected');
+        li.querySelector('.vid-select-cb').textContent = '☐';
+      } else {
+        _msIDs.add(id);
+        li.classList.add('lib-selected');
+        li.querySelector('.vid-select-cb').textContent = '☑';
+      }
+      document.getElementById('ms-count').textContent = _msIDs.size + ' selected';
+    }
+
+    function msClearSelection() {
+      _msIDs.clear();
+      document.querySelectorAll('#video-list li.lib-selected').forEach(function(li) {
+        li.classList.remove('lib-selected');
+        var cb = li.querySelector('.vid-select-cb');
+        if (cb) cb.textContent = '☐';
+      });
+      document.getElementById('ms-count').textContent = '0 selected';
+    }
+
+    function msBulkMove() {
+      if (!_msIDs.size) return;
+      fetch('/directories/options')
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          var wrap = document.createElement('div');
+          wrap.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1c1c1c;border:1px solid #444;border-radius:8px;padding:1.25rem;z-index:9999;min-width:260px;box-shadow:0 8px 28px rgba(0,0,0,0.75)';
+          wrap.innerHTML = '<h3 style="font-size:0.85rem;color:#ccc;margin:0 0 0.75rem 0">Move ' + _msIDs.size + ' video' + (_msIDs.size > 1 ? 's' : '') + ' to:</h3>'
+            + '<select id="ms-bulk-dir" class="input-dark" style="width:100%;margin-bottom:0.6rem"><option value="">— choose folder —</option>' + html + '</select>'
+            + '<div style="display:flex;gap:0.5rem;justify-content:flex-end">'
+            + '<button class="btn-sm btn-ghost" onclick="this.closest(\'div\').parentNode.remove()">Cancel</button>'
+            + '<button class="btn-sm btn-success" onclick="msBulkMoveConfirm(this.closest(\'div\'),this)">Move</button></div>';
+          document.body.appendChild(wrap);
+        });
+    }
+
+    function msBulkMoveConfirm(wrap, btn) {
+      var dirID = document.getElementById('ms-bulk-dir').value;
+      if (!dirID) return;
+      btn.disabled = true;
+      var ids = Array.from(_msIDs);
+      var done = 0;
+      var prog = document.getElementById('ms-progress');
+      function next() {
+        if (!ids.length) {
+          if (prog) prog.textContent = 'Done!';
+          setTimeout(function(){ if(prog) prog.textContent=''; }, 2000);
+          wrap.remove();
+          msClearSelection();
+          htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+          return;
+        }
+        var id = ids.shift();
+        done++;
+        if (prog) prog.textContent = 'Moving ' + done + '/' + (done + ids.length) + '…';
+        var fd = new FormData(); fd.append('dir_id', dirID);
+        fetch('/videos/' + id + '/move', {method: 'POST', body: fd})
+          .then(function(){ next(); })
+          .catch(function(){ next(); });
+      }
+      next();
+    }
+
+    function msBulkTag() {
+      if (!_msIDs.size) return;
+      var name = prompt('Tag name to add to ' + _msIDs.size + ' video(s):');
+      if (!name || !name.trim()) return;
+      name = name.trim();
+      var ids = Array.from(_msIDs);
+      var done = 0;
+      var prog = document.getElementById('ms-progress');
+      function next() {
+        if (!ids.length) {
+          if (prog) prog.textContent = 'Done!';
+          setTimeout(function(){ if(prog) prog.textContent=''; }, 2000);
+          return;
+        }
+        var id = ids.shift();
+        done++;
+        if (prog) prog.textContent = 'Tagging ' + done + '/' + (done + ids.length) + '…';
+        var fd = new FormData(); fd.append('tag', name);
+        fetch('/videos/' + id + '/tags', {method: 'POST', body: fd})
+          .then(function(){ next(); })
+          .catch(function(){ next(); });
+      }
+      next();
+    }
+
+    // Re-apply vid-select-cb visibility after video list is re-rendered
+    document.body.addEventListener('htmx:afterSettle', function(e) {
+      if (e.detail.target && e.detail.target.id === 'video-list') {
+        var isMs = document.body.classList.contains('multi-select-mode');
+        document.querySelectorAll('#video-list .vid-select-cb').forEach(function(cb) {
+          cb.style.display = isMs ? 'inline-flex' : 'none';
+        });
+        applyGroupBackgrounds();
+      }
+    });
+  </script>
+
+  <!-- ── Folder background logic ───────────────────────────────────── -->
+  <script>
+    function applyGroupBackgrounds() {
+      fetch('/api/folder-backgrounds')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          Object.keys(data).forEach(function(show) {
+            var imgPath = data[show];
+            if (!imgPath) return;
+            var els = document.querySelectorAll('#video-list details[data-group="' + CSS.escape(show) + '"]');
+            els.forEach(function(el) {
+              el.style.backgroundImage = 'url(/api/serve-image?path=' + encodeURIComponent(imgPath) + ')';
+              el.classList.add('group-has-bg');
+              var sum = el.querySelector('summary');
+              if (sum) {
+                sum.style.backgroundImage = 'url(/api/serve-image?path=' + encodeURIComponent(imgPath) + ')';
+              }
+            });
+          });
+        })
+        .catch(function(){});
+    }
+
+    function setGroupBg(showName) {
+      var path = prompt('Image path for "' + showName + '":\n(Leave empty to clear)');
+      if (path === null) return;
+      var fd = new FormData();
+      fd.append('show', showName);
+      fd.append('path', path.trim());
+      fetch('/api/folder-background', {method: 'POST', body: fd})
+        .then(function(r) {
+          if (!r.ok) { alert('Failed to save background'); return; }
+          applyGroupBackgrounds();
+        });
+    }
+  </script>
+
   <!-- ── Context menu logic ─────────────────────────────────────────── -->
   <script>
     var _ctx = {id: null, dirID: null, filename: null, dirPath: null};
@@ -1289,6 +2462,7 @@
           return r.text().then(function(html) {
             document.getElementById('video-list').innerHTML = html;
             htmx.process(document.getElementById('video-list'));
+            applyRandDirPrefs();
           });
         })
         .catch(function(err) { alert('Move failed: ' + err.message); });
@@ -1353,6 +2527,7 @@
           return r.text().then(function(html) {
             document.getElementById('video-list').innerHTML = html;
             htmx.process(document.getElementById('video-list'));
+            applyRandDirPrefs();
           });
         });
     }
@@ -1466,6 +2641,7 @@
         .then(function(html) {
           document.getElementById('video-list').innerHTML = html;
           htmx.process(document.getElementById('video-list'));
+          applyRandDirPrefs();
         });
     }
   </script>

@@ -161,7 +161,8 @@ func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, dirPath stri
 		           FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		           WHERE vt.video_id=id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		          thumbnail_path, duration_s, air_date,
-		          NULL AS watched_at
+		          NULL AS watched_at,
+		          watched
 	`, filename, dirID, dirPath, filename)
 	return scanVideoRow(row)
 }
@@ -195,7 +196,7 @@ func (s *SQLiteStore) ListVideos(ctx context.Context) ([]Video, error) {
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
 		ORDER BY v.directory_path ASC, COALESCE(NULLIF(v.display_name, ''), v.filename) ASC
@@ -241,7 +242,7 @@ func (s *SQLiteStore) ListVideosByTag(ctx context.Context, tagID int64) ([]Video
 		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 		        WHERE vt2.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		JOIN video_tags vt ON v.id = vt.video_id
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -283,7 +284,7 @@ func (s *SQLiteStore) ListVideosByDirectory(ctx context.Context, dirID int64) ([
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
 		WHERE v.directory_id = ?
@@ -324,7 +325,7 @@ func (s *SQLiteStore) GetVideo(ctx context.Context, id int64) (Video, error) {
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
 		WHERE v.id = ?
@@ -366,7 +367,7 @@ func (s *SQLiteStore) ListVideosByRating(ctx context.Context) ([]Video, error) {
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
 		ORDER BY v.rating DESC, COALESCE(NULLIF(v.display_name, ''), v.filename) ASC
@@ -406,7 +407,7 @@ func (s *SQLiteStore) ListVideosByShow(ctx context.Context, showName string) ([]
 		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 		        WHERE vt2.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		JOIN video_tags vt ON vt.video_id = v.id
 		JOIN tags t ON t.id = vt.tag_id
@@ -453,11 +454,11 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 			        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 			        WHERE vt2.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 			       v.thumbnail_path, v.duration_s, v.air_date,
-			       wh.watched_at
+			       wh.watched_at, v.watched
 			FROM videos v
 			JOIN video_tags vt ON v.id = vt.video_id
 			LEFT JOIN watch_history wh ON v.id = wh.video_id
-			WHERE vt.tag_id = ? AND wh.video_id IS NULL
+			WHERE vt.tag_id = ? AND v.watched = 0
 			ORDER BY COALESCE(NULLIF(v.display_name,''), v.filename)
 			LIMIT 1
 		`, tagID)
@@ -490,15 +491,35 @@ func (s *SQLiteStore) GetNextUnwatched(ctx context.Context, tagID int64) (Video,
 			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 			        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 			       v.thumbnail_path, v.duration_s, v.air_date,
-			       wh.watched_at
+			       wh.watched_at, v.watched
 			FROM videos v
 			LEFT JOIN watch_history wh ON v.id = wh.video_id
-			WHERE wh.video_id IS NULL
+			WHERE v.watched = 0
 			ORDER BY COALESCE(NULLIF(v.display_name,''), v.filename)
 			LIMIT 1
 		`)
 	}
 	return scanVideoRow(row)
+}
+
+// GetNextUnwatchedFromSearch returns the first unwatched video (alphabetically)
+// that also appears in the SearchVideos results for query.  Using SearchVideos
+// directly guarantees the candidate set is identical to what the user sees in
+// the library panel, avoiding any FTS5 vs LIKE divergence.
+func (s *SQLiteStore) GetNextUnwatchedFromSearch(ctx context.Context, query string, tagID int64) (Video, error) {
+	if query == "" {
+		return s.GetNextUnwatched(ctx, tagID)
+	}
+	videos, err := s.SearchVideos(ctx, query)
+	if err != nil {
+		return Video{}, err
+	}
+	for _, v := range videos {
+		if !v.Watched {
+			return v, nil
+		}
+	}
+	return Video{}, sql.ErrNoRows
 }
 
 func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
@@ -533,7 +554,7 @@ func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
 		LIMIT 1 OFFSET ABS(RANDOM()) % MAX(1, (SELECT COUNT(*) FROM videos))
@@ -583,7 +604,7 @@ func (s *SQLiteStore) ListVideosByType(ctx context.Context, videoType string) ([
 		        FROM tags t JOIN video_tags vt2 ON t.id=vt2.tag_id
 		        WHERE vt2.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		JOIN video_tags vt ON vt.video_id = v.id
 		JOIN tags t ON t.id = vt.tag_id
@@ -687,7 +708,7 @@ func (s *SQLiteStore) ListVideosByMinRating(ctx context.Context, minRating int) 
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
 		WHERE v.rating >= ?
@@ -735,7 +756,7 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 			        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 			        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 			       v.thumbnail_path, v.duration_s, v.air_date,
-			       wh.watched_at
+			       wh.watched_at, v.watched
 			FROM videos v
 			JOIN videos_fts ON videos_fts.rowid = v.id
 			LEFT JOIN watch_history wh ON v.id = wh.video_id
@@ -782,7 +803,7 @@ func (s *SQLiteStore) SearchVideos(ctx context.Context, query string) ([]Video, 
 		        FROM tags t JOIN video_tags vt ON t.id=vt.tag_id
 		        WHERE vt.video_id=v.id AND t.name LIKE 'color:%' LIMIT 1) AS color_label,
 		       v.thumbnail_path, v.duration_s, v.air_date,
-		       wh.watched_at
+		       wh.watched_at, v.watched
 		FROM videos v
 		LEFT JOIN watch_history wh ON v.id = wh.video_id
 		WHERE LOWER(COALESCE(NULLIF(v.display_name, ''), v.filename)) LIKE LOWER(?) ESCAPE '\'
@@ -923,12 +944,13 @@ func scanVideoRow(row *sql.Row) (Video, error) {
 	var v Video
 	var dirID sql.NullInt64
 	var showName, genre, actors, studio, channel, videoType, colorLabel, thumbnailPath, watchedAt, airDate sql.NullString
+	var watched int
 	if err := row.Scan(
 		&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &showName, &v.Rating, &v.OriginalFilename,
 		&genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &actors, &studio, &channel, &videoType,
 		&colorLabel,
 		&thumbnailPath, &v.DurationS, &airDate,
-		&watchedAt,
+		&watchedAt, &watched,
 	); err != nil {
 		return Video{}, err
 	}
@@ -947,6 +969,7 @@ func scanVideoRow(row *sql.Row) (Video, error) {
 	if watchedAt.Valid {
 		v.WatchedAt = watchedAt.String
 	}
+	v.Watched = watched != 0
 	return v, nil
 }
 
@@ -957,12 +980,13 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 		var v Video
 		var dirID sql.NullInt64
 		var showName, genre, actors, studio, channel, videoType, colorLabel, thumbnailPath, watchedAt, airDate sql.NullString
+		var watched int
 		if err := rows.Scan(
 			&v.ID, &v.Filename, &dirID, &v.DirectoryPath, &v.DisplayName, &showName, &v.Rating, &v.OriginalFilename,
 			&genre, &v.SeasonNumber, &v.EpisodeNumber, &v.EpisodeTitle, &actors, &studio, &channel, &videoType,
 			&colorLabel,
 			&thumbnailPath, &v.DurationS, &airDate,
-			&watchedAt,
+			&watchedAt, &watched,
 		); err != nil {
 			return nil, err
 		}
@@ -981,6 +1005,7 @@ func scanVideos(rows *sql.Rows) ([]Video, error) {
 		if watchedAt.Valid {
 			v.WatchedAt = watchedAt.String
 		}
+		v.Watched = watched != 0
 		videos = append(videos, v)
 	}
 	return videos, rows.Err()
@@ -1012,6 +1037,23 @@ func (s *SQLiteStore) SaveSettings(ctx context.Context, pairs map[string]string)
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *SQLiteStore) ListSettingsWithPrefix(ctx context.Context, prefix string) (map[string]string, error) {
+	rows, err := s.conn.QueryContext(ctx, `SELECT key, value FROM settings WHERE key LIKE ?`, prefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		result[k] = v
+	}
+	return result, rows.Err()
 }
 
 // --- Sessions ---
@@ -1057,6 +1099,7 @@ func (s *SQLiteStore) PruneExpiredSessions(ctx context.Context) error {
 // --- Watch history ---
 
 func (s *SQLiteStore) RecordWatch(ctx context.Context, videoID int64, position float64) error {
+	// Upsert position/timestamp in watch_history.
 	_, err := s.conn.ExecContext(ctx, `
 		INSERT INTO watch_history (video_id, position, watched_at)
 		VALUES (?, ?, datetime('now'))
@@ -1064,11 +1107,29 @@ func (s *SQLiteStore) RecordWatch(ctx context.Context, videoID int64, position f
 			position   = excluded.position,
 			watched_at = excluded.watched_at
 	`, videoID, position)
+	if err != nil {
+		return err
+	}
+	// Only flip watched 0→1 (avoids duplicate watch_events on repeated progress saves).
+	res, err := s.conn.ExecContext(ctx,
+		`UPDATE videos SET watched = 1 WHERE id = ? AND watched = 0`, videoID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		_, err = s.conn.ExecContext(ctx,
+			`INSERT INTO watch_events (video_id) VALUES (?)`, videoID)
+	}
 	return err
 }
 
 func (s *SQLiteStore) ClearWatch(ctx context.Context, videoID int64) error {
-	_, err := s.conn.ExecContext(ctx, `DELETE FROM watch_history WHERE video_id = ?`, videoID)
+	if _, err := s.conn.ExecContext(ctx,
+		`UPDATE videos SET watched = 0 WHERE id = ?`, videoID); err != nil {
+		return err
+	}
+	_, err := s.conn.ExecContext(ctx,
+		`DELETE FROM watch_history WHERE video_id = ?`, videoID)
 	return err
 }
 

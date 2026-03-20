@@ -14,8 +14,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -406,4 +408,64 @@ func (s *server) handleAPIDirectories(w http.ResponseWriter, r *http.Request) {
 		out[i] = apiDirectory{ID: d.ID, Path: d.Path}
 	}
 	writeJSON(w, out)
+}
+
+// ── Folder background images ───────────────────────────────────────────────────
+
+// GET /api/folder-backgrounds — returns {showName: imagePath, ...}
+func (s *server) handleGetFolderBackgrounds(w http.ResponseWriter, r *http.Request) {
+	pairs, err := s.store.ListSettingsWithPrefix(r.Context(), "folder_bg:")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	result := make(map[string]string, len(pairs))
+	for k, v := range pairs {
+		show := strings.TrimPrefix(k, "folder_bg:")
+		result[show] = v
+	}
+	writeJSON(w, result)
+}
+
+// POST /api/folder-background — saves folder_bg:SHOW → path
+func (s *server) handleSetFolderBackground(w http.ResponseWriter, r *http.Request) {
+	show := strings.TrimSpace(r.FormValue("show"))
+	path := strings.TrimSpace(r.FormValue("path"))
+	if show == "" {
+		http.Error(w, "show name required", http.StatusBadRequest)
+		return
+	}
+	key := "folder_bg:" + show
+	if err := s.store.SaveSettings(r.Context(), map[string]string{key: path}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// GET /api/serve-image?path=... — validates path is under a registered directory then serves it.
+func (s *server) handleServeImage(w http.ResponseWriter, r *http.Request) {
+	imgPath := r.URL.Query().Get("path")
+	if imgPath == "" {
+		http.Error(w, "path required", http.StatusBadRequest)
+		return
+	}
+	imgPath = filepath.Clean(imgPath)
+	dirs, err := s.store.ListDirectories(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	allowed := false
+	for _, d := range dirs {
+		if strings.HasPrefix(imgPath, filepath.Clean(d.Path)) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		http.Error(w, "path not under a registered directory", http.StatusForbidden)
+		return
+	}
+	http.ServeFile(w, r, imgPath)
 }

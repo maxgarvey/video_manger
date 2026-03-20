@@ -3,39 +3,81 @@
   <div class="modal-box" onclick="event.stopPropagation()">
     <button type="button" class="modal-close" onclick="document.getElementById('quick-label-modal').innerHTML=''" title="Close">✕</button>
 
-    <h3 style="font-size:0.9rem;text-transform:uppercase;letter-spacing:0.1em;color:#ccc;margin:0 0 1rem 0;padding-right:2.5rem">Quick Label</h3>
+    <h3 style="font-size:0.9rem;text-transform:uppercase;letter-spacing:0.1em;color:#ccc;margin:0 0 0.75rem 0;padding-right:2.5rem">Quick Label</h3>
 
-    <form hx-post="/videos/{{.ID}}/quick-label"
+    <!-- Tags section -->
+    <div style="margin-bottom:0.75rem;padding-bottom:0.6rem;border-bottom:1px solid #2a2a2a">
+      <div style="font-size:0.75rem;color:#666;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.35rem">Tags</div>
+      <div id="ql-tag-chips-{{.Video.ID}}" style="display:flex;flex-wrap:wrap;gap:0.25rem;min-height:1.2rem;margin-bottom:0.35rem">
+        {{range .Tags}}
+        <span id="ql-chip-{{$.Video.ID}}-{{.ID}}"
+          style="display:inline-flex;align-items:center;gap:0.25rem;background:#333;border:1px solid #555;border-radius:12px;padding:0.2rem 0.5rem;font-size:0.8rem">
+          {{.Name}}
+          <button type="button"
+            onclick="qlRemoveTag({{$.Video.ID}}, {{.ID}})"
+            style="background:none;border:none;color:#aaa;cursor:pointer;font-size:0.75rem;padding:0;line-height:1"
+          >✕</button>
+        </span>
+        {{else}}
+        <span id="ql-no-tags-{{.Video.ID}}" style="color:#555;font-size:0.8rem">No tags</span>
+        {{end}}
+      </div>
+      <div style="display:flex;gap:0.3rem">
+        <input type="text" id="ql-tag-input-{{.Video.ID}}" placeholder="Add tag…"
+          class="input-dark"
+          style="flex:1;padding:0.25rem 0.45rem;font-size:0.8rem"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();qlAddTag({{.Video.ID}});}">
+        <button type="button" class="btn-sm" onclick="qlAddTag({{.Video.ID}})" style="font-size:0.78rem">Add</button>
+      </div>
+    </div>
+
+    <form hx-post="/videos/{{.Video.ID}}/quick-label"
           hx-target="#quick-label-modal"
           hx-swap="innerHTML"
           style="display:grid;grid-template-columns:auto 1fr;gap:0.4rem 0.8rem;align-items:center;font-size:0.85rem">
 
       <label style="color:#999;white-space:nowrap">Title</label>
-      <input type="text" name="name" value="{{.DisplayName}}" class="input-dark">
+      <input type="text" name="name" value="{{.Video.DisplayName}}" class="input-dark">
 
       <label style="color:#999;white-space:nowrap">Genre</label>
-      <input type="text" name="genre" value="{{.Genre}}" class="input-dark">
+      <input type="text" name="genre" value="{{.Video.Genre}}" class="input-dark">
 
       <label style="color:#999;white-space:nowrap">Season #</label>
-      <input type="number" name="season" value="{{.SeasonNumber}}" min="0" class="input-dark" style="width:6rem">
+      <input type="number" name="season" value="{{.Video.SeasonNumber}}" min="0" class="input-dark" style="width:6rem">
 
       <label style="color:#999;white-space:nowrap">Episode #</label>
-      <input type="number" name="episode" value="{{.EpisodeNumber}}" min="0" class="input-dark" style="width:6rem">
+      <input type="number" name="episode" value="{{.Video.EpisodeNumber}}" min="0" class="input-dark" style="width:6rem">
 
       <label style="color:#999;white-space:nowrap">Episode title</label>
-      <input type="text" name="episode_title" value="{{.EpisodeTitle}}" class="input-dark">
+      <input type="text" name="episode_title" value="{{.Video.EpisodeTitle}}" class="input-dark">
 
       <label style="color:#999;white-space:nowrap">Actors</label>
-      <input type="text" name="actors" value="{{.Actors}}" placeholder="e.g. Tom Hanks, Robin Wright" class="input-dark">
+      <input type="text" name="actors" value="{{.Video.Actors}}" placeholder="e.g. Tom Hanks, Robin Wright" class="input-dark">
 
       <label style="color:#999;white-space:nowrap">Studio</label>
-      <input type="text" name="studio" value="{{.Studio}}" class="input-dark">
+      <input type="text" name="studio" value="{{.Video.Studio}}" class="input-dark">
 
       <label style="color:#999;white-space:nowrap">Channel</label>
-      <input type="text" name="channel" value="{{.Channel}}" class="input-dark">
+      <input type="text" name="channel" value="{{.Video.Channel}}" class="input-dark">
 
       <label style="color:#999;white-space:nowrap">Air date</label>
-      <input type="text" name="air_date" value="{{.AirDate}}" placeholder="e.g. 2023-04-15" class="input-dark">
+      <input type="text" name="air_date" value="{{.Video.AirDate}}" placeholder="e.g. 2023-04-15" class="input-dark">
+
+      <!-- Move to folder row -->
+      {{if .Dirs}}
+      <div style="grid-column:1/-1;border-top:1px solid #2a2a2a;margin-top:0.4rem;padding-top:0.5rem">
+        <div style="display:flex;gap:0.4rem;align-items:center">
+          <label style="color:#999;white-space:nowrap;font-size:0.85rem">Move to</label>
+          <select id="ql-move-dir-{{.Video.ID}}" class="input-dark" style="flex:1;font-size:0.82rem">
+            <option value="">— no change —</option>
+            {{range .Dirs}}
+            <option value="{{.ID}}"{{if eq .ID $.Video.DirectoryID}} selected disabled{{end}}>{{base .Path}}</option>
+            {{end}}
+          </select>
+          <button type="button" class="btn-sm" onclick="qlDoMove({{.Video.ID}})" style="font-size:0.78rem;flex-shrink:0">Move</button>
+        </div>
+      </div>
+      {{end}}
 
       <div style="grid-column:1/-1;display:flex;gap:0.5rem;margin-top:0.3rem;justify-content:flex-end">
         <button type="button" class="btn-sm btn-ghost"
@@ -45,3 +87,66 @@
     </form>
   </div>
 </div>
+
+<script>
+  function qlRemoveTag(videoId, tagId) {
+    fetch('/videos/' + videoId + '/tags/' + tagId, {method: 'DELETE'})
+      .then(function(r) {
+        if (!r.ok) return;
+        var chip = document.getElementById('ql-chip-' + videoId + '-' + tagId);
+        if (chip) chip.remove();
+        var chips = document.getElementById('ql-tag-chips-' + videoId);
+        if (chips && !chips.children.length) {
+          chips.innerHTML = '<span id="ql-no-tags-' + videoId + '" style="color:#555;font-size:0.8rem">No tags</span>';
+        }
+      });
+  }
+
+  function qlAddTag(videoId) {
+    var input = document.getElementById('ql-tag-input-' + videoId);
+    var name = input ? input.value.trim() : '';
+    if (!name) return;
+    var fd = new FormData();
+    fd.append('tag', name);
+    fetch('/videos/' + videoId + '/tags', {method: 'POST', body: fd})
+      .then(function(r) {
+        if (!r.ok) return;
+        // Fetch tag list to get the new tag's ID
+        return fetch('/api/tags');
+      })
+      .then(function(r) { return r ? r.json() : null; })
+      .then(function(tags) {
+        if (!tags) return;
+        if (input) input.value = '';
+        var found = null;
+        for (var i = 0; i < tags.length; i++) {
+          if (tags[i].name === name) { found = tags[i]; break; }
+        }
+        if (!found) return;
+        var chips = document.getElementById('ql-tag-chips-' + videoId);
+        if (!chips) return;
+        // Remove "no tags" placeholder if present
+        var noTags = document.getElementById('ql-no-tags-' + videoId);
+        if (noTags) noTags.remove();
+        // Add chip
+        var span = document.createElement('span');
+        span.id = 'ql-chip-' + videoId + '-' + found.id;
+        span.style.cssText = 'display:inline-flex;align-items:center;gap:0.25rem;background:#333;border:1px solid #555;border-radius:12px;padding:0.2rem 0.5rem;font-size:0.8rem';
+        span.innerHTML = found.name + ' <button type="button" onclick="qlRemoveTag(' + videoId + ',' + found.id + ')" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:0.75rem;padding:0;line-height:1">✕</button>';
+        chips.appendChild(span);
+      });
+  }
+
+  function qlDoMove(videoId) {
+    var sel = document.getElementById('ql-move-dir-' + videoId);
+    if (!sel || !sel.value) return;
+    var fd = new FormData();
+    fd.append('dir_id', sel.value);
+    fetch('/videos/' + videoId + '/move', {method: 'POST', body: fd})
+      .then(function(r) {
+        if (!r.ok) { r.text().then(function(t){ alert('Move failed: ' + t); }); return; }
+        document.getElementById('quick-label-modal').innerHTML = '';
+        htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+      });
+  }
+</script>

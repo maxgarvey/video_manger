@@ -747,7 +747,17 @@ func (s *server) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleNextUnwatched(w http.ResponseWriter, r *http.Request) {
 	tagID, _ := strconv.ParseInt(r.URL.Query().Get("tag_id"), 10, 64)
-	video, err := s.store.GetNextUnwatched(r.Context(), tagID)
+	q := r.URL.Query().Get("q")
+
+	var video store.Video
+	var err error
+
+	nextFromSearch, _ := s.store.GetSetting(r.Context(), "next_from_search")
+	if nextFromSearch == "true" && q != "" {
+		video, err = s.store.GetNextUnwatchedFromSearch(r.Context(), q, tagID)
+	} else {
+		video, err = s.store.GetNextUnwatched(r.Context(), tagID)
+	}
 	if err != nil {
 		http.Error(w, "no unwatched videos", http.StatusNotFound)
 		return
@@ -766,12 +776,30 @@ func (s *server) handleRandomVideoID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"id": video.ID, "title": video.Title()}) //nolint:errcheck
 }
 
+// quickLabelData bundles video, current tags, and available directories for
+// the quick-label modal (features 4 & 5: tag editing + move-to-folder).
+type quickLabelData struct {
+	Video store.Video
+	Tags  []store.Tag
+	Dirs  []store.Directory
+}
+
 func (s *server) handleQuickLabelModal(w http.ResponseWriter, r *http.Request) {
 	video, ok := s.videoOrError(w, r)
 	if !ok {
 		return
 	}
-	render(w, "quick_label_modal.html", video)
+	tags, err := s.store.ListTagsByVideo(r.Context(), video.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dirs, err := s.store.ListDirectories(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	render(w, "quick_label_modal.html", quickLabelData{Video: video, Tags: tags, Dirs: dirs})
 }
 
 func (s *server) handleQuickLabelSubmit(w http.ResponseWriter, r *http.Request) {

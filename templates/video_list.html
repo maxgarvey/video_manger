@@ -6,8 +6,10 @@
   data-dir-path="{{.DirectoryPath}}"
   oncontextmenu="showCtxMenu(event,this)"
   style="display:flex;align-items:center;gap:0.2rem{{if .ColorLabel}};border-left:3px solid {{labelColor .ColorLabel}};padding-left:0.25rem{{end}}">
+  <span class="vid-select-cb" data-vid="{{.ID}}" onclick="event.stopPropagation();msToggle({{.ID}},this.closest('li'))"
+    style="display:none;flex-shrink:0;cursor:pointer;font-size:1rem;padding:0 0.2rem;color:#4a9a4a">☐</span>
   <button
-    onclick="openTab(Number(this.dataset.id), this.dataset.title)"
+    onclick="document.body.classList.contains('multi-select-mode') ? msToggle(Number(this.dataset.id), this.closest('li')) : openTab(Number(this.dataset.id), this.dataset.title)"
     data-id="{{.ID}}"
     data-title="{{.Title}}"
     class="btn-sm"
@@ -16,10 +18,10 @@
     {{if .ThumbnailPath}}onmouseenter="showThumb(event,{{.ID}})" onmouseleave="hideThumb()"{{end}}
   >
     <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85rem">
-      {{if .WatchedAt}}<span title="Watched" style="color:#4a9;font-size:0.68rem">✓</span> {{end}}{{if eq .Rating 2}}<span title="Favourite" style="font-size:0.68rem">★</span> {{else if eq .Rating 1}}<span title="Liked" style="font-size:0.68rem">♥</span> {{end}}{{.Title}}
+      {{if .Watched}}<span title="Watched" style="color:#4a9;font-size:0.68rem">✓</span> {{end}}{{if eq .Rating 2}}<span title="Favourite" style="font-size:0.68rem">★</span> {{else if eq .Rating 1}}<span title="Liked" style="font-size:0.68rem">♥</span> {{end}}{{.Title}}
     </span>
     <span style="flex-shrink:0;color:#444;font-size:0.68rem;font-family:monospace">{{ext .Filename}}</span>
-    {{if .WatchedAt}}<span style="flex-shrink:0;color:#3a5a3a;font-size:0.68rem">{{reltime .WatchedAt}}</span>{{end}}
+    {{if .Watched}}<span style="flex-shrink:0;color:#3a5a3a;font-size:0.68rem">{{reltime .WatchedAt}}</span>{{end}}
     {{if .VideoType}}<span class="video-type-badge" style="background:{{typeColor .VideoType}}" title="{{.VideoType}}">{{.VideoType}}</span>{{end}}
   </button>
   <button class="btn-icon"
@@ -33,17 +35,35 @@
 {{end}}
 
 {{if .Groups}}
-{{$multi := gt (len .Groups) 1}}
+{{$multi := gt (len .Groups) 0}}
 {{range .Groups}}
   {{if $multi}}
-  <details style="margin-bottom:0.3rem">
+  <details data-group="{{.Show}}" style="margin-bottom:0.3rem">
     {{/* compute total videos in this show */}}
     {{$total := 0}}
     {{range .Seasons}}
       {{$total = add $total (len .Videos)}}
     {{end}}
-    <summary style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;padding:0.3rem 0.2rem;color:#666;user-select:none">
+    <summary style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;padding:0.3rem 0.2rem;color:#666;user-select:none;display:flex;align-items:center;gap:0.35rem">
+      <input type="checkbox" class="rand-dir-cb" data-group="{{.Show}}"
+        onclick="event.stopPropagation();saveRandDirPrefs()"
+        style="cursor:pointer;accent-color:#4a9a4a;flex-shrink:0"
+        checked>
       {{.Show}} <span style="color:#3a3a3a;font-weight:400">({{$total}})</span>
+      <span style="margin-left:auto;display:flex;gap:0.25rem;flex-shrink:0" onclick="event.stopPropagation()">
+        <button class="folder-pref-btn" data-group="{{.Show}}" data-pref="shuffle"
+          onclick="toggleFolderPref(this)"
+          title="Play order: in order (click for shuffle)"
+          style="font-size:0.65rem;padding:0 0.3rem;line-height:1.6;opacity:0.4;background:#1a1a1a;border:1px solid #333;border-radius:3px;color:#aaa;cursor:pointer">⇄</button>
+        <button class="folder-pref-btn" data-group="{{.Show}}" data-pref="autoAdvance"
+          onclick="toggleFolderPref(this)"
+          title="Auto-advance: off (click to enable)"
+          style="font-size:0.65rem;padding:0 0.3rem;line-height:1.6;opacity:0.4;background:#1a1a1a;border:1px solid #333;border-radius:3px;color:#aaa;cursor:pointer">⏭</button>
+        <button
+          onclick="setGroupBg('{{.Show}}')"
+          title="Set background image for this show group"
+          style="font-size:0.65rem;padding:0 0.3rem;line-height:1.6;opacity:0.4;background:#1a1a1a;border:1px solid #333;border-radius:3px;color:#aaa;cursor:pointer">🖼</button>
+      </span>
     </summary>
   {{end}}
   {{/* season grouping */}}

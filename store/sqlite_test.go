@@ -1323,3 +1323,38 @@ func TestGetNextUnwatched_WithTagFilter(t *testing.T) {
 	}
 	_ = v2
 }
+
+func TestListSettingsWithPrefix(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	_ = s.SaveSettings(ctx, map[string]string{
+		"folder_bg:Show A": "/img/a.jpg",
+		"folder_bg:Show B": "/img/b.jpg",
+		"other_key":        "ignore me",
+	})
+
+	// exact prefix
+	got, err := s.ListSettingsWithPrefix(ctx, "folder_bg:")
+	if err != nil {
+		t.Fatalf("ListSettingsWithPrefix: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2, got %d", len(got))
+	}
+	if got["folder_bg:Show A"] != "/img/a.jpg" {
+		t.Error("wrong value for Show A")
+	}
+
+	// no match
+	none, _ := s.ListSettingsWithPrefix(ctx, "nonexistent:")
+	if len(none) != 0 {
+		t.Errorf("expected 0, got %d", len(none))
+	}
+
+	// empty prefix matches all (4 defaults + 3 we added)
+	all, _ := s.ListSettingsWithPrefix(ctx, "")
+	if len(all) != 7 {
+		t.Errorf("expected 7, got %d", len(all))
+	}
+}

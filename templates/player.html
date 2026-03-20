@@ -32,7 +32,7 @@
   <div style="flex:1;min-height:0;position:relative">
     <!-- Filter wrapper: apply CSS filter here, not on <video>, to avoid GPU crash -->
     <div id="vid-wrap-{{.Video.ID}}" style="width:100%;height:100%">
-      <video id="vid-{{.Video.ID}}" controls
+      <video id="vid-{{.Video.ID}}" controls preload="metadata"
         style="width:100%;height:100%;display:block;object-fit:contain"
         data-video-id="{{.Video.ID}}">
         <source src="/video/{{.Video.ID}}">
@@ -59,6 +59,19 @@
       </div>
     </div>
     {{end}}
+
+    <!-- Single-view overlay buttons — top-right, fades in on hover; hidden in parallel mode -->
+    <div class="single-overlay-btns">
+      <button class="single-overlay-btn" onclick="toggleInfo()" title="Toggle info panel (I)">ⓘ Info</button>
+      <button class="single-overlay-btn"
+        hx-get="/videos/{{.Video.ID}}/quick-label"
+        hx-target="#quick-label-modal"
+        hx-swap="innerHTML"
+        title="Quick label">⊕</button>
+      <button class="single-overlay-btn"
+        onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='flex'"
+        title="Delete…">⌦</button>
+    </div>
 
     <!-- MTV-style lower-third overlay -->
     <div id="player-overlay">
@@ -98,11 +111,43 @@
       {{if .Video.VideoType}}
       <div class="mtv-bug">{{.Video.VideoType}}</div>
       {{end}}
+    </div><!-- /player-overlay -->
+
+    <!-- Per-pane single-view focus button (parallel mode only) — top-right, left of close -->
+    <button class="pfocus-btn" onclick="focusSingleTab({{.Video.ID}})" title="Switch to single view for this video">⤢</button>
+    <!-- Per-pane close button (parallel mode only) — top-right, dismisses tab without deleting -->
+    <button class="pclose-btn" onclick="closeTab({{.Video.ID}})" title="Close tab">✕</button>
+
+    <!-- Per-pane delete overlay (parallel mode only) — sits in video area, outside player-overlay -->
+    <div class="pdel-wrap">
+      <button class="pdel-btn"
+        onclick="(function(el){el.parentNode.querySelector('.pdel-confirm').classList.toggle('open')})(this)"
+        title="Delete this video">⌦</button>
+      <div class="pdel-confirm">
+        <div class="pdel-confirm-label">Delete <strong>{{.Video.Title}}</strong>?</div>
+        <div class="pdel-confirm-btns">
+          <button class="btn-sm" style="font-size:0.72rem"
+            hx-delete="/videos/{{.Video.ID}}"
+            hx-target="#video-list"
+            hx-on::after-request="closeTab({{.Video.ID}})"
+            title="Remove from library but keep file on disk"
+          >Remove</button>
+          <button class="btn-sm btn-danger" style="font-size:0.72rem"
+            hx-delete="/videos/{{.Video.ID}}/file"
+            hx-target="#video-list"
+            hx-on::after-request="closeTab({{.Video.ID}})"
+            title="Remove from library and delete file from disk"
+          >Delete file</button>
+          <button class="btn-sm btn-ghost" style="font-size:0.72rem"
+            onclick="this.closest('.pdel-confirm').classList.remove('open')"
+          >Cancel</button>
+        </div>
+      </div>
     </div>
   </div><!-- /video area -->
 
   <!-- ── Quick-action buttons row — sits flush below the video ───────── -->
-  <div style="display:flex;gap:0.4rem;align-items:center;background:#0a0a0a;padding:0.3rem 0.6rem;border-top:1px solid #1e1e1e;flex-shrink:0">
+  <div class="action-bar" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center;background:#0a0a0a;padding:0.3rem 0.6rem;border-top:1px solid #1e1e1e;flex-shrink:0;overflow:hidden">
     <button class="btn-sm btn-ghost" id="trim-btn-{{.Video.ID}}" style="font-size:0.75rem"
       onclick="(function(){ var strip=document.getElementById('trim-strip-{{.Video.ID}}'); var btn=document.getElementById('trim-btn-{{.Video.ID}}'); if(strip.style.display==='flex'){ strip.style.display='none'; btn.style.opacity='0.5'; } else { openTrimStrip('{{.Video.ID}}'); btn.style.opacity='1'; } })()"
       title="Trim video by start/end time"
@@ -115,14 +160,41 @@
       onclick="toggleFloatWidget('audio-bar-{{.Video.ID}}','audio-btn-{{.Video.ID}}',this)"
       title="EQ, volume, pan and compression"
     >♬ Audio</button>
-    <span style="flex:1"></span>
-    <button class="btn-sm" style="font-size:0.75rem"
+    <button class="btn-sm btn-ghost" id="loop-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.5"
+      onclick="(function(){
+        var v=document.getElementById('vid-{{.Video.ID}}');
+        if(!v)return;
+        v.loop=!v.loop;
+        var btn=document.getElementById('loop-btn-{{.Video.ID}}');
+        btn.style.opacity=v.loop?'1':'0.5';
+        btn.title=v.loop?'Loop: on (click to disable)':'Loop: off (click to enable)';
+      })()"
+      title="Loop: off (click to enable)"
+    >↺ Loop</button>
+    <button class="btn-sm btn-ghost roku-cast-btn" id="cast-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.7;display:none"
+      onclick="(function(btn){
+        btn.disabled=true;btn.style.opacity='0.4';
+        fetch('/roku/cast/{{.Video.ID}}',{method:'POST'})
+          .then(function(r){
+            if(r.ok){
+              btn.textContent='📺 Sent!';btn.style.opacity='1';btn.style.color='#6f6';
+              setTimeout(function(){btn.textContent='📺 Cast';btn.style.color='';btn.style.opacity='0.7';btn.disabled=false;},2000);
+            } else {
+              btn.textContent='📺 Failed';btn.style.color='#f87';btn.style.opacity='1';
+              setTimeout(function(){btn.textContent='📺 Cast';btn.style.color='';btn.style.opacity='0.7';btn.disabled=false;},2000);
+            }
+          }).catch(function(){btn.disabled=false;btn.style.opacity='0.7';});
+      })(this)"
+      title="Send this video to the Roku"
+    >📺 Cast</button>
+    <span class="action-spacer" style="flex:1"></span>
+    <button class="btn-sm single-hide" style="font-size:0.75rem"
       hx-get="/videos/{{.Video.ID}}/quick-label"
       hx-target="#quick-label-modal"
       hx-swap="innerHTML"
       title="Quick label video with title, genre, season, etc."
     >⊕ Quick label</button>
-    <button class="btn-sm btn-danger" style="font-size:0.75rem"
+    <button class="btn-sm btn-danger single-only single-hide" style="font-size:0.75rem"
       onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='flex'"
       title="Delete this video"
     >⌦ Delete…</button>
@@ -289,6 +361,25 @@
 </div><!-- /flex column wrapper -->
 
 <script>
+// ── Overlay auto-hide ──────────────────────────────────────────────────
+(function () {
+  var pane = document.getElementById('vid-{{.Video.ID}}') &&
+             document.getElementById('vid-{{.Video.ID}}').closest('.tab-pane');
+  if (!pane) return;
+  var hideTimer = null;
+  function showOverlay() {
+    pane.classList.add('overlay-show');
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(function() { pane.classList.remove('overlay-show'); }, 2000);
+  }
+  function hideOverlay() {
+    clearTimeout(hideTimer);
+    pane.classList.remove('overlay-show');
+  }
+  pane.addEventListener('mousemove', showOverlay);
+  pane.addEventListener('mouseleave', hideOverlay);
+})();
+
 // ── Progress save ──────────────────────────────────────────────────────
 (function () {
   var vid = document.getElementById('vid-{{.Video.ID}}');
@@ -304,7 +395,9 @@
     .then(function(d){
       if (d.position > 1) {
         vid.addEventListener('loadedmetadata', function() {
-          vid.currentTime = d.position;
+          // If within 5 seconds of the end, start over.
+          var pos = (vid.duration && d.position >= vid.duration - 5) ? 0 : d.position;
+          if (pos > 0) vid.currentTime = pos;
         }, { once: true });
       }
     });
@@ -749,6 +842,41 @@ function renderCustomAudioPresets(id) {
   renderCustomAudioPresets(id);
 })();
 
+// ── Auto-advance to next video in folder ──────────────────────────────
+(function() {
+  var vid = document.getElementById('vid-{{.Video.ID}}');
+  var videoID = {{.Video.ID}};
+  if (!vid) return;
+  vid.addEventListener('ended', function() {
+    if (vid.loop) return;
+    // Find this video's row in the sidebar.
+    var li = document.querySelector('li[data-video-id="' + videoID + '"]');
+    if (!li) return;
+    // Find the folder group (<details> containing this video).
+    var details = li.closest('details');
+    var cb = details && details.querySelector('.rand-dir-cb');
+    var group = cb && cb.dataset.group;
+    if (!group) return;
+    if (typeof getFolderPrefs !== 'function') return;
+    var prefs = getFolderPrefs(group);
+    if (!prefs.autoAdvance) return;
+    // Collect all video rows in this group.
+    var items = Array.from(details.querySelectorAll('li[data-video-id]'));
+    if (items.length === 0) return;
+    var nextLi;
+    if (prefs.shuffle) {
+      var others = items.filter(function(x) { return parseInt(x.dataset.videoId) !== videoID; });
+      var pool = others.length ? others : items;
+      nextLi = pool[Math.floor(Math.random() * pool.length)];
+    } else {
+      var idx = items.findIndex(function(x) { return parseInt(x.dataset.videoId) === videoID; });
+      nextLi = items[(idx + 1) % items.length];
+    }
+    var btn = nextLi && nextLi.querySelector('button[data-id]');
+    if (btn && typeof openTab === 'function') openTab(parseInt(btn.dataset.id), btn.dataset.title);
+  });
+})();
+
 // Drag-to-move: called on mousedown on the title bar.
 function floatWidgetDragStart(e, el) {
   if (e.button !== 0) return;
@@ -920,8 +1048,8 @@ function floatWidgetDragStart(e, el) {
       hx-put="/videos/{{.Video.ID}}/name"
       hx-target="#video-title-{{.Video.ID}}"
       hx-on::after-request="(function(){
-        document.getElementById('rename-form-{{.Video.ID}}').style.display='none';
-        document.getElementById('rename-btn-{{.Video.ID}}').style.display='';
+        var rf=document.getElementById('rename-form-{{.Video.ID}}');if(rf)rf.style.display='none';
+        var rb=document.getElementById('rename-btn-{{.Video.ID}}');if(rb)rb.style.display='';
         var newTitle = document.getElementById('video-title-{{.Video.ID}}').textContent.trim();
         if (typeof videoTabs !== 'undefined' && videoTabs[{{.Video.ID}}]) {
           var lbl = videoTabs[{{.Video.ID}}].tabBtn.querySelector('.tab-label');
@@ -950,6 +1078,7 @@ function floatWidgetDragStart(e, el) {
   {{if and .Video.OriginalFilename (ne .Video.OriginalFilename .Video.Filename)}}
   <div style="font-size:0.75rem;color:#666" title="Filename at time of import">Original: {{.Video.OriginalFilename}}</div>
   {{end}}
+  <div id="video-path-{{.Video.ID}}" data-filename="{{.Video.Filename}}" style="font-size:0.72rem;color:#555;word-break:break-all" title="Location on disk">{{.Video.FilePath}}</div>
 
   <!-- Tags -->
   <div id="video-tags-{{.Video.ID}}" style="display:flex;flex-wrap:wrap;gap:0.3rem"
@@ -1020,30 +1149,26 @@ function floatWidgetDragStart(e, el) {
   <!-- Move to directory -->
   <div style="padding-top:0.1rem">
     <button class="btn-sm" style="font-size:0.78rem"
-      onclick="document.getElementById('move-panel-{{.Video.ID}}').style.display='flex'"
+      onclick="openMovePanel({{.Video.ID}})"
       title="Move this file to a different directory"
     >→ Move to…</button>
     <div id="move-panel-{{.Video.ID}}"
       style="display:none;flex-direction:column;gap:0.4rem;margin-top:0.4rem;padding:0.5rem;background:#161e16;border:1px solid #2a4a2a;border-radius:4px">
-      <form hx-post="/videos/{{.Video.ID}}/move"
-            hx-target="#video-list"
-            hx-indicator="#vl-spin"
-            hx-on::after-request="if(event.detail.successful){document.getElementById('move-panel-{{.Video.ID}}').style.display='none';}else{document.getElementById('move-err-{{.Video.ID}}').textContent='Move failed: '+event.detail.xhr.responseText;}"
-            style="display:flex;flex-direction:column;gap:0.4rem">
-        <label style="font-size:0.72rem;color:#888">Destination directory</label>
-        <select name="dir_id" class="input-dark" style="padding:0.3rem 0.5rem;font-size:0.82rem"
-          hx-get="/directories/options" hx-trigger="load" hx-target="this"></select>
-        <label style="font-size:0.72rem;color:#888">New sub-folder inside destination (optional)</label>
-        <input type="text" name="subdir" placeholder="e.g. Season 2"
-          class="input-dark" style="padding:0.3rem 0.5rem;font-size:0.82rem">
-        <div id="move-err-{{.Video.ID}}" style="font-size:0.75rem;color:#f87;min-height:1em"></div>
-        <div style="display:flex;gap:0.4rem">
-          <button type="submit" class="btn-sm btn-success" style="font-size:0.78rem">Move</button>
-          <button type="button" class="btn-sm btn-ghost" style="font-size:0.78rem"
-            onclick="document.getElementById('move-panel-{{.Video.ID}}').style.display='none'"
-          >Cancel</button>
-        </div>
-      </form>
+      <label style="font-size:0.72rem;color:#888">Destination directory</label>
+      <select id="move-dir-sel-{{.Video.ID}}" class="input-dark" style="padding:0.3rem 0.5rem;font-size:0.82rem">
+        <option value="">Loading…</option>
+      </select>
+      <label style="font-size:0.72rem;color:#888">New sub-folder inside destination (optional)</label>
+      <input id="move-subdir-{{.Video.ID}}" type="text" placeholder="e.g. Season 2"
+        class="input-dark" style="padding:0.3rem 0.5rem;font-size:0.82rem">
+      <div id="move-err-{{.Video.ID}}" style="font-size:0.75rem;color:#f87;min-height:1em"></div>
+      <div style="display:flex;gap:0.4rem">
+        <button type="button" class="btn-sm btn-success" style="font-size:0.78rem"
+          onclick="submitMoveVideo({{.Video.ID}})">Move</button>
+        <button type="button" class="btn-sm btn-ghost" style="font-size:0.78rem"
+          onclick="document.getElementById('move-panel-{{.Video.ID}}').style.display='none'"
+        >Cancel</button>
+      </div>
     </div>
   </div>
 

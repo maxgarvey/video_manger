@@ -52,6 +52,11 @@ type server struct {
 	jobsMu        sync.Mutex
 	convertJobs   map[string]*convertJob // active ffmpeg convert jobs
 	convertJobsMu sync.Mutex
+	// Roku cast: one pending video to play, cleared after the Roku polls it.
+	castVideoID  int64
+	castPostedAt time.Time
+	castLastPoll time.Time // updated on every /roku/poll call
+	castMu       sync.Mutex
 }
 
 // seasonGroup holds videos belonging to a particular season within a show.
@@ -309,6 +314,16 @@ func (s *server) routes() http.Handler {
 		r.Get("/api/tags/{id}/videos", s.handleAPITagVideos)
 		r.Get("/api/recently-watched", s.handleAPIRecentlyWatched)
 		r.Get("/api/directories", s.handleAPIDirectories)
+
+		// Folder background images
+		r.Get("/api/folder-backgrounds", s.handleGetFolderBackgrounds)
+		r.Post("/api/folder-background", s.handleSetFolderBackground)
+		r.Get("/api/serve-image", s.handleServeImage)
+
+		// Roku cast — web UI posts a video to play; Roku polls and consumes it.
+		r.Post("/roku/cast/{id}", s.handleRokuCast)
+		r.Get("/roku/poll", s.handleRokuPoll)
+		r.Get("/roku/connected", s.handleRokuConnected)
 	})
 
 	return r

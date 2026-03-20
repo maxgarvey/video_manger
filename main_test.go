@@ -5147,3 +5147,145 @@ func TestHandleVideoSearch_Unicode(t *testing.T) {
 		}
 	}
 }
+
+// Verify the updated modal renders tags and directory options.
+func TestHandleQuickLabelModal_WithTagsAndDirs(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	d, _ := srv.store.AddDirectory(ctx, t.TempDir())
+	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
+	tag, _ := srv.store.UpsertTag(ctx, "scifi")
+	_ = srv.store.TagVideo(ctx, v.ID, tag.ID)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/videos/"+itoa(v.ID)+"/quick-label", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "scifi") {
+		t.Error("expected tag 'scifi' in modal body")
+	}
+	if !strings.Contains(body, "ql-move-dir-") {
+		t.Error("expected move-to-dir select in modal body")
+	}
+}
+
+func TestHandleGetFolderBackgrounds_Empty(t *testing.T) {
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/folder-backgrounds", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var result map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty map, got %v", result)
+	}
+}
+
+func TestHandleGetFolderBackgrounds_WithData(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	_ = srv.store.SaveSettings(ctx, map[string]string{
+		"folder_bg:Show A": "/img/a.jpg",
+		"folder_bg:Show B": "/img/b.jpg",
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/folder-backgrounds", nil)
+	srv.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var result map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2, got %d", len(result))
+	}
+	if result["Show A"] != "/img/a.jpg" {
+		t.Errorf("wrong path for Show A: %q", result["Show A"])
+	}
+	if result["Show B"] != "/img/b.jpg" {
+		t.Errorf("wrong path for Show B: %q", result["Show B"])
+	}
+}
+
+func TestHandleSetFolderBackground(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	// valid POST
+	form := url.Values{"show": {"Breaking Bad"}, "path": {"/img/bb.jpg"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/folder-background", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	val, _ := srv.store.GetSetting(ctx, "folder_bg:Breaking Bad")
+	if val != "/img/bb.jpg" {
+		t.Errorf("setting = %q, want /img/bb.jpg", val)
+	}
+
+	// missing show → 400
+	form = url.Values{"path": {"/img/x.jpg"}}
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/folder-background", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleServeImage(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "cover.jpg")
+	if err := os.WriteFile(imgPath, []byte("FAKEIMG"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t)
+	ctx := context.Background()
+	_, _ = srv.store.AddDirectory(ctx, dir)
+
+	// valid path → 200 with content
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/serve-image?path="+url.QueryEscape(imgPath), nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("valid path: expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "FAKEIMG") {
+		t.Error("expected file content in body")
+	}
+
+	// path outside any registered dir → 403
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/serve-image?path="+url.QueryEscape("/etc/passwd"), nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("foreign path: expected 403, got %d", rec.Code)
+	}
+
+	// missing path param → 400
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/serve-image", nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("no path: expected 400, got %d", rec.Code)
+	}
+}
