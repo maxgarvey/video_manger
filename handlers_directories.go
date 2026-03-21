@@ -402,103 +402,111 @@ func (s *server) handleYTDLPDownload(w http.ResponseWriter, r *http.Request) {
 		s.jobsMu.Unlock()
 		entries = append(entries, jobEntry{JobID: jobID, URL: rawURL})
 
-		// Run the download in the background so the POST returns quickly.
 		go func() {
 			defer scheduleJobCleanup(job.ch, func() {
 				s.jobsMu.Lock()
 				delete(s.jobs, jobID)
 				s.jobsMu.Unlock()
 			})
-
-			// Non-blocking send to avoid goroutine leaks if the channel fills.
-			send := func(line string) {
-				select {
-				case job.ch <- line:
-				default:
-				}
-			}
-
-			// Wait for a concurrency slot (same limit as ffmpeg operations).
-			send("[queue] Waiting for download slot…")
-			s.convertSem <- struct{}{}
-			defer func() { <-s.convertSem }()
-
-			pr, pw := io.Pipe()
-			cmd := exec.Command("yt-dlp", //nolint:gosec
-				"--no-playlist",
-				"--newline",
-				"--write-info-json",
-				"--no-write-thumbnail",
-				"-o", filepath.Join(dir.Path, "%(title)s.%(ext)s"),
-				rawURL,
-			)
-			cmd.Stdout = pw
-			cmd.Stderr = pw
-
-			if err := cmd.Start(); err != nil {
-				job.err = err
-				return
-			}
-
-			// Forward yt-dlp output lines to the job channel while it runs.
-			// Also watch for the "Destination:" line to capture the output path.
-			var videoPath string
-			scanDone := make(chan struct{})
-			go func() {
-				defer close(scanDone)
-				sc := bufio.NewScanner(pr)
-				for sc.Scan() {
-					line := sc.Text()
-					send(line)
-					// Capture destination path from yt-dlp output.
-					// Prefer [Merger] line (merged 1080p+ streams) over [download] Destination.
-					if p, ok2 := strings.CutPrefix(line, "[Merger] Merging formats into \""); ok2 {
-						videoPath = strings.TrimSuffix(strings.TrimSpace(p), "\"")
-					} else if p, ok2 := strings.CutPrefix(line, "[download] Destination: "); ok2 {
-						if videoPath == "" {
-							videoPath = strings.TrimSpace(p)
-						}
-					} else if after, ok3 := strings.CutPrefix(line, "[download] "); ok3 {
-						if idx := strings.Index(after, " has already been downloaded"); idx > 0 {
-							if videoPath == "" {
-								videoPath = strings.TrimSpace(after[:idx])
-							}
-						}
-					}
-				}
-			}()
-			job.err = cmd.Wait()
-			pw.Close()
-			<-scanDone
-
-			if job.err == nil {
-				// Tag the video file with metadata from the info.json.
-				if videoPath != "" {
-					infoJSON := videoPath + ".info.json"
-					if data, err := os.ReadFile(infoJSON); err == nil {
-						if u, ok2 := parseYTDLPInfoJSON(data); ok2 {
-							send("[video_manger] Writing metadata to file…")
-							if err := metadata.Write(videoPath, u); err != nil {
-								send("[video_manger] Warning: metadata write failed: " + err.Error())
-							}
-						}
-						os.Remove(infoJSON) //nolint:errcheck
-					}
-				}
-				send("[video_manger] Syncing library…")
-				s.syncDir(dir)
-				if videoPath != "" {
-					if v, verr := s.store.UpsertVideo(context.Background(), dir.ID, dir.Path, filepath.Base(videoPath)); verr == nil {
-						job.videoID = v.ID
-					}
-				}
-				send("[video_manger] Done!")
-			}
+			s.runYTDLPJob(job, dir, rawURL)
 		}()
 	}
 
 	// Return one progress block per queued URL.
 	render(w, "ytdlp_progress.html", entries)
+}
+
+// scanYTDLPOutput reads yt-dlp output line by line, forwarding each line to
+// send. It returns the destination file path captured from the output.
+// Prefers the [Merger] line (for merged multi-stream downloads) over the
+// [download] Destination line.
+func scanYTDLPOutput(r io.Reader, send func(string)) string {
+	var videoPath string
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		line := sc.Text()
+		send(line)
+		if p, ok := strings.CutPrefix(line, "[Merger] Merging formats into \""); ok {
+			videoPath = strings.TrimSuffix(strings.TrimSpace(p), "\"")
+		} else if p, ok := strings.CutPrefix(line, "[download] Destination: "); ok {
+			if videoPath == "" {
+				videoPath = strings.TrimSpace(p)
+			}
+		} else if after, ok := strings.CutPrefix(line, "[download] "); ok {
+			if idx := strings.Index(after, " has already been downloaded"); idx > 0 {
+				if videoPath == "" {
+					videoPath = strings.TrimSpace(after[:idx])
+				}
+			}
+		}
+	}
+	return videoPath
+}
+
+// runYTDLPJob executes the yt-dlp download for a single URL, streams output
+// to job.ch, and on success writes metadata and syncs the library directory.
+func (s *server) runYTDLPJob(job *ytdlpJob, dir store.Directory, rawURL string) {
+	send := func(line string) {
+		select {
+		case job.ch <- line:
+		default:
+		}
+	}
+
+	send("[queue] Waiting for download slot…")
+	s.convertSem <- struct{}{}
+	defer func() { <-s.convertSem }()
+
+	pr, pw := io.Pipe()
+	cmd := exec.Command("yt-dlp", //nolint:gosec
+		"--no-playlist",
+		"--newline",
+		"--write-info-json",
+		"--no-write-thumbnail",
+		"-o", filepath.Join(dir.Path, "%(title)s.%(ext)s"),
+		rawURL,
+	)
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+
+	if err := cmd.Start(); err != nil {
+		job.err = err
+		return
+	}
+
+	var videoPath string
+	scanDone := make(chan struct{})
+	go func() {
+		defer close(scanDone)
+		videoPath = scanYTDLPOutput(pr, send)
+	}()
+	job.err = cmd.Wait()
+	pw.Close()
+	<-scanDone
+
+	if job.err != nil {
+		return
+	}
+	if videoPath != "" {
+		infoJSON := videoPath + ".info.json"
+		if data, err := os.ReadFile(infoJSON); err == nil {
+			if u, ok := parseYTDLPInfoJSON(data); ok {
+				send("[video_manger] Writing metadata to file…")
+				if err := metadata.Write(videoPath, u); err != nil {
+					send("[video_manger] Warning: metadata write failed: " + err.Error())
+				}
+			}
+			os.Remove(infoJSON) //nolint:errcheck
+		}
+	}
+	send("[video_manger] Syncing library…")
+	s.syncDir(dir)
+	if videoPath != "" {
+		if v, verr := s.store.UpsertVideo(context.Background(), dir.ID, dir.Path, filepath.Base(videoPath)); verr == nil {
+			job.videoID = v.ID
+		}
+	}
+	send("[video_manger] Done!")
 }
 
 // handleYTDLPJobEvents streams yt-dlp output for a background download job
@@ -616,4 +624,3 @@ func parseYTDLPInfoJSON(data []byte) (metadata.Updates, bool) {
 	}
 	return u, true
 }
-

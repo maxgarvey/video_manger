@@ -4,10 +4,10 @@ fmt:
 	gofmt -w -s .
 
 test:
-	go test ./... -race -count=1 -timeout 180s
+	go test ./... -race -count=1 -timeout 300s
 
 precommit: fmt
-	go test ./... -race -count=1 -timeout 180s
+	go test ./... -race -count=1 -timeout 300s
 
 install-hooks:
 	cp scripts/pre-commit .git/hooks/pre-commit

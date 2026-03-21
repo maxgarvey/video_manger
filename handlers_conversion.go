@@ -181,6 +181,44 @@ func (s *server) handleExportUSB(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<span style="color:#4a9a4a;font-size:0.8rem">✓ Exported as %s</span>`, dstName)
 }
 
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+// copyVideoMetadata copies structured fields, display name, show name, video
+// type, and user-applied tags from src to dstID. nameSuffix is appended to
+// the display name when it is non-empty (e.g. " (trim)", " (delogo)").
+func (s *server) copyVideoMetadata(ctx context.Context, src store.Video, dstID int64, nameSuffix string) {
+	fields := store.VideoFields{
+		Genre:         src.Genre,
+		SeasonNumber:  src.SeasonNumber,
+		EpisodeNumber: src.EpisodeNumber,
+		EpisodeTitle:  src.EpisodeTitle,
+		Actors:        src.Actors,
+		Studio:        src.Studio,
+		Channel:       src.Channel,
+		AirDate:       src.AirDate,
+	}
+	_ = s.store.UpdateVideoFields(ctx, dstID, fields)
+	if src.DisplayName != "" {
+		_ = s.store.UpdateVideoName(ctx, dstID, src.DisplayName+nameSuffix)
+	}
+	if src.ShowName != "" {
+		_ = s.store.UpdateVideoShowName(ctx, dstID, src.ShowName)
+	}
+	if src.VideoType != "" {
+		_ = s.store.UpdateVideoType(ctx, dstID, src.VideoType)
+	}
+	if tags, err := s.store.ListTagsByVideo(ctx, src.ID); err == nil {
+		for _, t := range tags {
+			// System tags (namespace:value) are managed via UpdateVideoFields.
+			if !strings.Contains(t.Name, ":") {
+				if tagRec, err := s.store.UpsertTag(ctx, t.Name); err == nil {
+					_ = s.store.TagVideo(ctx, dstID, tagRec.ID)
+				}
+			}
+		}
+	}
+}
+
 // ── Trim ──────────────────────────────────────────────────────────────────────
 
 func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
@@ -224,46 +262,7 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	if keepOriginal {
 		// Upsert the new file synchronously so the client can open it immediately.
 		if upserted, err := s.store.UpsertVideo(r.Context(), video.DirectoryID, dir, dstName); err == nil {
-			ctx := r.Context()
-
-			// Copy structured fields from the source video.
-			fields := store.VideoFields{
-				Genre:         video.Genre,
-				SeasonNumber:  video.SeasonNumber,
-				EpisodeNumber: video.EpisodeNumber,
-				EpisodeTitle:  video.EpisodeTitle,
-				Actors:        video.Actors,
-				Studio:        video.Studio,
-				Channel:       video.Channel,
-				AirDate:       video.AirDate,
-			}
-			_ = s.store.UpdateVideoFields(ctx, upserted.ID, fields)
-
-			// Copy display name (append " (trim)" if name was set).
-			if video.DisplayName != "" {
-				_ = s.store.UpdateVideoName(ctx, upserted.ID, video.DisplayName+" (trim)")
-			}
-
-			// Copy show name and video type.
-			if video.ShowName != "" {
-				_ = s.store.UpdateVideoShowName(ctx, upserted.ID, video.ShowName)
-			}
-			if video.VideoType != "" {
-				_ = s.store.UpdateVideoType(ctx, upserted.ID, video.VideoType)
-			}
-
-			// Copy user-applied tags (skip system tags managed by VideoFields).
-			if tags, err := s.store.ListTagsByVideo(ctx, video.ID); err == nil {
-				for _, t := range tags {
-					// System tags (namespace:value) are set via UpdateVideoFields above.
-					if !strings.Contains(t.Name, ":") {
-						if tagRec, err := s.store.UpsertTag(ctx, t.Name); err == nil {
-							_ = s.store.TagVideo(ctx, upserted.ID, tagRec.ID)
-						}
-					}
-				}
-			}
-
+			s.copyVideoMetadata(r.Context(), video, upserted.ID, " (trim)")
 			newVid = upserted
 		}
 	} else {
@@ -365,40 +364,7 @@ func (s *server) handleDelogo(w http.ResponseWriter, r *http.Request) {
 	var newVid store.Video
 	if keepOriginal {
 		if upserted, err := s.store.UpsertVideo(r.Context(), video.DirectoryID, dir, dstName); err == nil {
-			ctx := r.Context()
-
-			fields := store.VideoFields{
-				Genre:         video.Genre,
-				SeasonNumber:  video.SeasonNumber,
-				EpisodeNumber: video.EpisodeNumber,
-				EpisodeTitle:  video.EpisodeTitle,
-				Actors:        video.Actors,
-				Studio:        video.Studio,
-				Channel:       video.Channel,
-				AirDate:       video.AirDate,
-			}
-			_ = s.store.UpdateVideoFields(ctx, upserted.ID, fields)
-
-			if video.DisplayName != "" {
-				_ = s.store.UpdateVideoName(ctx, upserted.ID, video.DisplayName+" (delogo)")
-			}
-			if video.ShowName != "" {
-				_ = s.store.UpdateVideoShowName(ctx, upserted.ID, video.ShowName)
-			}
-			if video.VideoType != "" {
-				_ = s.store.UpdateVideoType(ctx, upserted.ID, video.VideoType)
-			}
-
-			if tags, err := s.store.ListTagsByVideo(ctx, video.ID); err == nil {
-				for _, t := range tags {
-					if !strings.Contains(t.Name, ":") {
-						if tagRec, err := s.store.UpsertTag(ctx, t.Name); err == nil {
-							_ = s.store.TagVideo(ctx, upserted.ID, tagRec.ID)
-						}
-					}
-				}
-			}
-
+			s.copyVideoMetadata(r.Context(), video, upserted.ID, " (delogo)")
 			newVid = upserted
 		}
 	} else {

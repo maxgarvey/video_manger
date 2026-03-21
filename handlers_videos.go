@@ -3,12 +3,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -286,6 +288,33 @@ func (s *server) handleRelocateVideo(w http.ResponseWriter, r *http.Request) {
 
 // ── Video list ────────────────────────────────────────────────────────────────
 
+// filterVideos applies optional type and rating filters from q in-place.
+func filterVideos(videos []store.Video, q url.Values) []store.Video {
+	if typeVal := q.Get("type"); typeVal != "" {
+		filtered := videos[:0]
+		for _, v := range videos {
+			if v.VideoType == typeVal {
+				filtered = append(filtered, v)
+			}
+		}
+		videos = filtered
+	}
+	if q.Get("rating") != "" {
+		minRating, _ := strconv.Atoi(q.Get("rating"))
+		if minRating < 1 {
+			minRating = 1
+		}
+		filtered := videos[:0]
+		for _, v := range videos {
+			if v.Rating >= minRating {
+				filtered = append(filtered, v)
+			}
+		}
+		videos = filtered
+	}
+	return videos
+}
+
 // serveVideoList renders the video list, respecting tag_id, q, and the
 // video_sort setting.
 func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
@@ -295,11 +324,9 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 	)
 	q := r.URL.Query()
 	sortOrder, _ := s.store.GetSetting(r.Context(), "video_sort")
-	isSearch := q.Get("q") != ""
-	if isSearch {
+	if q.Get("q") != "" {
 		videos, err = s.store.SearchVideos(r.Context(), q.Get("q"))
 	} else {
-		// start with either all videos or those matching a tag or rating sort
 		if q.Get("tag_id") != "" {
 			tagID, _ := strconv.ParseInt(q.Get("tag_id"), 10, 64)
 			videos, err = s.store.ListVideosByTag(r.Context(), tagID)
@@ -309,30 +336,7 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 			videos, err = s.store.ListVideos(r.Context())
 		}
 		if err == nil {
-			// apply additional attr filters: type first, then rating threshold
-			typeVal := q.Get("type")
-			if typeVal != "" {
-				filtered := videos[:0]
-				for _, v := range videos {
-					if v.VideoType == typeVal {
-						filtered = append(filtered, v)
-					}
-				}
-				videos = filtered
-			}
-			if q.Get("rating") != "" {
-				minRating, _ := strconv.Atoi(q.Get("rating"))
-				if minRating < 1 {
-					minRating = 1
-				}
-				filtered := videos[:0]
-				for _, v := range videos {
-					if v.Rating >= minRating {
-						filtered = append(filtered, v)
-					}
-				}
-				videos = filtered
-			}
+			videos = filterVideos(videos, q)
 		}
 	}
 	if err != nil {
@@ -493,6 +497,65 @@ func (s *server) handleRenameVideo(w http.ResponseWriter, r *http.Request) {
 	s.serveVideoList(w, r)
 }
 
+// resolveDestDir returns the destination path and directory ID for a move,
+// creating and registering a sub-folder when subdir is non-empty.
+func (s *server) resolveDestDir(ctx context.Context, targetDir store.Directory, subdir string) (path string, id int64, err error) {
+	if subdir == "" {
+		return targetDir.Path, targetDir.ID, nil
+	}
+	destPath := filepath.Join(targetDir.Path, subdir)
+	if err := os.MkdirAll(destPath, 0755); err != nil {
+		return "", 0, fmt.Errorf("could not create sub-folder: %w", err)
+	}
+	newDir, err := s.store.AddDirectory(ctx, destPath)
+	if err != nil {
+		// Already registered — find the existing record.
+		dirs, listErr := s.store.ListDirectories(ctx)
+		if listErr != nil {
+			return "", 0, fmt.Errorf("failed to register sub-folder: %w", err)
+		}
+		for _, d := range dirs {
+			if d.Path == destPath {
+				newDir = d
+				break
+			}
+		}
+	}
+	return destPath, newDir.ID, nil
+}
+
+// moveFile moves src to dst. It tries os.Rename first and falls back to a
+// copy+delete for cross-device moves. Returns crossDevice=true when the
+// fallback was used (the source still exists until the caller removes it).
+func moveFile(src, dst string) (crossDevice bool, err error) {
+	if err := os.Rename(src, dst); err == nil {
+		return false, nil
+	}
+	if err := copyFile(src, dst); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// moveVideoThumbnail moves video's thumbnail file to destDirPath and updates
+// the DB. Best-effort: logs on failure but does not abort.
+func (s *server) moveVideoThumbnail(ctx context.Context, video store.Video, destDirPath string) {
+	if video.ThumbnailPath == "" {
+		return
+	}
+	thumbDst := filepath.Join(destDirPath, filepath.Base(video.ThumbnailPath))
+	if err := os.Rename(video.ThumbnailPath, thumbDst); err != nil {
+		if err2 := copyFile(video.ThumbnailPath, thumbDst); err2 != nil {
+			slog.Warn("could not move thumbnail", "src", video.ThumbnailPath, "dst", thumbDst, "err", err2)
+			return
+		}
+		_ = os.Remove(video.ThumbnailPath)
+	}
+	if err := s.store.UpdateVideoThumbnail(ctx, video.ID, thumbDst); err != nil {
+		slog.Warn("thumbnail moved on disk but DB update failed", "dst", thumbDst, "err", err)
+	}
+}
+
 // handleMoveVideo moves a video file to a different registered directory.
 // Optional form field "subdir" creates a sub-folder inside the target dir.
 func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
@@ -514,39 +577,16 @@ func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	destDirPath := targetDir.Path
-	destDirID := targetDir.ID
+	// Reject traversal in subdir before any filesystem work.
+	if subdir != "" && (strings.ContainsAny(subdir, "/\\") || strings.Contains(subdir, "..")) {
+		http.Error(w, "subdir must not contain path separators or '..'", http.StatusBadRequest)
+		return
+	}
 
-	// Create sub-folder if requested.
-	if subdir != "" {
-		// Reject names with path separators or parent-dir references to
-		// prevent traversal outside the target directory (e.g. "../../etc").
-		if strings.ContainsAny(subdir, "/\\") || strings.Contains(subdir, "..") {
-			http.Error(w, "subdir must not contain path separators or '..'", http.StatusBadRequest)
-			return
-		}
-		destDirPath = filepath.Join(targetDir.Path, subdir)
-		if err := os.MkdirAll(destDirPath, 0755); err != nil {
-			http.Error(w, "could not create sub-folder: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// Register the new sub-directory so it shows up in the library.
-		newDir, err := s.store.AddDirectory(r.Context(), destDirPath)
-		if err != nil {
-			// Already registered — get the existing one.
-			dirs, listErr := s.store.ListDirectories(r.Context())
-			if listErr != nil {
-				http.Error(w, "failed to register sub-folder: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			for _, d := range dirs {
-				if d.Path == destDirPath {
-					newDir = d
-					break
-				}
-			}
-		}
-		destDirID = newDir.ID
+	destDirPath, destDirID, err := s.resolveDestDir(r.Context(), targetDir, subdir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	src := video.FilePath()
@@ -560,28 +600,20 @@ func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try a fast rename first; fall back to copy+remove for cross-device moves.
-	crossDevice := false
-	if err := os.Rename(src, dst); err != nil {
-		crossDevice = true
-		if err2 := copyFile(src, dst); err2 != nil {
-			http.Error(w, "move failed: "+err2.Error(), http.StatusInternalServerError)
-			return
-		}
+	crossDevice, err := moveFile(src, dst)
+	if err != nil {
+		http.Error(w, "move failed: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if err := s.store.UpdateVideoPath(r.Context(), video.ID, destDirID, destDirPath, video.Filename); err != nil {
-		// DB update failed after the file has already been copied/moved.
-		// Attempt to roll back the filesystem change so nothing is left inconsistent.
+		// DB update failed — roll back the filesystem change for consistency.
 		if crossDevice {
-			// For cross-device copies the source is still intact; just remove
-			// the copy at dst.  os.Rename would fail with EXDEV here too.
 			if rb := os.Remove(dst); rb != nil {
 				slog.Error("move rollback failed: copy is at dst but DB was not updated",
 					"src", src, "dst", dst, "dbErr", err, "rbErr", rb)
 			}
 		} else {
-			// Same-device rename was atomic; move it back.
 			if rb := os.Rename(dst, src); rb != nil {
 				slog.Error("move rollback failed", "src", src, "dst", dst, "dbErr", err, "rbErr", rb)
 			}
@@ -590,7 +622,6 @@ func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For cross-device moves, now that the DB is consistent, remove the source.
 	if crossDevice {
 		if err := os.Remove(src); err != nil {
 			slog.Warn("cross-device move: could not remove source after successful DB update",
@@ -598,26 +629,7 @@ func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Move the thumbnail if one exists.
-	if video.ThumbnailPath != "" {
-		thumbFilename := filepath.Base(video.ThumbnailPath)
-		thumbDst := filepath.Join(destDirPath, thumbFilename)
-		// Best-effort: log on failure but don't abort — video move already succeeded.
-		if err := os.Rename(video.ThumbnailPath, thumbDst); err != nil {
-			if err2 := copyFile(video.ThumbnailPath, thumbDst); err2 != nil {
-				slog.Warn("could not move thumbnail", "src", video.ThumbnailPath, "dst", thumbDst, "err", err2)
-			} else {
-				_ = os.Remove(video.ThumbnailPath)
-				if err := s.store.UpdateVideoThumbnail(r.Context(), video.ID, thumbDst); err != nil {
-					slog.Warn("thumbnail moved on disk but DB update failed", "dst", thumbDst, "err", err)
-				}
-			}
-		} else {
-			if err := s.store.UpdateVideoThumbnail(r.Context(), video.ID, thumbDst); err != nil {
-				slog.Warn("thumbnail moved on disk but DB update failed", "dst", thumbDst, "err", err)
-			}
-		}
-	}
+	s.moveVideoThumbnail(r.Context(), video, destDirPath)
 
 	// Sync both directories so the library reflects the change.
 	s.startSyncDir(targetDir)

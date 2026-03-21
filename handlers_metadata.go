@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -119,10 +120,10 @@ func parseFilenameHints(filename string) lookupHints {
 type tmdbResult struct {
 	ID           int    `json:"id"`
 	MediaType    string `json:"media_type"`
-	Title        string `json:"title"`         // movies
-	Name         string `json:"name"`          // TV shows
+	Title        string `json:"title"` // movies
+	Name         string `json:"name"`  // TV shows
 	Overview     string `json:"overview"`
-	ReleaseDate  string `json:"release_date"`  // movies
+	ReleaseDate  string `json:"release_date"`   // movies
 	FirstAirDate string `json:"first_air_date"` // TV shows
 }
 
@@ -300,6 +301,108 @@ func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
 
 // ── TMDB lookup ───────────────────────────────────────────────────────────────
 
+// requireTMDBKey retrieves the configured TMDB API key. If the key is not set
+// it writes a 400 error and returns ("", false).
+func (s *server) requireTMDBKey(w http.ResponseWriter, r *http.Request) (string, bool) {
+	key, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
+	key = strings.TrimSpace(key)
+	if key == "" {
+		http.Error(w, "TMDB key not configured", http.StatusBadRequest)
+		return "", false
+	}
+	return key, true
+}
+
+// fetchMovieMetadata fetches title, overview, release date, and first genre
+// for a TMDB movie ID.
+func fetchMovieMetadata(apiKey, tmdbID string) (metadata.Updates, error) {
+	var m struct {
+		Title       string                  `json:"title"`
+		Overview    string                  `json:"overview"`
+		ReleaseDate string                  `json:"release_date"`
+		Genres      []struct{ Name string } `json:"genres"`
+	}
+	if err := tmdbGet(apiKey, "/movie/"+tmdbID, &m); err != nil {
+		return metadata.Updates{}, err
+	}
+	genre := ""
+	if len(m.Genres) > 0 {
+		genre = m.Genres[0].Name
+	}
+	return metadata.Updates{
+		Title:       strPtr(m.Title),
+		Description: strPtr(m.Overview),
+		Genre:       strPtr(genre),
+		Date:        strPtr(m.ReleaseDate),
+	}, nil
+}
+
+// fetchTVMetadata fetches show + episode details for a TMDB TV series ID.
+func fetchTVMetadata(apiKey, tmdbID string, season, episode int) (metadata.Updates, error) {
+	var show struct {
+		Name     string                  `json:"name"`
+		Networks []struct{ Name string } `json:"networks"`
+		Genres   []struct{ Name string } `json:"genres"`
+	}
+	if err := tmdbGet(apiKey, "/tv/"+tmdbID, &show); err != nil {
+		return metadata.Updates{}, err
+	}
+	var ep struct {
+		Name     string `json:"name"`
+		Overview string `json:"overview"`
+		AirDate  string `json:"air_date"`
+	}
+	epPath := fmt.Sprintf("/tv/%s/season/%d/episode/%d", tmdbID, season, episode)
+	if err := tmdbGet(apiKey, epPath, &ep); err != nil {
+		slog.Warn("TMDB episode fetch failed", "err", err)
+	}
+	genre, network := "", ""
+	if len(show.Genres) > 0 {
+		genre = show.Genres[0].Name
+	}
+	if len(show.Networks) > 0 {
+		network = show.Networks[0].Name
+	}
+	sNum := strconv.Itoa(season)
+	eNum := strconv.Itoa(episode)
+	return metadata.Updates{
+		Title:       strPtr(ep.Name),
+		Description: strPtr(ep.Overview),
+		Genre:       strPtr(genre),
+		Date:        strPtr(ep.AirDate),
+		Show:        strPtr(show.Name),
+		Network:     strPtr(network),
+		SeasonNum:   &sNum,
+		EpisodeNum:  &eNum,
+	}, nil
+}
+
+// applyTMDBSystemTags persists TMDB metadata as system tags in the DB.
+func (s *server) applyTMDBSystemTags(ctx context.Context, videoID int64, mediaType string, u metadata.Updates, season int) {
+	set := func(ns, val string) {
+		if val == "" {
+			return
+		}
+		if err := s.store.SetExclusiveSystemTag(ctx, videoID, ns, val); err != nil {
+			slog.Warn("TMDB apply: set tag failed", "ns", ns, "err", err)
+		}
+	}
+	if u.Genre != nil {
+		set("genre", *u.Genre)
+	}
+	if mediaType == "tv" {
+		if u.Show != nil {
+			set("show", *u.Show)
+		}
+		if u.Network != nil {
+			set("channel", *u.Network)
+		}
+		if season > 0 {
+			set("season", strconv.Itoa(season))
+		}
+	}
+}
+
 func (s *server) handleLookupModal(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
 	if !ok {
@@ -320,10 +423,8 @@ func (s *server) handleLookupSearch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	apiKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
-	apiKey = strings.TrimSpace(apiKey)
-	if apiKey == "" {
-		http.Error(w, "TMDB key not configured", http.StatusBadRequest)
+	apiKey, ok := s.requireTMDBKey(w, r)
+	if !ok {
 		return
 	}
 	q := strings.TrimSpace(r.FormValue("q"))
@@ -371,82 +472,31 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	apiKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
-	apiKey = strings.TrimSpace(apiKey)
-	if apiKey == "" {
-		http.Error(w, "TMDB key not configured", http.StatusBadRequest)
+	apiKey, ok := s.requireTMDBKey(w, r)
+	if !ok {
 		return
 	}
 
 	mediaType := r.FormValue("media_type")
 	tmdbID := r.FormValue("tmdb_id")
+	season, _ := strconv.Atoi(r.FormValue("season"))
+	episode, _ := strconv.Atoi(r.FormValue("episode"))
 
-	var u metadata.Updates
+	var (
+		u   metadata.Updates
+		err error
+	)
 	switch mediaType {
 	case "movie":
-		var m struct {
-			Title       string             `json:"title"`
-			Overview    string             `json:"overview"`
-			ReleaseDate string             `json:"release_date"`
-			Genres      []struct{ Name string } `json:"genres"`
-		}
-		if err := tmdbGet(apiKey, "/movie/"+tmdbID, &m); err != nil {
-			http.Error(w, "TMDB fetch failed: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-		genre := ""
-		if len(m.Genres) > 0 {
-			genre = m.Genres[0].Name
-		}
-		u = metadata.Updates{
-			Title:       strPtr(m.Title),
-			Description: strPtr(m.Overview),
-			Genre:       strPtr(genre),
-			Date:        strPtr(m.ReleaseDate),
-		}
+		u, err = fetchMovieMetadata(apiKey, tmdbID)
 	case "tv":
-		season, _ := strconv.Atoi(r.FormValue("season"))
-		episode, _ := strconv.Atoi(r.FormValue("episode"))
-		var show struct {
-			Name     string                 `json:"name"`
-			Networks []struct{ Name string } `json:"networks"`
-			Genres   []struct{ Name string } `json:"genres"`
-		}
-		if err := tmdbGet(apiKey, "/tv/"+tmdbID, &show); err != nil {
-			http.Error(w, "TMDB fetch failed: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-		var ep struct {
-			Name    string `json:"name"`
-			Overview string `json:"overview"`
-			AirDate  string `json:"air_date"`
-		}
-		epPath := fmt.Sprintf("/tv/%s/season/%d/episode/%d", tmdbID, season, episode)
-		if err := tmdbGet(apiKey, epPath, &ep); err != nil {
-			slog.Warn("TMDB episode fetch failed", "err", err)
-		}
-		genre := ""
-		if len(show.Genres) > 0 {
-			genre = show.Genres[0].Name
-		}
-		network := ""
-		if len(show.Networks) > 0 {
-			network = show.Networks[0].Name
-		}
-		sNum := strconv.Itoa(season)
-		eNum := strconv.Itoa(episode)
-		u = metadata.Updates{
-			Title:       strPtr(ep.Name),
-			Description: strPtr(ep.Overview),
-			Genre:       strPtr(genre),
-			Date:        strPtr(ep.AirDate),
-			Show:        strPtr(show.Name),
-			Network:     strPtr(network),
-			SeasonNum:   &sNum,
-			EpisodeNum:  &eNum,
-		}
+		u, err = fetchTVMetadata(apiKey, tmdbID, season, episode)
 	default:
 		http.Error(w, "invalid media_type", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, "TMDB fetch failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
@@ -456,36 +506,7 @@ func (s *server) handleLookupApply(w http.ResponseWriter, r *http.Request) {
 		warn = "Metadata write failed: " + err.Error()
 	}
 
-	// Also persist relevant metadata as system tags in the DB.
-	switch mediaType {
-	case "movie":
-		if u.Genre != nil && *u.Genre != "" {
-			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "genre", *u.Genre); err != nil {
-				slog.Warn("TMDB apply: set genre tag failed", "err", err)
-			}
-		}
-	case "tv":
-		if u.Show != nil && *u.Show != "" {
-			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "show", *u.Show); err != nil {
-				slog.Warn("TMDB apply: set show tag failed", "err", err)
-			}
-		}
-		if u.Genre != nil && *u.Genre != "" {
-			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "genre", *u.Genre); err != nil {
-				slog.Warn("TMDB apply: set genre tag failed", "err", err)
-			}
-		}
-		if u.Network != nil && *u.Network != "" {
-			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "channel", *u.Network); err != nil {
-				slog.Warn("TMDB apply: set channel tag failed", "err", err)
-			}
-		}
-		if s2, _ := strconv.Atoi(r.FormValue("season")); s2 > 0 {
-			if err := s.store.SetExclusiveSystemTag(r.Context(), video.ID, "season", strconv.Itoa(s2)); err != nil {
-				slog.Warn("TMDB apply: set season tag failed", "err", err)
-			}
-		}
-	}
+	s.applyTMDBSystemTags(r.Context(), video.ID, mediaType, u, season)
 
 	native, err := metadata.Read(video.FilePath())
 	if err != nil {
