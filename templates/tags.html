@@ -4,7 +4,7 @@
     {{range .}}
     <button class="btn-sm tag-filter-btn"
       id="tag-btn-{{.ID}}"
-      onclick="toggleTagFilter({{.ID}})"
+      onclick="toggleTagFilter({{.ID}}, {{js .Name}})"
       style="border-radius:12px"
     >{{- $parts := splitTagName .Name -}}
     {{- if $parts.Namespace -}}<span style="opacity:0.45;font-size:0.75em">{{$parts.Namespace}}:</span>{{$parts.Value}}

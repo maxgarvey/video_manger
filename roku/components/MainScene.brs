@@ -14,6 +14,7 @@ Sub init()
     ' detached but kept so state is preserved on back-navigation.
     m.stack = []
     m.serverURL = ""
+    m.castPollTask = Invalid
 
     ' Attempt to load a previously-saved server URL from persistent storage.
     section = CreateObject("roRegistrySection", m.REGISTRY_SECTION)
@@ -21,16 +22,92 @@ Sub init()
         m.serverURL = section.Read(m.REGISTRY_KEY_URL)
     End If
 
+    ' Hook the cast-poll timer (declared in MainScene.xml).
+    m.castPollTimer = m.top.FindNode("castPollTimer")
+    If m.castPollTimer <> Invalid
+        m.castPollTimer.ObserveField("fire", "onCastPollTick")
+    End If
+
+    ' Stop/start polling based on whether the channel has focus (foreground).
+    m.top.ObserveField("focusedChild", "onFocusedChildChange")
+
     If m.serverURL = "" Or m.serverURL = Invalid
         ' First run: ask the user to enter the server URL.
         pushView("ServerSetup", {})
     Else
-        ' We have a URL – go straight to the main menu.
+        ' We have a URL – go straight to the main menu and start polling.
         pushView("ContentList", {
             mode: "menu"
             serverURL: m.serverURL
         })
+        startCastPolling()
     End If
+End Sub
+
+' ── Cast-to-Roku polling ──────────────────────────────────────────────────────
+
+Sub startCastPolling()
+    If m.serverURL = "" Or m.serverURL = Invalid Then Return
+    If m.castPollTimer = Invalid Then Return
+    m.castPollTimer.control = "start"
+    Print "MainScene: cast polling started"
+End Sub
+
+Sub stopCastPolling()
+    If m.castPollTimer = Invalid Then Return
+    m.castPollTimer.control = "stop"
+    m.castPollTask = Invalid
+    Print "MainScene: cast polling stopped"
+End Sub
+
+' Stop polling when the channel is backgrounded (focusedChild goes Invalid),
+' resume when it comes back to the foreground.
+Sub onFocusedChildChange()
+    If m.top.focusedChild = Invalid
+        stopCastPolling()
+    Else
+        startCastPolling()
+    End If
+End Sub
+
+Sub onCastPollTick()
+    ' Skip if a poll is already in flight.
+    If m.castPollTask <> Invalid Then Return
+    If m.serverURL = "" Or m.serverURL = Invalid Then Return
+
+    m.castPollTask = CreateObject("roSGNode", "HttpTask")
+    If m.castPollTask = Invalid Then Return
+    m.castPollTask.url = m.serverURL + "/roku/poll"
+    m.castPollTask.ObserveField("result", "onCastPollResult")
+    m.castPollTask.ObserveField("errMsg",  "onCastPollDone")
+    m.castPollTask.ObserveField("status",  "onCastPollDone")
+    m.castPollTask.control = "RUN"
+End Sub
+
+Sub onCastPollResult()
+    ' A non-empty result means a video was queued — play it immediately.
+    raw = m.castPollTask.result
+    m.castPollTask = Invalid
+    If raw = "" Or raw = Invalid Then Return
+    video = ParseJSON(raw)
+    If video = Invalid Then Return
+    Print "MainScene: cast received video id="; video.id; " title="; video.title
+    ' If we're already in the Player, pop it first so the new video takes over.
+    If m.stack.Count() > 0
+        top = m.stack[m.stack.Count() - 1]
+        If top.subtype() = "Player"
+            popView()
+        End If
+    End If
+    pushView("Player", {
+        videoData: video
+        serverURL: m.serverURL
+    })
+End Sub
+
+Sub onCastPollDone()
+    ' 204 or error — nothing to play, just reset so the next tick can fire.
+    m.castPollTask = Invalid
 End Sub
 
 ' ---------------------------------------------------------------------------
@@ -191,5 +268,6 @@ Sub onNavAction()
             mode: "menu"
             serverURL: m.serverURL
         })
+        startCastPolling()
     End If
 End Sub

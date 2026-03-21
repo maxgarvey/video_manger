@@ -160,11 +160,11 @@ func render(w http.ResponseWriter, name string, data any) {
 }
 
 func main() {
-	dbPath := flag.String("db", "video_manger.db", "path to SQLite database file")
-	dir := flag.String("dir", "", "video directory to register on startup (optional)")
-	port := flag.String("port", "8080", "port to listen on")
-	password := flag.String("password", "", "optional password to protect the UI (leave empty for no auth)")
-	httpsOnly := flag.Bool("https-only", false, "set Secure flag on session cookie (use when serving over HTTPS via a reverse proxy)")
+	dbPath    := flag.String("db", "video_manger.db", "path to SQLite database file")
+	dir       := flag.String("dir", "", "video directory to register on startup (optional)")
+	httpPort  := flag.String("http-port", "8080", "plain HTTP port (for Roku and other LAN devices)")
+	httpsPort := flag.String("https-port", "8081", "HTTPS/HTTP2 port (for browser)")
+	password  := flag.String("password", "", "optional password to protect the UI (leave empty for no auth)")
 	flag.Parse()
 
 	s, err := store.NewSQLite(*dbPath)
@@ -172,11 +172,20 @@ func main() {
 		log.Fatalf("open db: %v", err)
 	}
 
+	// Derive cert/key paths from the DB location so they're co-located with
+	// the data and easy to find (or replace with a CA-signed cert if desired).
+	dbDir := filepath.Dir(*dbPath)
+	certFile := filepath.Join(dbDir, "cert.pem")
+	keyFile := filepath.Join(dbDir, "key.pem")
+	if err := ensureSelfSignedCert(certFile, keyFile); err != nil {
+		log.Fatalf("TLS cert setup: %v", err)
+	}
+
 	srv := &server{
 		store:         s,
-		port:          *port,
+		port:          *httpPort, // HTTP port — used for Roku share links & /api/info
 		mdnsName:      "video-manger.local",
-		secureCookies: *httpsOnly,
+		secureCookies: true, // always true: browser uses HTTPS
 		sessions:      make(map[string]time.Time),
 		syncingDirs:   make(map[int64]struct{}),
 		convertSem:    make(chan struct{}, convertConcurrent),
@@ -206,13 +215,15 @@ func main() {
 		}
 	}
 
-	portInt, _ := strconv.Atoi(*port) // zero is fine; zeroconf is best-effort
-	mdns, err := zeroconf.Register("video-manger", "_http._tcp", "local.", portInt, nil, nil)
+	// mDNS advertises the plain HTTP port so Roku and other LAN devices can
+	// discover the server without TLS configuration.
+	httpPortInt, _ := strconv.Atoi(*httpPort)
+	mdns, err := zeroconf.Register("video-manger", "_http._tcp", "local.", httpPortInt, nil, nil)
 	if err != nil {
 		slog.Warn("mDNS register failed", "err", err)
 	} else {
 		defer mdns.Shutdown()
-		slog.Info("mDNS registered", "url", "http://video-manger.local:"+*port)
+		slog.Info("mDNS registered", "url", "http://video-manger.local:"+*httpPort)
 	}
 
 	checkBinaries()
@@ -223,15 +234,28 @@ func main() {
 	go srv.startLibraryPoller(ctx)
 	go srv.startSessionPruner(ctx)
 
-	httpSrv := &http.Server{Addr: ":" + *port, Handler: srv.routes()}
+	routes := srv.routes()
+
+	// Plain HTTP — for Roku and other LAN devices that can't use self-signed certs.
+	plainSrv := &http.Server{Addr: ":" + *httpPort, Handler: routes}
 	go func() {
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := plainSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("HTTP server error", "err", err)
 		}
 	}()
 
-	slog.Info("server started", "url", "http://localhost:"+*port)
-	for _, addr := range localAddresses(*port) {
+	// HTTPS (HTTP/2) — for the browser; eliminates the per-host connection limit.
+	tlsSrv := &http.Server{Addr: ":" + *httpsPort, Handler: routes}
+	go func() {
+		if err := tlsSrv.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+			slog.Error("HTTPS server error", "err", err)
+		}
+	}()
+
+	slog.Info("HTTP  server started (Roku / LAN)", "url", "http://localhost:"+*httpPort)
+	slog.Info("HTTPS server started (browser)",    "url", "https://localhost:"+*httpsPort)
+	slog.Info("NOTE: first HTTPS visit will show a cert warning — click Advanced → Proceed to accept the self-signed cert")
+	for _, addr := range localAddresses(*httpPort) {
 		slog.Info("LAN address", "url", addr)
 	}
 
@@ -244,8 +268,9 @@ func main() {
 	// the full timeout, so we close immediately after the grace period.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		httpSrv.Close() //nolint:errcheck
+	plainSrv.Shutdown(shutdownCtx) //nolint:errcheck
+	if err := tlsSrv.Shutdown(shutdownCtx); err != nil {
+		tlsSrv.Close() //nolint:errcheck
 	}
 	s.Close() //nolint:errcheck
 }

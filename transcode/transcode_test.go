@@ -301,3 +301,60 @@ func TestConvertProgress_UnknownSrcErrors(t *testing.T) {
 		t.Error("expected error for non-existent source, got nil")
 	}
 }
+
+// --- ExportUSB ---
+
+func TestExportUSB_CancelledContext(t *testing.T) {
+	skipIfNoFFmpeg(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+
+	sem := make(chan struct{}, 1)
+	err := ExportUSB(ctx, sem, "/nonexistent.mp4", "/dev/null")
+	if err == nil {
+		t.Error("expected error for cancelled context, got nil")
+	}
+}
+
+func TestExportUSB_ProducesOutput(t *testing.T) {
+	src := makeTestVideo(t, "2")
+	dst := filepath.Join(filepath.Dir(src), "usb.mp4")
+
+	sem := make(chan struct{}, 1)
+	if err := ExportUSB(context.Background(), sem, src, dst); err != nil {
+		t.Fatalf("ExportUSB: %v", err)
+	}
+	if err := exec.Command("ffprobe", "-v", "quiet", dst).Run(); err != nil {
+		t.Errorf("ffprobe on ExportUSB output failed: %v", err)
+	}
+}
+
+// --- Delogo ---
+
+func TestDelogo_CancelledContext(t *testing.T) {
+	skipIfNoFFmpeg(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+
+	sem := make(chan struct{}, 1)
+	err := Delogo(ctx, sem, "/nonexistent.mp4", "/dev/null", 0, 0, 100, 50, "black")
+	if err == nil {
+		t.Error("expected error for cancelled context, got nil")
+	}
+}
+
+func TestDelogo_ProducesOutput(t *testing.T) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed; skipping")
+	}
+	src := makeTestVideo(t, "2")
+	dst := filepath.Join(filepath.Dir(src), "delogoed.mp4")
+
+	sem := make(chan struct{}, 1)
+	if err := Delogo(context.Background(), sem, src, dst, 0, 0, 10, 10, "black"); err != nil {
+		t.Fatalf("Delogo: %v", err)
+	}
+	if err := exec.Command("ffprobe", "-v", "quiet", dst).Run(); err != nil {
+		t.Errorf("ffprobe on Delogo output failed: %v", err)
+	}
+}

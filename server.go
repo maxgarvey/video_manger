@@ -297,6 +297,9 @@ func (s *server) routes() http.Handler {
 		// Video trimming (temporal crop)
 		r.Post("/videos/{id}/trim", s.handleTrim)
 
+		// Watermark removal (delogo)
+		r.Post("/videos/{id}/delogo", s.handleDelogo)
+
 		// Random video ID (for initial tab load)
 		r.Get("/random-video", s.handleRandomVideoID)
 

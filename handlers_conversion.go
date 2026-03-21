@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -199,66 +200,225 @@ func (s *server) handleTrim(w http.ResponseWriter, r *http.Request) {
 		start = "0"
 	}
 
+	keepOriginal := r.FormValue("keep_original") != "0"
+
 	src := video.FilePath()
 	dir := filepath.Dir(src)
 	ext := filepath.Ext(src)
 	stem := strings.TrimSuffix(filepath.Base(src), ext)
-	dstName := freeOutputName(dir, stem, "_trim", ext)
-	dst := filepath.Join(dir, dstName)
+
+	var dst, dstName string
+	if keepOriginal {
+		dstName = freeOutputName(dir, stem, "_trim", ext)
+		dst = filepath.Join(dir, dstName)
+	} else {
+		dst = src + ".trimtmp"
+	}
 
 	if err := transcode.Trim(r.Context(), s.convertSem, src, dst, start, end); err != nil {
 		http.Error(w, "trim failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Upsert the new file synchronously so the client can open it immediately.
-	if newVid, err := s.store.UpsertVideo(r.Context(), video.DirectoryID, dir, dstName); err == nil {
-		ctx := r.Context()
+	var newVid store.Video
+	if keepOriginal {
+		// Upsert the new file synchronously so the client can open it immediately.
+		if upserted, err := s.store.UpsertVideo(r.Context(), video.DirectoryID, dir, dstName); err == nil {
+			ctx := r.Context()
 
-		// Copy structured fields from the source video.
-		fields := store.VideoFields{
-			Genre:         video.Genre,
-			SeasonNumber:  video.SeasonNumber,
-			EpisodeNumber: video.EpisodeNumber,
-			EpisodeTitle:  video.EpisodeTitle,
-			Actors:        video.Actors,
-			Studio:        video.Studio,
-			Channel:       video.Channel,
-			AirDate:       video.AirDate,
-		}
-		_ = s.store.UpdateVideoFields(ctx, newVid.ID, fields)
+			// Copy structured fields from the source video.
+			fields := store.VideoFields{
+				Genre:         video.Genre,
+				SeasonNumber:  video.SeasonNumber,
+				EpisodeNumber: video.EpisodeNumber,
+				EpisodeTitle:  video.EpisodeTitle,
+				Actors:        video.Actors,
+				Studio:        video.Studio,
+				Channel:       video.Channel,
+				AirDate:       video.AirDate,
+			}
+			_ = s.store.UpdateVideoFields(ctx, upserted.ID, fields)
 
-		// Copy display name (append " (trim)" if name was set).
-		if video.DisplayName != "" {
-			_ = s.store.UpdateVideoName(ctx, newVid.ID, video.DisplayName+" (trim)")
-		}
+			// Copy display name (append " (trim)" if name was set).
+			if video.DisplayName != "" {
+				_ = s.store.UpdateVideoName(ctx, upserted.ID, video.DisplayName+" (trim)")
+			}
 
-		// Copy show name and video type.
-		if video.ShowName != "" {
-			_ = s.store.UpdateVideoShowName(ctx, newVid.ID, video.ShowName)
-		}
-		if video.VideoType != "" {
-			_ = s.store.UpdateVideoType(ctx, newVid.ID, video.VideoType)
-		}
+			// Copy show name and video type.
+			if video.ShowName != "" {
+				_ = s.store.UpdateVideoShowName(ctx, upserted.ID, video.ShowName)
+			}
+			if video.VideoType != "" {
+				_ = s.store.UpdateVideoType(ctx, upserted.ID, video.VideoType)
+			}
 
-		// Copy user-applied tags (skip system tags managed by VideoFields).
-		if tags, err := s.store.ListTagsByVideo(ctx, video.ID); err == nil {
-			for _, t := range tags {
-				// System tags (namespace:value) are set via UpdateVideoFields above.
-				if !strings.Contains(t.Name, ":") {
-					if tagRec, err := s.store.UpsertTag(ctx, t.Name); err == nil {
-						_ = s.store.TagVideo(ctx, newVid.ID, tagRec.ID)
+			// Copy user-applied tags (skip system tags managed by VideoFields).
+			if tags, err := s.store.ListTagsByVideo(ctx, video.ID); err == nil {
+				for _, t := range tags {
+					// System tags (namespace:value) are set via UpdateVideoFields above.
+					if !strings.Contains(t.Name, ":") {
+						if tagRec, err := s.store.UpsertTag(ctx, t.Name); err == nil {
+							_ = s.store.TagVideo(ctx, upserted.ID, tagRec.ID)
+						}
 					}
 				}
 			}
-		}
 
-		titleJSON, _ := json.Marshal(newVid.DisplayName)
-		if newVid.DisplayName == "" {
-			titleJSON, _ = json.Marshal(dstName)
+			newVid = upserted
 		}
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"trimComplete":{"videoId":%d,"title":%s}}`, newVid.ID, titleJSON))
+	} else {
+		if err := os.Rename(dst, src); err != nil {
+			os.Remove(dst)
+			http.Error(w, "replace failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		newVid = video // same DB record, file at src is now the trimmed content
 	}
+
+	titleJSON, _ := json.Marshal(newVid.DisplayName)
+	if newVid.DisplayName == "" {
+		if keepOriginal {
+			titleJSON, _ = json.Marshal(dstName)
+		} else {
+			titleJSON, _ = json.Marshal(filepath.Base(src))
+		}
+	}
+	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"trimComplete":{"videoId":%d,"title":%s}}`, newVid.ID, titleJSON))
+
+	if d, err := s.store.GetDirectory(r.Context(), video.DirectoryID); err == nil {
+		s.startSyncDir(d)
+	}
+	s.serveVideoList(w, r)
+}
+
+// ── Delogo ────────────────────────────────────────────────────────────────────
+
+func (s *server) handleDelogo(w http.ResponseWriter, r *http.Request) {
+	video, ok := s.videoOrError(w, r)
+	if !ok {
+		return
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		http.Error(w, "ffmpeg is not installed — delogo is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	parseIntParam := func(name string) (int, bool) {
+		val := strings.TrimSpace(r.FormValue(name))
+		var n int
+		if _, err := fmt.Sscan(val, &n); err != nil || n < 0 {
+			http.Error(w, "invalid parameter: "+name, http.StatusBadRequest)
+			return 0, false
+		}
+		return n, true
+	}
+
+	x, ok := parseIntParam("x")
+	if !ok {
+		return
+	}
+	y, ok := parseIntParam("y")
+	if !ok {
+		return
+	}
+	wPx, ok := parseIntParam("w")
+	if !ok {
+		return
+	}
+	hPx, ok := parseIntParam("h")
+	if !ok {
+		return
+	}
+	if wPx == 0 || hPx == 0 {
+		http.Error(w, "w and h must be greater than 0", http.StatusBadRequest)
+		return
+	}
+
+	color := strings.TrimSpace(r.FormValue("color"))
+	colorRe := `^0x[0-9A-Fa-f]{6}$`
+	matched, _ := regexp.MatchString(colorRe, color)
+	if !matched {
+		http.Error(w, "invalid color: must be 0xRRGGBB", http.StatusBadRequest)
+		return
+	}
+
+	keepOriginal := r.FormValue("keep_original") != "0"
+
+	src := video.FilePath()
+	dir := filepath.Dir(src)
+	ext := filepath.Ext(src)
+	stem := strings.TrimSuffix(filepath.Base(src), ext)
+
+	var dst, dstName string
+	if keepOriginal {
+		dstName = freeOutputName(dir, stem, "_delogo", ext)
+		dst = filepath.Join(dir, dstName)
+	} else {
+		dst = src + ".delogotmp"
+	}
+
+	if err := transcode.Delogo(r.Context(), s.convertSem, src, dst, x, y, wPx, hPx, color); err != nil {
+		http.Error(w, "delogo failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var newVid store.Video
+	if keepOriginal {
+		if upserted, err := s.store.UpsertVideo(r.Context(), video.DirectoryID, dir, dstName); err == nil {
+			ctx := r.Context()
+
+			fields := store.VideoFields{
+				Genre:         video.Genre,
+				SeasonNumber:  video.SeasonNumber,
+				EpisodeNumber: video.EpisodeNumber,
+				EpisodeTitle:  video.EpisodeTitle,
+				Actors:        video.Actors,
+				Studio:        video.Studio,
+				Channel:       video.Channel,
+				AirDate:       video.AirDate,
+			}
+			_ = s.store.UpdateVideoFields(ctx, upserted.ID, fields)
+
+			if video.DisplayName != "" {
+				_ = s.store.UpdateVideoName(ctx, upserted.ID, video.DisplayName+" (delogo)")
+			}
+			if video.ShowName != "" {
+				_ = s.store.UpdateVideoShowName(ctx, upserted.ID, video.ShowName)
+			}
+			if video.VideoType != "" {
+				_ = s.store.UpdateVideoType(ctx, upserted.ID, video.VideoType)
+			}
+
+			if tags, err := s.store.ListTagsByVideo(ctx, video.ID); err == nil {
+				for _, t := range tags {
+					if !strings.Contains(t.Name, ":") {
+						if tagRec, err := s.store.UpsertTag(ctx, t.Name); err == nil {
+							_ = s.store.TagVideo(ctx, upserted.ID, tagRec.ID)
+						}
+					}
+				}
+			}
+
+			newVid = upserted
+		}
+	} else {
+		if err := os.Rename(dst, src); err != nil {
+			os.Remove(dst)
+			http.Error(w, "replace failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		newVid = video
+	}
+
+	titleJSON, _ := json.Marshal(newVid.DisplayName)
+	if newVid.DisplayName == "" {
+		if keepOriginal {
+			titleJSON, _ = json.Marshal(dstName)
+		} else {
+			titleJSON, _ = json.Marshal(filepath.Base(src))
+		}
+	}
+	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"delogoComplete":{"videoId":%d,"title":%s}}`, newVid.ID, titleJSON))
 
 	if d, err := s.store.GetDirectory(r.Context(), video.DirectoryID); err == nil {
 		s.startSyncDir(d)

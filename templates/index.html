@@ -707,16 +707,17 @@
 
     /* ── Single-view overlay buttons ────────────────────────────────── */
     .single-overlay-btns {
-      display: none;
+      display: flex;
       position: absolute;
-      top: 0.45rem;
-      right: 0.45rem;
+      top: 0;
+      right: 1.2rem;
+      transform: translateY(calc(-100% - 0.3rem));
       z-index: 61;
       gap: 0.3rem;
-      opacity: 0;
-      transition: opacity 0.15s;
+      pointer-events: none;   /* hidden until overlay is shown */
     }
-    body:not(.parallel-mode) .tab-pane:hover .single-overlay-btns { display: flex; opacity: 1; }
+    body:not(.parallel-mode) .tab-pane.overlay-show .single-overlay-btns { pointer-events: auto; }
+    body.parallel-mode .single-overlay-btns { display: none; }
     .single-overlay-btn {
       background: rgba(30,30,30,0.85);
       border: 1px solid #444;
@@ -729,6 +730,8 @@
       font-family: inherit;
     }
     .single-overlay-btn:hover { background: rgba(60,60,60,0.95); border-color: #666; color: #fff; }
+    .single-overlay-btn-danger { background: rgba(42,21,21,0.88); border-color: #6a2a2a; color: #f08080; }
+    .single-overlay-btn-danger:hover { background: rgba(80,20,20,0.95); border-color: #a04040; color: #fff; }
     /* Hide action-bar items replaced by the overlay in single view */
     body:not(.parallel-mode) .single-hide { display: none !important; }
     /* Hide the chrome info button in single view — overlay ⓘ is used instead */
@@ -854,6 +857,7 @@
     <div id="lib-filters">
       <input type="hidden" id="active-rating" name="rating" value="">
       <input type="hidden" id="active-tag" name="tag_id" value="">
+      <input type="hidden" id="active-tag-name" value="">
       <input type="hidden" id="active-type" name="type" value="">
       <button class="btn-sm" id="rating-btn-1" onclick="toggleRatingFilter(1)" style="border-radius:12px">♥ Liked</button>
       <button class="btn-sm" id="rating-btn-2" onclick="toggleRatingFilter(2)" style="border-radius:12px">★ Favs</button>
@@ -863,9 +867,10 @@
         <option value="{{$type}}">{{$type}}</option>
         {{end}}
       </select>
+      <div id="selected-tags-bar" style="display:none;width:100%;margin-bottom:0.2rem"></div>
       <div id="tag-filters" hx-get="/tags" hx-trigger="load" style="display:contents" hx-on::after-settle="checkTagMoreBtn()"></div>
       <button class="btn-sm" hx-get="/videos" hx-target="#video-list"
-        onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value='';document.getElementById('active-rating').value='';document.getElementById('active-type').value='';document.getElementById('type-filter').value='';updateRatingBtns();updateTagBtns()"
+        onclick="document.getElementById('video-search').value='';document.getElementById('active-tag').value='';document.getElementById('active-tag-name').value='';document.getElementById('active-rating').value='';document.getElementById('active-type').value='';document.getElementById('type-filter').value='';updateRatingBtns();updateTagBtns()"
         style="border-radius:12px;margin-left:auto">Show all</button>
     </div>
 
@@ -1724,6 +1729,19 @@
     // Pick a random video from enabled groups, falling back to the server
     // when all groups are checked (or no checkboxes exist yet).
     function pickRandomVideo() {
+      // If any search/filter is active, restrict to the currently visible results.
+      var q      = document.getElementById('video-search').value;
+      var tag    = document.getElementById('active-tag').value;
+      var rating = document.getElementById('active-rating').value;
+      var type   = document.getElementById('active-type').value;
+      if (q || tag || rating || type) {
+        var ids = Array.from(document.querySelectorAll('#video-list li[data-video-id]'))
+                       .map(function(li) { return parseInt(li.dataset.videoId, 10); });
+        if (ids.length === 0) return Promise.resolve(null);
+        var id = ids[Math.floor(Math.random() * ids.length)];
+        return fetch('/api/videos/' + id).then(function(r) { return r.ok ? r.json() : null; });
+      }
+      // No active filter — existing folder-checkbox logic follows unchanged.
       var cbs = Array.from(document.querySelectorAll('.rand-dir-cb'));
       var unchecked = cbs.filter(function(cb) { return !cb.checked; });
       // If every group is enabled (or no groups visible), use the server endpoint.
@@ -1947,14 +1965,17 @@
     })();
 
     // ── Tag filter toggle ───────────────────────────────────────────
-    function toggleTagFilter(tagID) {
-      var at = document.getElementById('active-tag');
+    function toggleTagFilter(tagID, tagName) {
+      var at     = document.getElementById('active-tag');
+      var atName = document.getElementById('active-tag-name');
       if (at.value == tagID) {
-        at.value = '';
+        at.value     = '';
+        atName.value = '';
         htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
       } else {
-        at.value = tagID;
-        document.getElementById('video-search').value = '';
+        at.value     = tagID;
+        atName.value = tagName || '';
+        document.getElementById('video-search').value  = '';
         document.getElementById('active-rating').value = '';
         updateRatingBtns();
         htmx.ajax('GET', '/videos?tag_id=' + tagID, {target: '#video-list', swap: 'innerHTML'});
@@ -1963,10 +1984,39 @@
     }
 
     function updateTagBtns() {
-      var at = document.getElementById('active-tag').value;
+      var at     = document.getElementById('active-tag');
+      var atName = document.getElementById('active-tag-name');
+      var bar    = document.getElementById('selected-tags-bar');
+
+      // Rebuild the chip bar
+      bar.innerHTML = '';
+      if (at.value && atName.value) {
+        var chip = document.createElement('button');
+        chip.className = 'btn-sm';
+        chip.style.cssText = 'border-radius:12px;background:#1a3a2a;border-color:#4a9a4a;color:#8f8';
+        var colon = atName.value.indexOf(':');
+        if (colon !== -1) {
+          var ns = document.createElement('span');
+          ns.style.cssText = 'opacity:0.45;font-size:0.75em';
+          ns.textContent = atName.value.slice(0, colon + 1);
+          chip.appendChild(ns);
+          chip.appendChild(document.createTextNode(atName.value.slice(colon + 1)));
+        } else {
+          chip.textContent = atName.value;
+        }
+        (function(id, name) {
+          chip.onclick = function() { toggleTagFilter(id, name); };
+        }(at.value, atName.value));
+        bar.appendChild(chip);
+        bar.style.display = '';
+      } else {
+        bar.style.display = 'none';
+      }
+
+      // Update active class on visible tag filter buttons (existing behaviour)
       document.querySelectorAll('.tag-filter-btn').forEach(function(btn) {
         var id = btn.id.replace('tag-btn-', '');
-        btn.classList.toggle('btn-active-filter', id === String(at));
+        btn.classList.toggle('btn-active-filter', id === String(at.value));
       });
     }
 
@@ -2023,7 +2073,7 @@
     (function() {
       function checkRoku() {
         fetch('/roku/connected').then(function(r) {
-          document.body.classList.toggle('roku-live', r.ok);
+          document.body.classList.toggle('roku-live', r.status === 200);
         }).catch(function() {
           document.body.classList.remove('roku-live');
         });
@@ -2143,6 +2193,12 @@
     document.body.addEventListener('trimComplete', function(e) {
       var d = e.detail;
       if (d && d.videoId) openTab(d.videoId, d.title || 'Trimmed video');
+    });
+
+    // Open the delogoed video in a new tab when delogo completes.
+    document.body.addEventListener('delogoComplete', function(e) {
+      var d = e.detail;
+      if (d && d.videoId) openTab(d.videoId, d.title || 'Delogoed video');
     });
 
     // ── Thumbnail hover preview ──────────────────────────────────────
@@ -2616,7 +2672,7 @@
           btn.textContent = t.name;
         }
         btn.onclick = function() {
-          toggleTagFilter(t.id);
+          toggleTagFilter(t.id, t.name);
           document.getElementById('tag-more-popup').style.display = 'none';
         };
         list.appendChild(btn);

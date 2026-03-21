@@ -22,5 +22,7 @@
             width="1920"
             height="1080"
             color="0x141414FF" />
+        <!-- Polls /roku/poll so the web UI can cast a video to the Roku -->
+        <Timer id="castPollTimer" repeat="true" duration="2" />
     </children>
 </component>

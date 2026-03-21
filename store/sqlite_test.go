@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/maxgarvey/video_manger/store"
 )
@@ -1356,5 +1357,234 @@ func TestListSettingsWithPrefix(t *testing.T) {
 	all, _ := s.ListSettingsWithPrefix(ctx, "")
 	if len(all) != 7 {
 		t.Errorf("expected 7, got %d", len(all))
+	}
+}
+
+// --- Close ---
+
+func TestClose(t *testing.T) {
+	s, err := store.NewSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLite: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+}
+
+// --- DeleteDirectoryAndVideos ---
+
+func TestDeleteDirectoryAndVideos(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/movies")
+	s.UpsertVideo(ctx, d.ID, d.Path, "a.mp4") //nolint:errcheck
+	s.UpsertVideo(ctx, d.ID, d.Path, "b.mp4") //nolint:errcheck
+
+	paths, err := s.DeleteDirectoryAndVideos(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("DeleteDirectoryAndVideos: %v", err)
+	}
+	if len(paths) != 2 {
+		t.Errorf("expected 2 paths returned, got %d: %v", len(paths), paths)
+	}
+
+	// Directory and videos should be gone.
+	dirs, _ := s.ListDirectories(ctx)
+	if len(dirs) != 0 {
+		t.Errorf("expected 0 directories after delete, got %d", len(dirs))
+	}
+	videos, _ := s.ListVideos(ctx)
+	if len(videos) != 0 {
+		t.Errorf("expected 0 videos after delete, got %d", len(videos))
+	}
+}
+
+func TestDeleteDirectoryAndVideos_Empty(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/empty")
+
+	paths, err := s.DeleteDirectoryAndVideos(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("DeleteDirectoryAndVideos empty dir: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("expected 0 paths for empty directory, got %d", len(paths))
+	}
+}
+
+// --- UpdateVideoPath ---
+
+func TestUpdateVideoPath(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d1, _ := s.AddDirectory(ctx, "/old")
+	d2, _ := s.AddDirectory(ctx, "/new")
+	v, _ := s.UpsertVideo(ctx, d1.ID, d1.Path, "film.mp4")
+
+	if err := s.UpdateVideoPath(ctx, v.ID, d2.ID, d2.Path, "renamed.mp4"); err != nil {
+		t.Fatalf("UpdateVideoPath: %v", err)
+	}
+
+	got, err := s.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo after UpdateVideoPath: %v", err)
+	}
+	if got.DirectoryID != d2.ID {
+		t.Errorf("expected DirectoryID=%d, got %d", d2.ID, got.DirectoryID)
+	}
+	if got.DirectoryPath != "/new" {
+		t.Errorf("expected DirectoryPath=/new, got %q", got.DirectoryPath)
+	}
+	if got.Filename != "renamed.mp4" {
+		t.Errorf("expected filename=renamed.mp4, got %q", got.Filename)
+	}
+}
+
+// --- GetNextUnwatchedFromSearch ---
+
+func TestGetNextUnwatchedFromSearch_EmptyQuery(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "alpha.mp4")
+
+	// Empty query delegates to GetNextUnwatched.
+	got, err := s.GetNextUnwatchedFromSearch(ctx, "", 0)
+	if err != nil {
+		t.Fatalf("GetNextUnwatchedFromSearch empty query: %v", err)
+	}
+	if got.ID != v.ID {
+		t.Errorf("expected video ID %d, got %d", v.ID, got.ID)
+	}
+}
+
+func TestGetNextUnwatchedFromSearch_WithQuery(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v1, _ := s.UpsertVideo(ctx, d.ID, d.Path, "nature_doc.mp4")
+	s.UpsertVideo(ctx, d.ID, d.Path, "comedy.mp4") //nolint:errcheck
+
+	got, err := s.GetNextUnwatchedFromSearch(ctx, "nature", 0)
+	if err != nil {
+		t.Fatalf("GetNextUnwatchedFromSearch: %v", err)
+	}
+	if got.ID != v1.ID {
+		t.Errorf("expected nature_doc.mp4 (id %d), got id %d", v1.ID, got.ID)
+	}
+}
+
+func TestGetNextUnwatchedFromSearch_AllWatched(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, _ := s.AddDirectory(ctx, "/videos")
+	v, _ := s.UpsertVideo(ctx, d.ID, d.Path, "doc.mp4")
+	s.RecordWatch(ctx, v.ID, 1.0) //nolint:errcheck
+
+	_, err := s.GetNextUnwatchedFromSearch(ctx, "doc", 0)
+	if err == nil {
+		t.Error("expected error when all matched videos are watched, got nil")
+	}
+}
+
+// --- Sessions ---
+
+func TestSaveAndLoadSession(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	expiry := time.Now().Add(time.Hour)
+	if err := s.SaveSession(ctx, "tok-abc", expiry); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+
+	sessions, err := s.LoadSessions(ctx)
+	if err != nil {
+		t.Fatalf("LoadSessions: %v", err)
+	}
+	if _, ok := sessions["tok-abc"]; !ok {
+		t.Errorf("expected token tok-abc in sessions, got %v", sessions)
+	}
+}
+
+func TestSaveSession_Upsert(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	exp1 := time.Now().Add(time.Hour)
+	exp2 := time.Now().Add(2 * time.Hour)
+
+	s.SaveSession(ctx, "tok-dup", exp1) //nolint:errcheck
+	if err := s.SaveSession(ctx, "tok-dup", exp2); err != nil {
+		t.Fatalf("SaveSession upsert: %v", err)
+	}
+
+	sessions, _ := s.LoadSessions(ctx)
+	if len(sessions) != 1 {
+		t.Errorf("expected 1 session after upsert, got %d", len(sessions))
+	}
+}
+
+func TestDeleteSession(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	s.SaveSession(ctx, "tok-del", time.Now().Add(time.Hour)) //nolint:errcheck
+
+	if err := s.DeleteSession(ctx, "tok-del"); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+
+	sessions, _ := s.LoadSessions(ctx)
+	if _, ok := sessions["tok-del"]; ok {
+		t.Error("expected token to be deleted")
+	}
+}
+
+func TestPruneExpiredSessions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Save one expired (past) and one valid (future) session.
+	s.SaveSession(ctx, "tok-valid", time.Now().Add(time.Hour))   //nolint:errcheck
+	s.SaveSession(ctx, "tok-expired", time.Now().Add(-time.Hour)) //nolint:errcheck
+
+	if err := s.PruneExpiredSessions(ctx); err != nil {
+		t.Fatalf("PruneExpiredSessions: %v", err)
+	}
+
+	sessions, _ := s.LoadSessions(ctx)
+	if _, ok := sessions["tok-valid"]; !ok {
+		t.Error("expected valid session to survive pruning")
+	}
+	if _, ok := sessions["tok-expired"]; ok {
+		t.Error("expected expired session to be pruned")
+	}
+}
+
+func TestLoadSessions_ExcludesExpired(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	s.SaveSession(ctx, "alive", time.Now().Add(time.Hour))    //nolint:errcheck
+	s.SaveSession(ctx, "dead", time.Now().Add(-time.Minute)) //nolint:errcheck
+
+	sessions, err := s.LoadSessions(ctx)
+	if err != nil {
+		t.Fatalf("LoadSessions: %v", err)
+	}
+	if _, ok := sessions["alive"]; !ok {
+		t.Error("expected 'alive' session in result")
+	}
+	if _, ok := sessions["dead"]; ok {
+		t.Error("expired 'dead' session should not appear in LoadSessions result")
 	}
 }

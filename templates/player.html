@@ -60,21 +60,19 @@
     </div>
     {{end}}
 
-    <!-- Single-view overlay buttons — top-right, fades in on hover; hidden in parallel mode -->
-    <div class="single-overlay-btns">
-      <button class="single-overlay-btn" onclick="toggleInfo()" title="Toggle info panel (I)">ⓘ Info</button>
-      <button class="single-overlay-btn"
-        hx-get="/videos/{{.Video.ID}}/quick-label"
-        hx-target="#quick-label-modal"
-        hx-swap="innerHTML"
-        title="Quick label">⊕</button>
-      <button class="single-overlay-btn"
-        onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='flex'"
-        title="Delete…">⌦</button>
-    </div>
-
     <!-- MTV-style lower-third overlay -->
     <div id="player-overlay">
+      <!-- Single-view overlay buttons — sit just above the ribbon, fades in with it; hidden in parallel mode -->
+      <div class="single-overlay-btns">
+        <button class="single-overlay-btn"
+          hx-get="/videos/{{.Video.ID}}/quick-label"
+          hx-target="#quick-label-modal"
+          hx-swap="innerHTML"
+          title="Quick label">⊕</button>
+        <button class="single-overlay-btn single-overlay-btn-danger"
+          onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='flex'"
+          title="Delete…">⌦</button>
+      </div>
       <div class="mtv-card">
         {{/* Line 1: Show name (big) or title if no show */}}
         <div class="mtv-show"><span id="mtv-show-text-{{.Video.ID}}">{{if .Video.ShowName}}{{.Video.ShowName}}{{else}}{{.Video.Title}}{{end}}</span>{{if eq .Video.Rating 2}} ★{{else if eq .Video.Rating 1}} ♥{{end}}</div>
@@ -113,6 +111,17 @@
       {{end}}
     </div><!-- /player-overlay -->
 
+    <!-- Delogo drag-select overlay: sits on top of video, shown when delogo strip is open -->
+    <div id="delogo-overlay-{{.Video.ID}}"
+         style="display:none;position:absolute;inset:0;cursor:crosshair;z-index:5"
+         onmousedown="delogoDown(event,'{{.Video.ID}}')"
+         onmousemove="delogoMove(event,'{{.Video.ID}}')"
+         onmouseup="delogoUp(event,'{{.Video.ID}}')">
+      <div id="delogo-sel-{{.Video.ID}}"
+           style="position:absolute;border:2px dashed #f80;background:rgba(255,136,0,0.18);display:none;pointer-events:none">
+      </div>
+    </div>
+
     <!-- Per-pane single-view focus button (parallel mode only) — top-right, left of close -->
     <button class="pfocus-btn" onclick="focusSingleTab({{.Video.ID}})" title="Switch to single view for this video">⤢</button>
     <!-- Per-pane close button (parallel mode only) — top-right, dismisses tab without deleting -->
@@ -148,18 +157,12 @@
 
   <!-- ── Quick-action buttons row — sits flush below the video ───────── -->
   <div class="action-bar" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center;background:#0a0a0a;padding:0.3rem 0.6rem;border-top:1px solid #1e1e1e;flex-shrink:0;overflow:hidden">
-    <button class="btn-sm btn-ghost" id="trim-btn-{{.Video.ID}}" style="font-size:0.75rem"
-      onclick="(function(){ var strip=document.getElementById('trim-strip-{{.Video.ID}}'); var btn=document.getElementById('trim-btn-{{.Video.ID}}'); if(strip.style.display==='flex'){ strip.style.display='none'; btn.style.opacity='0.5'; } else { openTrimStrip('{{.Video.ID}}'); btn.style.opacity='1'; } })()"
-      title="Trim video by start/end time"
-    >✂ Trim</button>
-    <button class="btn-sm btn-ghost" id="color-btn-{{.Video.ID}}" style="font-size:0.75rem"
-      onclick="toggleFloatWidget('color-bar-{{.Video.ID}}','color-btn-{{.Video.ID}}',this)"
-      title="Adjust brightness, contrast, saturation, hue"
-    >◑ Color</button>
-    <button class="btn-sm btn-ghost" id="audio-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.5"
-      onclick="toggleFloatWidget('audio-bar-{{.Video.ID}}','audio-btn-{{.Video.ID}}',this)"
-      title="EQ, volume, pan and compression"
-    >♬ Audio</button>
+    <button class="btn-sm btn-ghost" style="font-size:0.75rem"
+      onclick="toggleInfo()"
+      title="Toggle info panel (I)">ⓘ Info</button>
+    <button class="btn-sm btn-ghost" id="edit-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.5"
+      onclick="toggleEditSub('{{.Video.ID}}')"
+      title="Editing tools">✎ Edit ▾</button>
     <button class="btn-sm btn-ghost" id="loop-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.5"
       onclick="(function(){
         var v=document.getElementById('vid-{{.Video.ID}}');
@@ -200,6 +203,25 @@
     >⌦ Delete…</button>
   </div>
 
+  <!-- ── Edit sub-bar ──────────────────────────────────────────────────── -->
+  <div id="edit-sub-{{.Video.ID}}"
+       style="display:none;flex-wrap:wrap;gap:0.4rem;align-items:center;
+              background:#111;border-top:1px solid #2a2a2a;padding:0.25rem 0.6rem;flex-shrink:0">
+    <span style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:0.07em;margin-right:0.2rem">Edit</span>
+    <button class="btn-sm btn-ghost" id="trim-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.5"
+      onclick="(function(){ var strip=document.getElementById('trim-strip-{{.Video.ID}}'); var btn=document.getElementById('trim-btn-{{.Video.ID}}'); if(strip.style.display==='flex'){ strip.style.display='none'; btn.style.opacity='0.5'; } else { openTrimStrip('{{.Video.ID}}'); btn.style.opacity='1'; } })()"
+      title="Trim video by start/end time">✂ Trim</button>
+    <button class="btn-sm btn-ghost" id="delogo-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.5"
+      onclick="toggleDelogoStrip('{{.Video.ID}}')"
+      title="Remove a watermark by painting over a region">⊘ Delogo</button>
+    <button class="btn-sm btn-ghost" id="color-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.5"
+      onclick="toggleFloatWidget('color-bar-{{.Video.ID}}','color-btn-{{.Video.ID}}',this)"
+      title="Adjust brightness, contrast, saturation, hue">◑ Color</button>
+    <button class="btn-sm btn-ghost" id="audio-btn-{{.Video.ID}}" style="font-size:0.75rem;opacity:0.5"
+      onclick="toggleFloatWidget('audio-bar-{{.Video.ID}}','audio-btn-{{.Video.ID}}',this)"
+      title="EQ, volume, pan and compression">♬ Audio</button>
+  </div>
+
   <!-- ── Trim strip — appears directly below the video edge ──────────── -->
   <div id="trim-strip-{{.Video.ID}}"
        style="display:none;flex-direction:column;gap:0.35rem;background:#0c0c0c;border-top:2px solid #2563eb;padding:0.45rem 0.8rem 0.5rem">
@@ -238,16 +260,80 @@
         title="End time (HH:MM:SS, MM:SS, or seconds) — leave blank to keep to end"
         style="width:4.6rem;background:#1a1a1a;border:1px solid #444;color:#eee;padding:0.25rem 0.4rem;border-radius:4px;font-size:0.8rem;font-family:monospace;text-align:center"
         oninput="trimTextInput('{{.Video.ID}}','end')">
-      <button type="submit" class="btn-sm btn-success" style="font-size:0.75rem"
-        hx-confirm="Trim to selected region? A new file will be created.">✂ Trim</button>
+      <input type="hidden" name="keep_original" id="keep-original-{{.Video.ID}}" value="1">
+      <button type="button" class="btn-sm btn-success" style="font-size:0.75rem"
+        onclick="document.getElementById('trim-confirm-{{.Video.ID}}').style.display='flex'">✂ Trim</button>
       <button type="button" class="btn-sm btn-ghost" style="font-size:0.75rem"
         onclick="document.getElementById('trim-strip-{{.Video.ID}}').style.display='none';document.getElementById('trim-btn-{{.Video.ID}}').style.opacity='0.5'">✕</button>
     </form>
+    <div id="trim-confirm-{{.Video.ID}}" style="display:none;gap:0.4rem;align-items:center">
+      <span style="color:#ccc;font-size:0.8rem">Keep original file?</span>
+      <button type="button" class="btn-sm" onclick="trimDoSubmit({{.Video.ID}},1)">Keep</button>
+      <button type="button" class="btn-sm btn-danger" onclick="trimDoSubmit({{.Video.ID}},0)">Replace</button>
+      <button type="button" class="btn-sm btn-ghost" onclick="document.getElementById('trim-confirm-{{.Video.ID}}').style.display='none'">Cancel</button>
+    </div>
     <div id="trim-status-{{.Video.ID}}" class="htmx-indicator"
          style="font-size:0.72rem;color:#888;display:flex;align-items:center;gap:0.3rem">
       <span class="spinner"></span> Trimming…
     </div>
   </div><!-- /trim strip -->
+
+  <!-- ── Delogo strip — appears directly below the video edge ─────────── -->
+  <div id="delogo-strip-{{.Video.ID}}"
+       style="display:none;flex-direction:column;gap:0.35rem;background:#0c0c0c;
+              border-top:2px solid #f80;padding:0.45rem 0.8rem 0.5rem">
+    <div class="section-label" style="color:#f80">
+      ⊘ Delogo — click and drag on the video to mark the watermark region
+    </div>
+
+    <!-- Coord readout -->
+    <div style="font-size:0.72rem;color:#888;font-family:monospace" id="delogo-coords-{{.Video.ID}}">
+      No region selected
+    </div>
+
+    <!-- Temperature slider row -->
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <span style="font-size:0.72rem;color:#888">Fill color</span>
+      <input type="range" id="delogo-temp-{{.Video.ID}}" min="1000" max="10000" value="5500" step="100"
+        style="width:120px;accent-color:#f80"
+        oninput="delogoTempUpdate('{{.Video.ID}}')">
+      <div id="delogo-swatch-{{.Video.ID}}"
+           style="width:1.4rem;height:1.4rem;border-radius:3px;border:1px solid #555;background:#fff"></div>
+      <span id="delogo-temp-label-{{.Video.ID}}" style="font-size:0.72rem;color:#888;font-family:monospace">5500 K</span>
+    </div>
+
+    <!-- Form + keep/replace -->
+    <form id="delogo-form-{{.Video.ID}}"
+          hx-post="/videos/{{.Video.ID}}/delogo"
+          hx-target="#video-list"
+          hx-indicator="#delogo-status-{{.Video.ID}}"
+          hx-on::after-request="document.getElementById('delogo-strip-{{.Video.ID}}').style.display='none';
+                                 document.getElementById('delogo-overlay-{{.Video.ID}}').style.display='none';
+                                 document.getElementById('delogo-btn-{{.Video.ID}}').style.opacity='0.5'"
+          style="display:flex;align-items:center;gap:0.5rem">
+      <input type="hidden" name="x" id="delogo-x-{{.Video.ID}}" value="0">
+      <input type="hidden" name="y" id="delogo-y-{{.Video.ID}}" value="0">
+      <input type="hidden" name="w" id="delogo-w-{{.Video.ID}}" value="0">
+      <input type="hidden" name="h" id="delogo-h-{{.Video.ID}}" value="0">
+      <input type="hidden" name="color" id="delogo-color-{{.Video.ID}}" value="0xFFFFFF">
+      <input type="hidden" name="keep_original" id="delogo-keep-{{.Video.ID}}" value="0">
+      <button type="button" class="btn-sm btn-success" style="font-size:0.75rem"
+        onclick="delogoSubmitClick('{{.Video.ID}}')">⊘ Apply</button>
+      <button type="button" class="btn-sm btn-ghost" style="font-size:0.75rem"
+        onclick="toggleDelogoStrip('{{.Video.ID}}')">✕</button>
+    </form>
+    <div id="delogo-confirm-{{.Video.ID}}" style="display:none;gap:0.4rem;align-items:center">
+      <span style="color:#ccc;font-size:0.8rem">Keep original file?</span>
+      <button type="button" class="btn-sm" onclick="delogoDoSubmit('{{.Video.ID}}',1)">Keep</button>
+      <button type="button" class="btn-sm btn-danger" onclick="delogoDoSubmit('{{.Video.ID}}',0)">Replace</button>
+      <button type="button" class="btn-sm btn-ghost"
+        onclick="document.getElementById('delogo-confirm-{{.Video.ID}}').style.display='none'">Cancel</button>
+    </div>
+    <div id="delogo-status-{{.Video.ID}}" class="htmx-indicator"
+         style="font-size:0.72rem;color:#888;display:flex;align-items:center;gap:0.3rem">
+      <span class="spinner"></span> Applying…
+    </div>
+  </div><!-- /delogo strip -->
 
   <!-- ── Color float widget ──────────────────────────────────────────── -->
   <div id="color-bar-{{.Video.ID}}" class="float-widget" style="display:none;width:380px">
@@ -602,6 +688,148 @@ function trimUpdateBar(id, startSec, endSec) {
   document.getElementById('trim-rs-'+id).value = Math.round(s*TRIM_STEPS);
   document.getElementById('trim-re-'+id).value = Math.round(e*TRIM_STEPS);
 }
+function trimDoSubmit(id, keepOriginal) {
+  document.getElementById('keep-original-'+id).value = keepOriginal;
+  document.getElementById('trim-confirm-'+id).style.display = 'none';
+  document.getElementById('trim-form-'+id).requestSubmit();
+}
+
+// ── Edit sub-bar toggle ───────────────────────────────────────────────────
+function toggleEditSub(id) {
+  var sub = document.getElementById('edit-sub-'+id);
+  var btn = document.getElementById('edit-btn-'+id);
+  var opening = sub.style.display !== 'flex';
+  sub.style.display = opening ? 'flex' : 'none';
+  btn.style.opacity = opening ? '1' : '0.5';
+  if (!opening) {
+    // Collapse any open edit panels when closing the sub-bar
+    var ts = document.getElementById('trim-strip-'+id);
+    if (ts && ts.style.display === 'flex') { ts.style.display = 'none'; document.getElementById('trim-btn-'+id).style.opacity = '0.5'; }
+    var ds = document.getElementById('delogo-strip-'+id);
+    var dl = document.getElementById('delogo-overlay-'+id);
+    if (ds && ds.style.display === 'flex') { ds.style.display = 'none'; if (dl) dl.style.display = 'none'; document.getElementById('delogo-btn-'+id).style.opacity = '0.5'; }
+    var cb = document.getElementById('color-bar-'+id);
+    if (cb && cb.style.display !== 'none') { cb.style.display = 'none'; document.getElementById('color-btn-'+id).style.opacity = '0.5'; }
+    var ab = document.getElementById('audio-bar-'+id);
+    if (ab && ab.style.display !== 'none') { ab.style.display = 'none'; document.getElementById('audio-btn-'+id).style.opacity = '0.5'; }
+  }
+}
+
+// ── Delogo helpers ────────────────────────────────────────────────────────
+function toggleDelogoStrip(id) {
+  var strip   = document.getElementById('delogo-strip-'+id);
+  var overlay = document.getElementById('delogo-overlay-'+id);
+  var btn     = document.getElementById('delogo-btn-'+id);
+  if (strip.style.display === 'flex') {
+    strip.style.display   = 'none';
+    overlay.style.display = 'none';
+    btn.style.opacity     = '0.5';
+  } else {
+    strip.style.display   = 'flex';
+    overlay.style.display = 'block';
+    btn.style.opacity     = '1';
+    delogoTempUpdate(id); // initialise swatch
+  }
+}
+
+// Convert colour temperature (K) to an approximate RGB hex (Tanner Helland method).
+function delogoTempToHex(K) {
+  var t = K / 100;
+  var r, g, b;
+  if (t <= 66) {
+    r = 255;
+    g = t <= 0 ? 0 : Math.min(255, 99.4708025861 * Math.log(t) - 161.1195681661);
+  } else {
+    r = Math.min(255, 329.698727447 * Math.pow(t - 60, -0.1332047592));
+    g = Math.min(255, 288.1221695283 * Math.pow(t - 60, -0.0755148492));
+  }
+  b = t >= 66 ? 255 : (t <= 19 ? 0 : Math.min(255, 138.5177312231 * Math.log(t - 10) - 305.0447927307));
+  r = Math.max(0, Math.round(r));
+  g = Math.max(0, Math.round(g));
+  b = Math.max(0, Math.round(b));
+  return '#' + [r,g,b].map(function(v){ return v.toString(16).padStart(2,'0'); }).join('');
+}
+
+function delogoTempUpdate(id) {
+  var K   = +document.getElementById('delogo-temp-'+id).value;
+  var hex = delogoTempToHex(K);
+  document.getElementById('delogo-swatch-'+id).style.background = hex;
+  document.getElementById('delogo-temp-label-'+id).textContent  = K + ' K';
+  // Convert '#RRGGBB' → '0xRRGGBB' for ffmpeg
+  document.getElementById('delogo-color-'+id).value = '0x' + hex.slice(1).toUpperCase();
+}
+
+// Returns the content rect of the video within its element (accounts for object-fit:contain).
+function delogoVideoRect(id) {
+  var v  = document.getElementById('vid-'+id);
+  var vw = v.videoWidth  || v.clientWidth;
+  var vh = v.videoHeight || v.clientHeight;
+  var dw = v.clientWidth;
+  var dh = v.clientHeight;
+  var scale = Math.min(dw / vw, dh / vh);
+  return { x: (dw - vw*scale)/2, y: (dh - vh*scale)/2, scale: scale };
+}
+
+var _delogoDrag = {}; // keyed by video id
+function delogoDown(e, id) {
+  var ol = document.getElementById('delogo-overlay-'+id);
+  var rect = ol.getBoundingClientRect();
+  _delogoDrag[id] = { sx: e.clientX - rect.left, sy: e.clientY - rect.top, active: true };
+  var sel = document.getElementById('delogo-sel-'+id);
+  sel.style.display = 'block';
+  sel.style.left  = _delogoDrag[id].sx + 'px';
+  sel.style.top   = _delogoDrag[id].sy + 'px';
+  sel.style.width = '0px'; sel.style.height = '0px';
+  e.preventDefault();
+}
+function delogoMove(e, id) {
+  if (!(_delogoDrag[id] && _delogoDrag[id].active)) return;
+  var ol   = document.getElementById('delogo-overlay-'+id);
+  var rect = ol.getBoundingClientRect();
+  var cx   = e.clientX - rect.left;
+  var cy   = e.clientY - rect.top;
+  var sx   = _delogoDrag[id].sx, sy = _delogoDrag[id].sy;
+  var sel  = document.getElementById('delogo-sel-'+id);
+  sel.style.left   = Math.min(sx,cx)+'px';
+  sel.style.top    = Math.min(sy,cy)+'px';
+  sel.style.width  = Math.abs(cx-sx)+'px';
+  sel.style.height = Math.abs(cy-sy)+'px';
+  e.preventDefault();
+}
+function delogoUp(e, id) {
+  if (!(_delogoDrag[id] && _delogoDrag[id].active)) return;
+  _delogoDrag[id].active = false;
+  var ol   = document.getElementById('delogo-overlay-'+id);
+  var rect = ol.getBoundingClientRect();
+  var cx   = e.clientX - rect.left;
+  var cy   = e.clientY - rect.top;
+  var sx   = _delogoDrag[id].sx, sy = _delogoDrag[id].sy;
+  var vr   = delogoVideoRect(id);
+  // Convert overlay coords → video pixel coords
+  function toVidPx(v) { return Math.max(0, Math.round((v - vr.x) / vr.scale)); }
+  var px = toVidPx(Math.min(sx,cx));
+  var py = toVidPx(Math.min(sy,cy));
+  var pw = Math.round(Math.abs(cx-sx) / vr.scale);
+  var ph = Math.round(Math.abs(cy-sy) / vr.scale);
+  document.getElementById('delogo-x-'+id).value = px;
+  document.getElementById('delogo-y-'+id).value = py;
+  document.getElementById('delogo-w-'+id).value = pw;
+  document.getElementById('delogo-h-'+id).value = ph;
+  document.getElementById('delogo-coords-'+id).textContent =
+    'x='+px+' y='+py+' w='+pw+' h='+ph;
+}
+function delogoSubmitClick(id) {
+  if (+document.getElementById('delogo-w-'+id).value === 0) {
+    alert('Please drag a region on the video first.');
+    return;
+  }
+  document.getElementById('delogo-confirm-'+id).style.display = 'flex';
+}
+function delogoDoSubmit(id, keepOriginal) {
+  document.getElementById('delogo-keep-'+id).value = keepOriginal;
+  document.getElementById('delogo-confirm-'+id).style.display = 'none';
+  document.getElementById('delogo-form-'+id).requestSubmit();
+}
 function trimRangeInput(id) {
   var dur = trimDur(id); if (dur<=0) return;
   var rs = +document.getElementById('trim-rs-'+id).value;
@@ -652,7 +880,7 @@ function openTrimStrip(id) {
 
 // ── Floating widgets (Color / Audio) ────────────────────────────────────────
 
-// Toggle a floating widget open/closed; position near the trigger button on first open.
+// Toggle a floating widget open/closed; position centered over the video on first open.
 function toggleFloatWidget(widgetId, btnId, triggerEl) {
   var w   = document.getElementById(widgetId);
   var btn = document.getElementById(btnId);
@@ -662,11 +890,13 @@ function toggleFloatWidget(widgetId, btnId, triggerEl) {
   if (btn) btn.style.opacity = opening ? '1' : '0.5';
   if (opening && !w._positioned) {
     w._positioned = true;
-    var ref = triggerEl || btn;
-    if (ref) {
-      var r = ref.getBoundingClientRect();
-      w.style.left = Math.max(4, r.left) + 'px';
-      w.style.top  = (r.bottom + 6) + 'px';
+    var numId = widgetId.replace(/^(color|audio)-bar-/, '');
+    var vidEl = document.getElementById('vid-' + numId);
+    if (vidEl) {
+      var vr = vidEl.getBoundingClientRect();
+      var ww = parseInt(w.style.width) || 380;
+      w.style.left = Math.max(4, vr.left + (vr.width - ww) / 2) + 'px';
+      w.style.top  = Math.max(4, vr.top + 16) + 'px';
     } else {
       w.style.left = '40px';
       w.style.top  = '80px';
@@ -960,25 +1190,33 @@ function floatWidgetDragStart(e, el) {
     >✕ Clear watched</button>
   </div>
 
-  <!-- Delete confirmation (hidden until Delete… is clicked) -->
-  <div id="del-confirm-{{.Video.ID}}"
-    style="display:none;gap:0.4rem;align-items:center;flex-wrap:wrap;padding:0.35rem 0.5rem;background:#1e1515;border:1px solid #5a2a2a;border-radius:4px;font-size:0.78rem">
-    <span style="color:#ccc;flex:1">Delete <strong>{{.Video.Title}}</strong>?</span>
-    <button class="btn-sm" style="font-size:0.74rem"
-      hx-delete="/videos/{{.Video.ID}}"
-      hx-target="#video-list"
-      hx-on::after-request="closeTab({{.Video.ID}})"
-      title="Remove from library but keep the file on disk"
-    >Remove from library</button>
-    <button class="btn-sm btn-danger" style="font-size:0.74rem"
-      hx-delete="/videos/{{.Video.ID}}/file"
-      hx-target="#video-list"
-      hx-on::after-request="closeTab({{.Video.ID}})"
-      title="Remove from library AND delete the file from disk"
-    >Delete file</button>
-    <button class="btn-sm btn-ghost" style="font-size:0.74rem"
-      onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='none'"
-    >Cancel</button>
+  <!-- Delete confirmation modal (hidden until Delete… is clicked) -->
+  <div id="del-confirm-{{.Video.ID}}" class="modal-overlay" style="display:none"
+    onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='none'">
+    <div class="modal-box" onclick="event.stopPropagation()" style="max-width:360px">
+      <button type="button" class="modal-close"
+        onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='none'"
+        title="Close">✕</button>
+      <h3 style="font-size:0.9rem;text-transform:uppercase;letter-spacing:0.1em;color:#ccc;margin:0 0 0.6rem 0;padding-right:2.5rem">Delete video?</h3>
+      <p style="color:#bbb;font-size:0.85rem;margin:0 0 1rem 0">Delete <strong>{{.Video.Title}}</strong>?</p>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn-sm btn-ghost"
+          onclick="document.getElementById('del-confirm-{{.Video.ID}}').style.display='none'"
+        >Cancel</button>
+        <button class="btn-sm"
+          hx-delete="/videos/{{.Video.ID}}"
+          hx-target="#video-list"
+          hx-on::after-request="closeTab({{.Video.ID}})"
+          title="Remove from library but keep the file on disk"
+        >Remove from library</button>
+        <button class="btn-sm btn-danger"
+          hx-delete="/videos/{{.Video.ID}}/file"
+          hx-target="#video-list"
+          hx-on::after-request="closeTab({{.Video.ID}})"
+          title="Remove from library AND delete the file from disk"
+        >Delete file</button>
+      </div>
+    </div>
   </div>
 
   <!-- Rating + type row -->

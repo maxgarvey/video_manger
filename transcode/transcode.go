@@ -203,6 +203,20 @@ func Trim(bgCtx context.Context, sem chan struct{}, src, dst, start, end string)
 	return run(bgCtx, args...)
 }
 
+// Delogo paints a solid-colour rectangle over a watermark region by re-encoding
+// the video with ffmpeg's drawbox filter.
+func Delogo(bgCtx context.Context, sem chan struct{}, src, dst string,
+	x, y, w, h int, fillColor string) error {
+	select {
+	case sem <- struct{}{}:
+		defer func() { <-sem }()
+	case <-bgCtx.Done():
+		return fmt.Errorf("request cancelled")
+	}
+	vf := fmt.Sprintf("drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=fill", x, y, w, h, fillColor)
+	return run(bgCtx, "-y", "-i", src, "-vf", vf, "-c:v", "libx264", "-c:a", "copy", dst)
+}
+
 // GenerateThumbnail extracts a frame from the video at the given position (0–1
 // relative to duration) and saves it as a JPEG thumbnail.
 func GenerateThumbnail(src, dst string, position float64) error {
