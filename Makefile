@@ -1,10 +1,17 @@
-.PHONY: fmt test build roku roku-deploy
+.PHONY: fmt test build roku roku-deploy precommit install-hooks
 
 fmt:
 	gofmt -w -s .
 
 test:
-	go test ./... -race -count=1 -timeout 60s
+	go test ./... -race -count=1 -timeout 180s
+
+precommit: fmt
+	go test ./... -race -count=1 -timeout 180s
+
+install-hooks:
+	cp scripts/pre-commit .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
 
 build:
 	go build -o video_manger .

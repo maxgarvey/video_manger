@@ -71,7 +71,7 @@
           <select id="ql-move-dir-{{.Video.ID}}" class="input-dark" style="flex:1;font-size:0.82rem">
             <option value="">— no change —</option>
             {{range .Dirs}}
-            <option value="{{.ID}}"{{if eq .ID $.Video.DirectoryID}} selected disabled{{end}}>{{base .Path}}</option>
+            <option value="{{.ID}}" data-path="{{.Path}}"{{if eq .ID $.Video.DirectoryID}} selected disabled{{end}}>{{base .Path}}</option>
             {{end}}
           </select>
           <button type="button" class="btn-sm" onclick="qlDoMove({{.Video.ID}})" style="font-size:0.78rem;flex-shrink:0">Move</button>
@@ -140,13 +140,24 @@
   function qlDoMove(videoId) {
     var sel = document.getElementById('ql-move-dir-' + videoId);
     if (!sel || !sel.value) return;
+    var btn = event.currentTarget || event.target;
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
     var fd = new FormData();
     fd.append('dir_id', sel.value);
     fetch('/videos/' + videoId + '/move', {method: 'POST', body: fd})
       .then(function(r) {
-        if (!r.ok) { r.text().then(function(t){ alert('Move failed: ' + t); }); return; }
+        if (!r.ok) {
+          r.text().then(function(t) { alert('Move failed: ' + t); });
+          if (btn) { btn.disabled = false; btn.textContent = 'Move'; }
+          return;
+        }
+        // Update the on-disk path display in the Info panel.
+        var opt = sel.options[sel.selectedIndex];
+        var newDir = (opt && opt.dataset.path) ? opt.dataset.path : (opt ? opt.textContent : '');
+        var pathEl = document.getElementById('video-path-' + videoId);
+        if (pathEl && newDir) pathEl.textContent = newDir + '/' + pathEl.dataset.filename;
         document.getElementById('quick-label-modal').innerHTML = '';
-        htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+        refreshVideoList();
       });
   }
 </script>

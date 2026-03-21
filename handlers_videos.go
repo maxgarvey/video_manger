@@ -598,6 +598,27 @@ func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Move the thumbnail if one exists.
+	if video.ThumbnailPath != "" {
+		thumbFilename := filepath.Base(video.ThumbnailPath)
+		thumbDst := filepath.Join(destDirPath, thumbFilename)
+		// Best-effort: log on failure but don't abort — video move already succeeded.
+		if err := os.Rename(video.ThumbnailPath, thumbDst); err != nil {
+			if err2 := copyFile(video.ThumbnailPath, thumbDst); err2 != nil {
+				slog.Warn("could not move thumbnail", "src", video.ThumbnailPath, "dst", thumbDst, "err", err2)
+			} else {
+				_ = os.Remove(video.ThumbnailPath)
+				if err := s.store.UpdateVideoThumbnail(r.Context(), video.ID, thumbDst); err != nil {
+					slog.Warn("thumbnail moved on disk but DB update failed", "dst", thumbDst, "err", err)
+				}
+			}
+		} else {
+			if err := s.store.UpdateVideoThumbnail(r.Context(), video.ID, thumbDst); err != nil {
+				slog.Warn("thumbnail moved on disk but DB update failed", "dst", thumbDst, "err", err)
+			}
+		}
+	}
+
 	// Sync both directories so the library reflects the change.
 	s.startSyncDir(targetDir)
 	if video.DirectoryID != 0 && video.DirectoryID != targetDir.ID {
