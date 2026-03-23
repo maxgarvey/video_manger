@@ -1103,9 +1103,9 @@ func TestListVideosByType_ReturnsOnlyMatchingType(t *testing.T) {
 	v2, _ := s.UpsertVideo(ctx, d.ID, d.Path, "episode.mp4")
 	v3, _ := s.UpsertVideo(ctx, d.ID, d.Path, "another_film.mp4")
 
-	s.UpdateVideoType(ctx, v1.ID, "Movie")  //nolint:errcheck
-	s.UpdateVideoType(ctx, v2.ID, "TV")     //nolint:errcheck
-	s.UpdateVideoType(ctx, v3.ID, "Movie")  //nolint:errcheck
+	s.UpdateVideoType(ctx, v1.ID, "Movie") //nolint:errcheck
+	s.UpdateVideoType(ctx, v2.ID, "TV")    //nolint:errcheck
+	s.UpdateVideoType(ctx, v3.ID, "Movie") //nolint:errcheck
 
 	movies, err := s.ListVideosByType(ctx, "Movie")
 	if err != nil {
@@ -1353,10 +1353,10 @@ func TestListSettingsWithPrefix(t *testing.T) {
 		t.Errorf("expected 0, got %d", len(none))
 	}
 
-	// empty prefix matches all (4 defaults + 3 we added)
+	// empty prefix matches all (5 defaults + 3 we added)
 	all, _ := s.ListSettingsWithPrefix(ctx, "")
-	if len(all) != 7 {
-		t.Errorf("expected 7, got %d", len(all))
+	if len(all) != 8 {
+		t.Errorf("expected 8, got %d", len(all))
 	}
 }
 
@@ -1554,7 +1554,7 @@ func TestPruneExpiredSessions(t *testing.T) {
 	ctx := context.Background()
 
 	// Save one expired (past) and one valid (future) session.
-	s.SaveSession(ctx, "tok-valid", time.Now().Add(time.Hour))   //nolint:errcheck
+	s.SaveSession(ctx, "tok-valid", time.Now().Add(time.Hour))    //nolint:errcheck
 	s.SaveSession(ctx, "tok-expired", time.Now().Add(-time.Hour)) //nolint:errcheck
 
 	if err := s.PruneExpiredSessions(ctx); err != nil {
@@ -1574,7 +1574,7 @@ func TestLoadSessions_ExcludesExpired(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	s.SaveSession(ctx, "alive", time.Now().Add(time.Hour))    //nolint:errcheck
+	s.SaveSession(ctx, "alive", time.Now().Add(time.Hour))   //nolint:errcheck
 	s.SaveSession(ctx, "dead", time.Now().Add(-time.Minute)) //nolint:errcheck
 
 	sessions, err := s.LoadSessions(ctx)

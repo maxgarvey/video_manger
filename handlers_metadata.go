@@ -559,18 +559,21 @@ func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	tmdbKey, _ := s.store.GetSetting(r.Context(), "tmdb_api_key")
 	libraryPath, _ := s.store.GetSetting(r.Context(), "library_path")
 	nextFromSearch, _ := s.store.GetSetting(r.Context(), "next_from_search")
+	rokuEnabled, _ := s.store.GetSetting(r.Context(), "roku_enabled")
 	render(w, "settings.html", struct {
 		AutoplayRandom bool
 		VideoSort      string
 		HasTMDBKey     bool
 		LibraryPath    string
 		NextFromSearch bool
+		RokuEnabled    bool
 	}{
 		AutoplayRandom: autoplay == "true",
 		VideoSort:      videoSort,
 		HasTMDBKey:     strings.TrimSpace(tmdbKey) != "",
 		LibraryPath:    strings.TrimSpace(libraryPath),
 		NextFromSearch: nextFromSearch == "true",
+		RokuEnabled:    rokuEnabled != "false",
 	})
 }
 
@@ -583,11 +586,16 @@ func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("next_from_search") == "on" {
 		nextFromSearch = "true"
 	}
+	rokuEnabled := "false"
+	if r.FormValue("roku_enabled") == "on" {
+		rokuEnabled = "true"
+	}
 	pairs := map[string]string{
 		"autoplay_random":  autoplay,
 		"video_sort":       r.FormValue("video_sort"),
 		"library_path":     strings.TrimSpace(r.FormValue("library_path")),
 		"next_from_search": nextFromSearch,
+		"roku_enabled":     rokuEnabled,
 	}
 	// Only overwrite the TMDB key if a new value was provided.
 	if key := strings.TrimSpace(r.FormValue("tmdb_api_key")); key != "" {

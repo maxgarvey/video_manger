@@ -56,8 +56,8 @@ var templates = template.Must(template.New("").Funcs(template.FuncMap{
 		return ""
 	},
 	"ValidColorLabels": func() map[string]string { return store.VideoLabelColors },
-	"add": func(a, b int) int { return a + b },
-	"mul": func(a, b int) int { return a * b },
+	"add":              func(a, b int) int { return a + b },
+	"mul":              func(a, b int) int { return a * b },
 	"ext": func(filename string) string {
 		e := filepath.Ext(filename)
 		if len(e) > 1 {
@@ -160,11 +160,11 @@ func render(w http.ResponseWriter, name string, data any) {
 }
 
 func main() {
-	dbPath    := flag.String("db", "video_manger.db", "path to SQLite database file")
-	dir       := flag.String("dir", "", "video directory to register on startup (optional)")
-	httpPort  := flag.String("http-port", "8080", "plain HTTP port (for Roku and other LAN devices)")
+	dbPath := flag.String("db", "video_manger.db", "path to SQLite database file")
+	dir := flag.String("dir", "", "video directory to register on startup (optional)")
+	httpPort := flag.String("http-port", "8080", "plain HTTP port (for Roku and other LAN devices)")
 	httpsPort := flag.String("https-port", "8081", "HTTPS/HTTP2 port (for browser)")
-	password  := flag.String("password", "", "optional password to protect the UI (leave empty for no auth)")
+	password := flag.String("password", "", "optional password to protect the UI (leave empty for no auth)")
 	flag.Parse()
 
 	s, err := store.NewSQLite(*dbPath)
@@ -217,13 +217,16 @@ func main() {
 
 	// mDNS advertises the plain HTTP port so Roku and other LAN devices can
 	// discover the server without TLS configuration.
-	httpPortInt, _ := strconv.Atoi(*httpPort)
-	mdns, err := zeroconf.Register("video-manger", "_http._tcp", "local.", httpPortInt, nil, nil)
-	if err != nil {
-		slog.Warn("mDNS register failed", "err", err)
-	} else {
-		defer mdns.Shutdown()
-		slog.Info("mDNS registered", "url", "http://video-manger.local:"+*httpPort)
+	rokuEnabled, _ := s.GetSetting(context.Background(), "roku_enabled")
+	if rokuEnabled != "false" {
+		httpPortInt, _ := strconv.Atoi(*httpPort)
+		mdns, err := zeroconf.Register("video-manger", "_http._tcp", "local.", httpPortInt, nil, nil)
+		if err != nil {
+			slog.Warn("mDNS register failed", "err", err)
+		} else {
+			defer mdns.Shutdown()
+			slog.Info("mDNS registered", "url", "http://video-manger.local:"+*httpPort)
+		}
 	}
 
 	checkBinaries()
@@ -253,7 +256,7 @@ func main() {
 	}()
 
 	slog.Info("HTTP  server started (Roku / LAN)", "url", "http://localhost:"+*httpPort)
-	slog.Info("HTTPS server started (browser)",    "url", "https://localhost:"+*httpsPort)
+	slog.Info("HTTPS server started (browser)", "url", "https://localhost:"+*httpsPort)
 	slog.Info("NOTE: first HTTPS visit will show a cert warning — click Advanced → Proceed to accept the self-signed cert")
 	for _, addr := range localAddresses(*httpPort) {
 		slog.Info("LAN address", "url", addr)

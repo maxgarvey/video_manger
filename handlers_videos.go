@@ -40,7 +40,12 @@ func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	render(w, "index.html", nil)
+	rokuEnabled, _ := s.store.GetSetting(r.Context(), "roku_enabled")
+	render(w, "index.html", struct {
+		RokuEnabled bool
+	}{
+		RokuEnabled: rokuEnabled != "false",
+	})
 }
 
 func (s *server) handlePlayer(w http.ResponseWriter, r *http.Request) {

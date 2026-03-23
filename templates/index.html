@@ -2070,6 +2070,7 @@
     // ── Roku live-detection ───────────────────────────────────────────
     // Poll /roku/connected every 4 s. Toggle .roku-live on <body> so the
     // Cast button appears only when the Roku app is actively running.
+    {{if .RokuEnabled}}
     (function() {
       function checkRoku() {
         fetch('/roku/connected').then(function(r) {
@@ -2081,6 +2082,7 @@
       checkRoku();
       setInterval(checkRoku, 4000);
     })();
+    {{end}}
 
     // Returns the <video> element of the active (or only) tab pane.
     function activeVideo() {
