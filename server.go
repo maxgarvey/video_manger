@@ -186,6 +186,9 @@ func (s *server) routes() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(s.authMiddleware)
 
+	// Static assets (JS extracted from templates)
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
 	r.Get("/login", s.handleLoginPage)
 	r.Post("/login", s.handleLoginSubmit)
 	r.Get("/logout", s.handleLogout)
