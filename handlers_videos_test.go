@@ -892,8 +892,8 @@ func TestHandleVideoSearch_Unicode(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
-	srv.store.UpsertVideo(ctx, d.ID, d.Path, "Résumé.mp4")    //nolint:errcheck
-	srv.store.UpsertVideo(ctx, d.ID, d.Path, "日本語ビデオ.mp4")    //nolint:errcheck
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "Résumé.mp4")  //nolint:errcheck
+	srv.store.UpsertVideo(ctx, d.ID, d.Path, "日本語ビデオ.mp4")  //nolint:errcheck
 	srv.store.UpsertVideo(ctx, d.ID, d.Path, "emoji_🎬.mp4") //nolint:errcheck
 
 	for _, q := range []string{"Résumé", "日本語", "🎬", "café"} {

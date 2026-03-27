@@ -336,7 +336,7 @@ func seedAPIFixture(t *testing.T, srv *server) {
 		}
 		srv.store.SetExclusiveSystemTag(ctx, v.ID, "show", show)  //nolint:errcheck
 		srv.store.SetExclusiveSystemTag(ctx, v.ID, "type", vtype) //nolint:errcheck
-		srv.store.UpdateVideoFields(ctx, v.ID, store.VideoFields{  //nolint:errcheck
+		srv.store.UpdateVideoFields(ctx, v.ID, store.VideoFields{ //nolint:errcheck
 			SeasonNumber:  season,
 			EpisodeNumber: ep,
 		})

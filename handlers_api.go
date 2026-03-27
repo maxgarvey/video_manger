@@ -37,18 +37,18 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 // apiVideo is the JSON representation of a single video.
 type apiVideo struct {
-	ID           int64  `json:"id"`
-	Title        string `json:"title"`
-	Show         string `json:"show,omitempty"`
-	Season       int    `json:"season,omitempty"`
-	Episode      int    `json:"episode,omitempty"`
-	EpisodeTitle string `json:"episode_title,omitempty"`
-	Genre        string `json:"genre,omitempty"`
-	Channel      string `json:"channel,omitempty"`
-	Studio       string `json:"studio,omitempty"`
-	Actors       string `json:"actors,omitempty"`
-	AirDate      string `json:"air_date,omitempty"`
-	Type         string `json:"type,omitempty"`
+	ID           int64   `json:"id"`
+	Title        string  `json:"title"`
+	Show         string  `json:"show,omitempty"`
+	Season       int     `json:"season,omitempty"`
+	Episode      int     `json:"episode,omitempty"`
+	EpisodeTitle string  `json:"episode_title,omitempty"`
+	Genre        string  `json:"genre,omitempty"`
+	Channel      string  `json:"channel,omitempty"`
+	Studio       string  `json:"studio,omitempty"`
+	Actors       string  `json:"actors,omitempty"`
+	AirDate      string  `json:"air_date,omitempty"`
+	Type         string  `json:"type,omitempty"`
 	Rating       int     `json:"rating"`
 	WatchedAt    string  `json:"watched_at,omitempty"`
 	DurationS    float64 `json:"duration_s,omitempty"`
@@ -100,10 +100,10 @@ func videoToAPI(v store.Video) apiVideo {
 		Actors:       v.Actors,
 		AirDate:      v.AirDate,
 		Type:         v.VideoType,
-		Rating:    v.Rating,
-		WatchedAt: v.WatchedAt,
-		DurationS: v.DurationS,
-		StreamURL: "/video/" + strconv.FormatInt(v.ID, 10),
+		Rating:       v.Rating,
+		WatchedAt:    v.WatchedAt,
+		DurationS:    v.DurationS,
+		StreamURL:    "/video/" + strconv.FormatInt(v.ID, 10),
 	}
 	if v.ThumbnailPath != "" {
 		av.ThumbnailURL = "/videos/" + strconv.FormatInt(v.ID, 10) + "/thumbnail"

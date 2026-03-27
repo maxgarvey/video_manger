@@ -74,7 +74,7 @@ func TestExtractShowFromFilename(t *testing.T) {
 		{"my_show_Season1.mkv", "my show"},
 		// No recognisable pattern — returns empty
 		{"random_clip.mp4", ""},
-		{"S01E01.mp4", ""},      // nothing before the pattern
+		{"S01E01.mp4", ""}, // nothing before the pattern
 		{"movie_2024.mp4", ""},
 	}
 	for _, c := range cases {
@@ -591,7 +591,7 @@ func TestSyncDir_SkipsRegisteredSubdirectory(t *testing.T) {
 	// Create a parent directory with one video and a subdirectory (child) with another.
 	root := t.TempDir()
 	child := filepath.Join(root, "movies")
-	os.Mkdir(child, 0755)                                                        //nolint:errcheck
+	os.Mkdir(child, 0755)                                                       //nolint:errcheck
 	os.WriteFile(filepath.Join(root, "standalone.mp4"), []byte("fake"), 0644)   //nolint:errcheck
 	os.WriteFile(filepath.Join(child, "blockbuster.mp4"), []byte("fake"), 0644) //nolint:errcheck
 

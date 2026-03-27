@@ -580,8 +580,8 @@ func TestHandleAPIListEpisodes(t *testing.T) {
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
 	v1, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "show_s1e1.mp4")
 	v2, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "show_s2e1.mp4")
-	srv.store.UpdateVideoShowName(ctx, v1.ID, "TestShow") //nolint:errcheck
-	srv.store.UpdateVideoShowName(ctx, v2.ID, "TestShow") //nolint:errcheck
+	srv.store.UpdateVideoShowName(ctx, v1.ID, "TestShow")                                         //nolint:errcheck
+	srv.store.UpdateVideoShowName(ctx, v2.ID, "TestShow")                                         //nolint:errcheck
 	srv.store.UpdateVideoFields(ctx, v1.ID, store.VideoFields{SeasonNumber: 1, EpisodeNumber: 1}) //nolint:errcheck
 	srv.store.UpdateVideoFields(ctx, v2.ID, store.VideoFields{SeasonNumber: 2, EpisodeNumber: 1}) //nolint:errcheck
 

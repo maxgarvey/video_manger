@@ -240,14 +240,14 @@ func firstOf(tags map[string]string, keys ...string) string {
 
 type ffprobeStreamsOutput struct {
 	Streams []struct {
-		CodecType        string `json:"codec_type"`
-		CodecName        string `json:"codec_name"`
-		Width            int    `json:"width"`
-		Height           int    `json:"height"`
-		AvgFrameRate     string `json:"avg_frame_rate"`
-		BitRate          string `json:"bit_rate"`
-		SampleRate       string `json:"sample_rate"`
-		Channels         int    `json:"channels"`
+		CodecType    string `json:"codec_type"`
+		CodecName    string `json:"codec_name"`
+		Width        int    `json:"width"`
+		Height       int    `json:"height"`
+		AvgFrameRate string `json:"avg_frame_rate"`
+		BitRate      string `json:"bit_rate"`
+		SampleRate   string `json:"sample_rate"`
+		Channels     int    `json:"channels"`
 	} `json:"streams"`
 }
 
