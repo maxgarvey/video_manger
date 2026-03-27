@@ -573,7 +573,7 @@ func (s *server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		HasTMDBKey:     strings.TrimSpace(tmdbKey) != "",
 		LibraryPath:    strings.TrimSpace(libraryPath),
 		NextFromSearch: nextFromSearch == "true",
-		RokuEnabled:    rokuEnabled != "false",
+		RokuEnabled:    rokuEnabled == "true",
 	})
 }
 

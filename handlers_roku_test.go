@@ -8,8 +8,16 @@ import (
 	"testing"
 )
 
+func enableRoku(t *testing.T, srv *server) {
+	t.Helper()
+	if err := srv.store.SaveSettings(context.Background(), map[string]string{"roku_enabled": "true"}); err != nil {
+		t.Fatalf("enable roku: %v", err)
+	}
+}
+
 func TestHandleRokuPoll_EmptyQueue(t *testing.T) {
 	srv := newTestServer(t)
+	enableRoku(t, srv)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/roku/poll", nil)
 	srv.routes().ServeHTTP(rec, req)
@@ -20,6 +28,7 @@ func TestHandleRokuPoll_EmptyQueue(t *testing.T) {
 
 func TestHandleRokuCast_And_Poll(t *testing.T) {
 	srv := newTestServer(t)
+	enableRoku(t, srv)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
 	v, _ := srv.store.UpsertVideo(ctx, d.ID, d.Path, "film.mp4")
@@ -54,6 +63,7 @@ func TestHandleRokuCast_And_Poll(t *testing.T) {
 
 func TestHandleRokuConnected_NotPolledRecently(t *testing.T) {
 	srv := newTestServer(t)
+	enableRoku(t, srv)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/roku/connected", nil)
 	srv.routes().ServeHTTP(rec, req)
@@ -65,6 +75,7 @@ func TestHandleRokuConnected_NotPolledRecently(t *testing.T) {
 
 func TestHandleRokuConnected_AfterPoll(t *testing.T) {
 	srv := newTestServer(t)
+	enableRoku(t, srv)
 
 	// Trigger a poll so castLastPoll is updated.
 	srv.routes().ServeHTTP(httptest.NewRecorder(),
@@ -84,6 +95,7 @@ func TestHandleRokuConnected_AfterPoll(t *testing.T) {
 
 func TestHandleRokuCast_BadID(t *testing.T) {
 	srv := newTestServer(t)
+	enableRoku(t, srv)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/roku/cast/notanid", nil)
 	srv.routes().ServeHTTP(rec, req)

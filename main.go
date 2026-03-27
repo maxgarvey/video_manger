@@ -218,7 +218,7 @@ func main() {
 	// mDNS advertises the plain HTTP port so Roku and other LAN devices can
 	// discover the server without TLS configuration.
 	rokuEnabled, _ := s.GetSetting(context.Background(), "roku_enabled")
-	if rokuEnabled != "false" {
+	if rokuEnabled == "true" {
 		httpPortInt, _ := strconv.Atoi(*httpPort)
 		mdns, err := zeroconf.Register("video-manger", "_http._tcp", "local.", httpPortInt, nil, nil)
 		if err != nil {

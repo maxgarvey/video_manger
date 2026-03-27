@@ -19,7 +19,7 @@ const rokuLivePeriod = 6 * time.Second // Roku polls every 2 s; 6 s = 3 missed p
 // when Roku connectivity is turned off.
 func (s *server) rokuDisabled(w http.ResponseWriter, r *http.Request) bool {
 	v, _ := s.store.GetSetting(r.Context(), "roku_enabled")
-	if v == "false" {
+	if v != "true" {
 		http.NotFound(w, r)
 		return true
 	}
