@@ -173,6 +173,9 @@ type Store interface {
 	GetRandomVideo(ctx context.Context) (Video, error)
 	GetNextUnwatched(ctx context.Context, tagID int64) (Video, error)
 	GetNextUnwatchedFromSearch(ctx context.Context, query string, tagID int64) (Video, error)
+	// Lite variants return only the id and title — much cheaper under DB contention.
+	GetNextUnwatchedLite(ctx context.Context, tagID int64) (int64, string, error)
+	GetNextUnwatchedFromSearchLite(ctx context.Context, query string, tagID int64) (int64, string, error)
 
 	// Session persistence (used when password auth is enabled)
 	SaveSession(ctx context.Context, token string, expiry time.Time) error

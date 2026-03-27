@@ -44,7 +44,7 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	render(w, "index.html", struct {
 		RokuEnabled bool
 	}{
-		RokuEnabled: rokuEnabled != "false",
+		RokuEnabled: rokuEnabled == "true",
 	})
 }
 
@@ -787,21 +787,22 @@ func (s *server) handleNextUnwatched(w http.ResponseWriter, r *http.Request) {
 	tagID, _ := strconv.ParseInt(r.URL.Query().Get("tag_id"), 10, 64)
 	q := r.URL.Query().Get("q")
 
-	var video store.Video
+	var id int64
+	var title string
 	var err error
 
 	nextFromSearch, _ := s.store.GetSetting(r.Context(), "next_from_search")
 	if nextFromSearch == "true" && q != "" {
-		video, err = s.store.GetNextUnwatchedFromSearch(r.Context(), q, tagID)
+		id, title, err = s.store.GetNextUnwatchedFromSearchLite(r.Context(), q, tagID)
 	} else {
-		video, err = s.store.GetNextUnwatched(r.Context(), tagID)
+		id, title, err = s.store.GetNextUnwatchedLite(r.Context(), tagID)
 	}
 	if err != nil {
 		http.Error(w, "no unwatched videos", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"id": video.ID, "title": video.Title()}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]any{"id": id, "title": title}) //nolint:errcheck
 }
 
 func (s *server) handleRandomVideoID(w http.ResponseWriter, r *http.Request) {

@@ -253,7 +253,8 @@ func (s *server) startSyncDir(d store.Directory) {
 
 // startLibraryPoller runs in the background, re-scanning all registered
 // directories every 60 s so newly added files are picked up automatically.
-// Directories that are already being synced are skipped to avoid races.
+// Directories are synced sequentially to avoid concurrent write contention
+// on the single-writer SQLite database.
 func (s *server) startLibraryPoller(ctx context.Context) {
 	ticker := time.NewTicker(libraryPollEvery)
 	defer ticker.Stop()
@@ -267,14 +268,29 @@ func (s *server) startLibraryPoller(ctx context.Context) {
 				slog.Error("library poll: list dirs failed", "err", err)
 				continue
 			}
-			for _, d := range dirs {
-				s.syncingMu.Lock()
-				_, already := s.syncingDirs[d.ID]
-				s.syncingMu.Unlock()
-				if !already {
-					s.startSyncDir(d)
+			// Sync sequentially in a single goroutine to reduce DB
+			// write contention that blocks user-facing read queries.
+			go func() {
+				for _, d := range dirs {
+					s.syncingMu.Lock()
+					_, already := s.syncingDirs[d.ID]
+					if already {
+						s.syncingMu.Unlock()
+						continue
+					}
+					s.syncingDirs[d.ID] = struct{}{}
+					s.syncingMu.Unlock()
+
+					start := time.Now()
+					slog.Info("syncDir: start", "path", d.Path)
+					s.syncDir(d)
+					slog.Info("syncDir: done", "path", d.Path, "elapsed", time.Since(start).Round(time.Millisecond))
+
+					s.syncingMu.Lock()
+					delete(s.syncingDirs, d.ID)
+					s.syncingMu.Unlock()
 				}
-			}
+			}()
 		}
 	}
 }
@@ -294,7 +310,6 @@ func (s *server) syncTagsToFile(ctx context.Context, video store.Video) {
 		slog.Warn("syncTagsToFile: write failed", "path", video.FilePath(), "err", err)
 	}
 }
-
 
 // ── Sidecar JSON ──────────────────────────────────────────────────────────────
 

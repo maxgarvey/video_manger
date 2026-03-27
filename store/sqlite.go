@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,13 +20,21 @@ type SQLiteStore struct {
 // NewSQLite opens (or creates) a SQLite database at path and applies all
 // pending migrations from the embedded migrations/ directory.
 func NewSQLite(path string) (*SQLiteStore, error) {
-	conn, err := sql.Open("sqlite", path)
+	// For in-memory databases, use shared cache so multiple connections
+	// see the same data (required when MaxOpenConns > 1).  Each caller
+	// gets a unique name to avoid cross-contamination in tests.
+	dsn := path
+	if path == ":memory:" {
+		dsn = fmt.Sprintf("file:memdb_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	}
+	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	// Limit to one open connection to avoid "database is locked" errors
-	// under concurrent requests with SQLite's default journal mode.
-	conn.SetMaxOpenConns(1)
+	// WAL mode (set below) supports concurrent readers alongside a single
+	// writer, so we can safely allow multiple connections.  This prevents
+	// user-facing read queries from queuing behind long-running sync writes.
+	conn.SetMaxOpenConns(4)
 	for _, pragma := range []string{
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA journal_mode = WAL",
@@ -520,6 +529,52 @@ func (s *SQLiteStore) GetNextUnwatchedFromSearch(ctx context.Context, query stri
 		}
 	}
 	return Video{}, sql.ErrNoRows
+}
+
+// GetNextUnwatchedLite returns only the id and title of the next unwatched
+// video, avoiding the expensive correlated subqueries used by GetNextUnwatched.
+func (s *SQLiteStore) GetNextUnwatchedLite(ctx context.Context, tagID int64) (int64, string, error) {
+	var id int64
+	var title string
+	var row *sql.Row
+	if tagID > 0 {
+		row = s.conn.QueryRowContext(ctx, `
+			SELECT v.id, COALESCE(NULLIF(v.display_name,''), v.filename)
+			FROM videos v
+			JOIN video_tags vt ON v.id = vt.video_id
+			WHERE vt.tag_id = ? AND v.watched = 0
+			ORDER BY COALESCE(NULLIF(v.display_name,''), v.filename)
+			LIMIT 1
+		`, tagID)
+	} else {
+		row = s.conn.QueryRowContext(ctx, `
+			SELECT v.id, COALESCE(NULLIF(v.display_name,''), v.filename)
+			FROM videos v
+			WHERE v.watched = 0
+			ORDER BY COALESCE(NULLIF(v.display_name,''), v.filename)
+			LIMIT 1
+		`)
+	}
+	err := row.Scan(&id, &title)
+	return id, title, err
+}
+
+// GetNextUnwatchedFromSearchLite returns the id and title of the first
+// unwatched video matching the search query.
+func (s *SQLiteStore) GetNextUnwatchedFromSearchLite(ctx context.Context, query string, tagID int64) (int64, string, error) {
+	if query == "" {
+		return s.GetNextUnwatchedLite(ctx, tagID)
+	}
+	videos, err := s.SearchVideos(ctx, query)
+	if err != nil {
+		return 0, "", err
+	}
+	for _, v := range videos {
+		if !v.Watched {
+			return v.ID, v.Title(), nil
+		}
+	}
+	return 0, "", sql.ErrNoRows
 }
 
 func (s *SQLiteStore) GetRandomVideo(ctx context.Context) (Video, error) {
