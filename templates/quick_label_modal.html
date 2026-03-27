@@ -68,13 +68,14 @@
       <div style="grid-column:1/-1;border-top:1px solid #2a2a2a;margin-top:0.4rem;padding-top:0.5rem">
         <div style="display:flex;gap:0.4rem;align-items:center">
           <label style="color:#999;white-space:nowrap;font-size:0.85rem">Move to</label>
-          <select id="ql-move-dir-{{.Video.ID}}" class="input-dark" style="flex:1;font-size:0.82rem">
+          <select id="ql-move-dir-{{.Video.ID}}" class="input-dark" style="flex:1;font-size:0.82rem"
+            onchange="qlDoMove({{.Video.ID}})">
             <option value="">— no change —</option>
             {{range .Dirs}}
             <option value="{{.ID}}" data-path="{{.Path}}"{{if eq .ID $.Video.DirectoryID}} selected disabled{{end}}>{{base .Path}}</option>
             {{end}}
           </select>
-          <button type="button" class="btn-sm" onclick="qlDoMove({{.Video.ID}})" style="font-size:0.78rem;flex-shrink:0">Move</button>
+          <span id="ql-move-status-{{.Video.ID}}" style="font-size:0.78rem;display:none"></span>
         </div>
       </div>
       {{end}}
@@ -140,24 +141,49 @@
   function qlDoMove(videoId) {
     var sel = document.getElementById('ql-move-dir-' + videoId);
     if (!sel || !sel.value) return;
-    var btn = event.currentTarget || event.target;
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    var oldDirId = null;
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].disabled) { oldDirId = sel.options[i].value; break; }
+    }
+    sel.disabled = true;
+    var statusEl = document.getElementById('ql-move-status-' + videoId);
+    if (statusEl) { statusEl.textContent = 'Moving…'; statusEl.style.color = '#999'; statusEl.style.display = 'inline'; }
     var fd = new FormData();
     fd.append('dir_id', sel.value);
     fetch('/videos/' + videoId + '/move', {method: 'POST', body: fd})
       .then(function(r) {
         if (!r.ok) {
-          r.text().then(function(t) { alert('Move failed: ' + t); });
-          if (btn) { btn.disabled = false; btn.textContent = 'Move'; }
+          r.text().then(function(t) {
+            if (statusEl) { statusEl.textContent = 'Move failed: ' + t; statusEl.style.color = '#f87'; }
+          });
+          sel.disabled = false;
           return;
         }
-        // Update the on-disk path display in the Info panel.
+        // Update dropdown: un-disable old dir, disable+select new dir
+        for (var i = 0; i < sel.options.length; i++) {
+          sel.options[i].disabled = (sel.options[i].value === sel.value);
+        }
+        // Update the on-disk path display in the Info panel
         var opt = sel.options[sel.selectedIndex];
         var newDir = (opt && opt.dataset.path) ? opt.dataset.path : (opt ? opt.textContent : '');
         var pathEl = document.getElementById('video-path-' + videoId);
         if (pathEl && newDir) pathEl.textContent = newDir + '/' + pathEl.dataset.filename;
-        document.getElementById('quick-label-modal').innerHTML = '';
+        // Reset dropdown to "— no change —"
+        sel.value = '';
+        sel.disabled = false;
+        // Show brief "Moved ✓" confirmation
+        if (statusEl) {
+          statusEl.textContent = 'Moved ✓';
+          statusEl.style.color = '#5b5';
+          setTimeout(function() { statusEl.style.display = 'none'; }, 2000);
+        }
         refreshVideoList();
+        // If the video is open in a parallel-view pane, reload it so it streams
+        // from the new path rather than dying at the old (now-gone) location.
+        if (typeof videoTabs !== 'undefined' && videoTabs[videoId]) {
+          var v = videoTabs[videoId].pane && videoTabs[videoId].pane.querySelector('video');
+          if (v) { v.load(); }
+        }
       });
   }
 </script>
