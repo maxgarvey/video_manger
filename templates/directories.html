@@ -18,6 +18,9 @@
         style="flex-shrink:0"
         title="Rescan">↺</button>
       {{end}}
+      <button class="btn-icon" style="flex-shrink:0" title="Rename"
+        onclick="var f=this.closest('li').querySelector('.rename-form');var open=f.style.display==='none';f.style.display=open?'flex':'none';if(open){var inp=f.querySelector('input');inp.focus();inp.select()}"
+      >✎</button>
       <button class="btn-icon" style="flex-shrink:0" title="New subfolder"
         onclick="var f=this.closest('li').querySelector('.subfolder-form');var open=f.style.display==='none';f.style.display=open?'flex':'none';if(open)f.querySelector('input').focus()"
       >⊞</button>
@@ -29,6 +32,18 @@
         title="Delete"
       >✕</button>
     </div>
+    <!-- Inline rename form (hidden until ✎ is clicked) -->
+    <form class="rename-form"
+          hx-post="/directories/{{.ID}}/rename"
+          hx-target="#directories"
+          hx-swap="innerHTML"
+          style="display:none;gap:0.3rem;padding:0.3rem 0 0 1rem;align-items:center">
+      <input type="text" name="name" value="{{base .Path}}"
+        class="input-dark" style="flex:1;min-width:0;padding:0.25rem 0.4rem;font-size:0.8rem">
+      <button type="submit" class="btn-sm" style="font-size:0.75rem;flex-shrink:0">Rename</button>
+      <button type="button" class="btn-sm btn-ghost" style="font-size:0.75rem;flex-shrink:0"
+        onclick="var f=this.closest('.rename-form');f.style.display='none';f.reset()">✕</button>
+    </form>
     <!-- Inline new-subfolder form (hidden until ⊞ is clicked) -->
     <form class="subfolder-form"
           hx-post="/directories/{{.ID}}/subfolder"

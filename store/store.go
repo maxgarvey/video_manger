@@ -149,6 +149,7 @@ type Store interface {
 	// video records in a single transaction. It returns the file paths of
 	// the deleted videos so the caller can remove them from disk.
 	DeleteDirectoryAndVideos(ctx context.Context, id int64) ([]string, error)
+	RenameDirectory(ctx context.Context, id int64, newPath string) error
 
 	// Video management
 	UpsertVideo(ctx context.Context, dirID int64, dirPath string, filename string) (Video, error)

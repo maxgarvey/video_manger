@@ -135,6 +135,42 @@ func (s *SQLiteStore) DeleteDirectoryAndVideos(ctx context.Context, id int64) ([
 	return paths, nil
 }
 
+func (s *SQLiteStore) RenameDirectory(ctx context.Context, id int64, newPath string) error {
+	tx, err := s.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	// Get old path.
+	var oldPath string
+	if err := tx.QueryRowContext(ctx, `SELECT path FROM directories WHERE id = ?`, id).Scan(&oldPath); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return err
+	}
+	// Update directory row.
+	if _, err := tx.ExecContext(ctx, `UPDATE directories SET path = ? WHERE id = ?`, newPath, id); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return err
+	}
+	// Update video directory_path: replace old path prefix with new path.
+	// This handles both exact matches (videos in the root) and subfolders.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE videos SET directory_path = ? || SUBSTR(directory_path, LENGTH(?) + 1)
+		 WHERE directory_id = ? AND (directory_path = ? OR directory_path LIKE ? || '/%')`,
+		newPath, oldPath, id, oldPath, oldPath); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return err
+	}
+	// Update thumbnail paths that fall under the old directory.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE videos SET thumbnail_path = ? || SUBSTR(thumbnail_path, LENGTH(?) + 1)
+		 WHERE directory_id = ? AND thumbnail_path LIKE ? || '/%'`,
+		newPath, oldPath, id, oldPath); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return err
+	}
+	return tx.Commit()
+}
+
 // --- Videos (raw SQL — directory_id is nullable, so no sqlc JOIN queries) ---
 
 func (s *SQLiteStore) UpsertVideo(ctx context.Context, dirID int64, dirPath string, filename string) (Video, error) {

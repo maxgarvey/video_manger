@@ -309,6 +309,7 @@ func (s *server) routes() http.Handler {
 		r.Delete("/directories/{id}", s.handleDeleteDirectory)
 		r.Delete("/directories/{id}/files", s.handleDeleteDirectoryAndFiles)
 		r.Post("/directories/{id}/subfolder", s.handleCreateSubfolder)
+		r.Post("/directories/{id}/rename", s.handleRenameDirectory)
 
 		// Duplicate detection
 		r.Get("/duplicates", s.handleListDuplicates)

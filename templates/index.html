@@ -845,9 +845,6 @@
       <button id="add-content-btn" class="btn-sm" style="flex-shrink:0;font-size:0.7rem"
         onclick="document.body.classList.toggle('add-content-open')"
         title="Add content">＋ Add content</button>
-      <button id="ms-select-btn" class="btn-sm" style="flex-shrink:0;font-size:0.7rem"
-        onclick="msToggleMode()"
-        title="Multi-select videos">☐ Select</button>
       <button class="btn-icon" onclick="document.body.classList.remove('lib-open')"
         style="font-size:1.2rem;flex-shrink:0"
         title="Close library" aria-label="Close library">✕</button>
@@ -965,6 +962,11 @@
 
     <!-- Full-width video list -->
     <div id="lib-video-area">
+      <div style="display:flex;justify-content:flex-end;padding:0.15rem 0.2rem">
+        <button id="ms-select-btn" class="btn-sm" style="flex-shrink:0;font-size:0.7rem"
+          onclick="msToggleMode()"
+          title="Multi-select videos">☐ Select</button>
+      </div>
       <div id="video-list"
            hx-get="/videos"
            hx-trigger="load, every 60s, videoRenamed from:body"

@@ -236,6 +236,54 @@ func (s *server) handleDeleteDirectory(w http.ResponseWriter, r *http.Request) {
 	s.serveDirList(w, r)
 }
 
+// handleRenameDirectory renames a registered directory on disk and updates
+// all related DB rows (directory path, video paths, thumbnail paths).
+func (s *server) handleRenameDirectory(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDParam(w, r)
+	if !ok {
+		return
+	}
+	dir, err := s.store.GetDirectory(r.Context(), id)
+	if err != nil {
+		http.Error(w, "directory not found", http.StatusNotFound)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		http.Error(w, "name must not contain path separators or '..'", http.StatusBadRequest)
+		return
+	}
+	newPath := filepath.Join(filepath.Dir(dir.Path), name)
+	if newPath == dir.Path {
+		s.serveDirList(w, r)
+		return
+	}
+	// Ensure target doesn't already exist.
+	if _, err := os.Stat(newPath); err == nil {
+		http.Error(w, "a folder with that name already exists", http.StatusConflict)
+		return
+	}
+	// Rename on disk first.
+	if err := os.Rename(dir.Path, newPath); err != nil {
+		http.Error(w, "rename failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Update DB rows atomically.
+	if err := s.store.RenameDirectory(r.Context(), id, newPath); err != nil {
+		// Roll back filesystem change.
+		os.Rename(newPath, dir.Path) //nolint:errcheck
+		http.Error(w, "db update failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Trigger a video list refresh so stale paths/group names update.
+	w.Header().Set("HX-Trigger", `{"videoRenamed":true}`)
+	s.serveDirList(w, r)
+}
+
 // handleCreateSubfolder creates a new directory named <name> inside the
 // registered directory identified by {id}, then registers and syncs it.
 func (s *server) handleCreateSubfolder(w http.ResponseWriter, r *http.Request) {
