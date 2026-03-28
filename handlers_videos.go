@@ -646,6 +646,103 @@ func (s *server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
 	s.serveVideoList(w, r)
 }
 
+// ── Bulk move ────────────────────────────────────────────────────────────────
+
+func (s *server) handleBulkMoveVideos(w http.ResponseWriter, r *http.Request) {
+	dirIDStr := strings.TrimSpace(r.FormValue("dir_id"))
+	idsStr := strings.TrimSpace(r.FormValue("video_ids"))
+
+	dirID, err := strconv.ParseInt(dirIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid dir_id", http.StatusBadRequest)
+		return
+	}
+	if idsStr == "" {
+		http.Error(w, "no video_ids provided", http.StatusBadRequest)
+		return
+	}
+
+	targetDir, err := s.store.GetDirectory(r.Context(), dirID)
+	if err != nil {
+		http.Error(w, "directory not found", http.StatusNotFound)
+		return
+	}
+	destDirPath, destDirID, err := s.resolveDestDir(r.Context(), targetDir, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var moved int
+	var errors []string
+	sourceDirs := map[int64]struct{}{}
+
+	for _, idStr := range strings.Split(idsStr, ",") {
+		id, err := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
+		if err != nil {
+			errors = append(errors, idStr+": invalid id")
+			continue
+		}
+		video, err := s.store.GetVideo(r.Context(), id)
+		if err != nil {
+			errors = append(errors, idStr+": not found")
+			continue
+		}
+
+		src := video.FilePath()
+		dst := filepath.Join(destDirPath, video.Filename)
+		if src == dst {
+			continue // already in target
+		}
+		if _, err := os.Stat(dst); err == nil {
+			errors = append(errors, video.Filename+": already exists in destination")
+			continue
+		}
+
+		crossDevice, err := moveFile(src, dst)
+		if err != nil {
+			errors = append(errors, video.Filename+": "+err.Error())
+			continue
+		}
+
+		if err := s.store.UpdateVideoPath(r.Context(), video.ID, destDirID, destDirPath, video.Filename); err != nil {
+			// Roll back filesystem change.
+			if crossDevice {
+				os.Remove(dst) //nolint:errcheck
+			} else {
+				os.Rename(dst, src) //nolint:errcheck
+			}
+			errors = append(errors, video.Filename+": db update failed")
+			continue
+		}
+
+		if crossDevice {
+			if err := os.Remove(src); err != nil {
+				slog.Warn("bulk move: could not remove source", "src", src, "err", err)
+			}
+		}
+
+		s.moveVideoThumbnail(r.Context(), video, destDirPath)
+		moved++
+		if video.DirectoryID != 0 {
+			sourceDirs[video.DirectoryID] = struct{}{}
+		}
+	}
+
+	// Sync directories once at the end, not per-video.
+	s.startSyncDir(targetDir)
+	for srcDirID := range sourceDirs {
+		if srcDirID != targetDir.ID {
+			if d, err := s.store.GetDirectory(r.Context(), srcDirID); err == nil {
+				s.startSyncDir(d)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"moved": moved, "errors": errors}) //nolint:errcheck
+}
+
 // ── Rating ────────────────────────────────────────────────────────────────────
 
 func (s *server) handleSetRating(w http.ResponseWriter, r *http.Request) {

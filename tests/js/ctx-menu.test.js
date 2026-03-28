@@ -23,18 +23,18 @@ function buildFixture() {
     <span id="ms-count">0 selected</span>
     <span id="ms-progress"></span>
     <ul id="video-list">
-      <li data-video-id="v1" data-dir-id="d1" data-filename="one.mp4" data-dir-path="/movies">
-        <span class="vid-select-cb" style="display:none">\u2610</span>
+      <li data-video-id="1" data-dir-id="d1" data-filename="one.mp4" data-dir-path="/movies">
+        <span class="vid-select-cb" data-vid="1" style="display:none">\u2610</span>
         <span class="ms-cb"></span>
         <span data-title="Video One"></span>
       </li>
-      <li data-video-id="v2" data-dir-id="d1" data-filename="two.mp4" data-dir-path="/movies">
-        <span class="vid-select-cb" style="display:none">\u2610</span>
+      <li data-video-id="2" data-dir-id="d1" data-filename="two.mp4" data-dir-path="/movies">
+        <span class="vid-select-cb" data-vid="2" style="display:none">\u2610</span>
         <span class="ms-cb"></span>
         <span data-title="Video Two"></span>
       </li>
-      <li data-video-id="v3" data-dir-id="d2" data-filename="three.mp4" data-dir-path="/series">
-        <span class="vid-select-cb" style="display:none">\u2610</span>
+      <li data-video-id="3" data-dir-id="d2" data-filename="three.mp4" data-dir-path="/series">
+        <span class="vid-select-cb" data-vid="3" style="display:none">\u2610</span>
         <span class="ms-cb"></span>
         <span data-title="Video Three"></span>
       </li>
@@ -93,29 +93,29 @@ describe('ctx-menu.js', function() {
 
   describe('showCtxMenu', function() {
     it('populates _ctx from li dataset', function() {
-      var li = document.querySelector('[data-video-id="v1"]');
+      var li = document.querySelector('[data-video-id="1"]');
       showCtxMenu(fakeEvent(), li);
-      expect(_ctx.id).toBe('v1');
+      expect(_ctx.id).toBe(1);
       expect(_ctx.dirID).toBe('d1');
       expect(_ctx.filename).toBe('one.mp4');
       expect(_ctx.dirPath).toBe('/movies');
     });
 
     it('displays filename when not multi-selecting', function() {
-      var li = document.querySelector('[data-video-id="v1"]');
+      var li = document.querySelector('[data-video-id="1"]');
       showCtxMenu(fakeEvent(), li);
       expect(document.getElementById('ctx-title').textContent).toBe('Video One');
     });
 
     it('shows the context menu', function() {
-      var li = document.querySelector('[data-video-id="v1"]');
+      var li = document.querySelector('[data-video-id="1"]');
       showCtxMenu(fakeEvent(), li);
       expect(document.getElementById('ctx-menu').style.display).toBe('block');
     });
 
     it('resets sub-panels to hidden', function() {
       document.getElementById('ctx-move-panel').style.display = 'block';
-      var li = document.querySelector('[data-video-id="v1"]');
+      var li = document.querySelector('[data-video-id="1"]');
       showCtxMenu(fakeEvent(), li);
       expect(document.getElementById('ctx-move-panel').style.display).toBe('none');
       expect(document.getElementById('ctx-tag-panel').style.display).toBe('none');
@@ -123,32 +123,32 @@ describe('ctx-menu.js', function() {
     });
 
     it('auto-adds right-clicked video to _msIDs when multi-select has items', function() {
-      _msIDs.add('v1');
-      var li = document.querySelector('[data-video-id="v2"]');
+      _msIDs.add(1);
+      var li = document.querySelector('[data-video-id="2"]');
       showCtxMenu(fakeEvent(), li);
-      expect(_msIDs.has('v2')).toBe(true);
+      expect(_msIDs.has(2)).toBe(true);
       expect(_msIDs.size).toBe(2);
     });
 
     it('does not duplicate if right-clicked video is already selected', function() {
-      _msIDs.add('v1');
-      _msIDs.add('v2');
-      var li = document.querySelector('[data-video-id="v2"]');
+      _msIDs.add(1);
+      _msIDs.add(2);
+      var li = document.querySelector('[data-video-id="2"]');
       showCtxMenu(fakeEvent(), li);
       expect(_msIDs.size).toBe(2);
     });
 
     it('displays selection count when multi-select active', function() {
-      _msIDs.add('v1');
-      _msIDs.add('v2');
-      var li = document.querySelector('[data-video-id="v2"]');
+      _msIDs.add(1);
+      _msIDs.add(2);
+      var li = document.querySelector('[data-video-id="2"]');
       showCtxMenu(fakeEvent(), li);
       expect(document.getElementById('ctx-title').textContent).toBe('2 videos selected');
     });
 
     it('shows count including auto-added video', function() {
-      _msIDs.add('v1');
-      var li = document.querySelector('[data-video-id="v3"]');
+      _msIDs.add(1);
+      var li = document.querySelector('[data-video-id="3"]');
       showCtxMenu(fakeEvent(), li);
       expect(document.getElementById('ctx-title').textContent).toBe('2 videos selected');
     });
@@ -203,8 +203,8 @@ describe('ctx-menu.js', function() {
 
     it('does not mark any directory as current during multi-select (size > 1)', async function() {
       _ctx.dirID = '10';
-      _msIDs.add('v1');
-      _msIDs.add('v2');
+      _msIDs.add(1);
+      _msIDs.add(2);
       globalThis.fetch.mockImplementation(function() {
         return Promise.resolve({
           ok: true,
@@ -236,30 +236,33 @@ describe('ctx-menu.js', function() {
   // ── ctxDoMove — bulk ───────────────────────────────────────────────
 
   describe('ctxDoMove - bulk move', function() {
-    it('moves all selected videos sequentially via fetch', async function() {
-      _msIDs.add('v1');
-      _msIDs.add('v2');
-      _msIDs.add('v3');
-      var calls = [];
-      globalThis.fetch.mockImplementation(function(url) {
-        calls.push(url);
-        return okResponse();
+    it('sends a single bulk-move request with all video IDs', async function() {
+      _msIDs.add(1);
+      _msIDs.add(2);
+      _msIDs.add(3);
+      var capturedURL, capturedBody;
+      globalThis.fetch.mockImplementation(function(url, opts) {
+        capturedURL = url;
+        capturedBody = opts ? opts.body : null;
+        return okResponse('{"moved":3,"errors":null}');
       });
       ctxDoMove('99');
       await vi.waitFor(function() {
-        expect(calls.length).toBe(3);
+        expect(capturedURL).toBe('/videos/bulk-move');
       });
-      expect(calls).toContain('/videos/v1/move');
-      expect(calls).toContain('/videos/v2/move');
-      expect(calls).toContain('/videos/v3/move');
+      expect(capturedBody.get('dir_id')).toBe('99');
+      var ids = capturedBody.get('video_ids').split(',');
+      expect(ids).toContain('1');
+      expect(ids).toContain('2');
+      expect(ids).toContain('3');
     });
 
-    it('passes dir_id in FormData for each request', async function() {
-      _msIDs.add('v1');
+    it('passes dir_id in FormData', async function() {
+      _msIDs.add(1);
       var capturedBody;
       globalThis.fetch.mockImplementation(function(url, opts) {
         capturedBody = opts.body;
-        return okResponse();
+        return okResponse('{"moved":1,"errors":null}');
       });
       ctxDoMove('42');
       await vi.waitFor(function() {
@@ -269,7 +272,10 @@ describe('ctx-menu.js', function() {
     });
 
     it('clears selection after completion', async function() {
-      _msIDs.add('v1');
+      _msIDs.add(1);
+      globalThis.fetch.mockImplementation(function() {
+        return okResponse('{"moved":1,"errors":null}');
+      });
       ctxDoMove('99');
       await vi.waitFor(function() {
         expect(_msIDs.size).toBe(0);
@@ -277,7 +283,10 @@ describe('ctx-menu.js', function() {
     });
 
     it('calls htmx.ajax to refresh video list after completion', async function() {
-      _msIDs.add('v1');
+      _msIDs.add(1);
+      globalThis.fetch.mockImplementation(function() {
+        return okResponse('{"moved":1,"errors":null}');
+      });
       ctxDoMove('99');
       await vi.waitFor(function() {
         expect(globalThis.htmx.ajax).toHaveBeenCalled();
@@ -287,39 +296,33 @@ describe('ctx-menu.js', function() {
       );
     });
 
-    it('updates progress text during moves', async function() {
-      _msIDs.add('v1');
-      _msIDs.add('v2');
-      var progressTexts = [];
+    it('shows progress text before request completes', async function() {
+      _msIDs.add(1);
+      _msIDs.add(2);
       var prog = document.getElementById('ms-progress');
       globalThis.fetch.mockImplementation(function() {
-        progressTexts.push(prog.textContent);
-        return okResponse();
+        return okResponse('{"moved":2,"errors":null}');
       });
       ctxDoMove('99');
-      await vi.waitFor(function() {
-        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-      });
-      expect(progressTexts[0]).toContain('1/2');
+      // Progress text is set synchronously before the fetch resolves
+      expect(prog.textContent).toContain('2 videos');
     });
 
-    it('continues on individual move failure', async function() {
-      _msIDs.add('v1');
-      _msIDs.add('v2');
-      var callCount = 0;
+    it('shows error count when some moves fail', async function() {
+      _msIDs.add(1);
+      _msIDs.add(2);
+      var prog = document.getElementById('ms-progress');
       globalThis.fetch.mockImplementation(function() {
-        callCount++;
-        if (callCount === 1) return Promise.reject(new Error('fail'));
-        return okResponse();
+        return okResponse('{"moved":1,"errors":["v2: not found"]}');
       });
       ctxDoMove('99');
       await vi.waitFor(function() {
-        expect(_msIDs.size).toBe(0);
+        expect(prog.textContent).toContain('1 failed');
       });
     });
 
     it('hides the context menu', function() {
-      _msIDs.add('v1');
+      _msIDs.add(1);
       document.getElementById('ctx-menu').style.display = 'block';
       ctxDoMove('99');
       expect(document.getElementById('ctx-menu').style.display).toBe('none');
@@ -330,7 +333,7 @@ describe('ctx-menu.js', function() {
 
   describe('ctxDoMove - single move', function() {
     it('moves single video when _msIDs is empty', async function() {
-      _ctx.id = 'v1';
+      _ctx.id = 1;
       var calledUrl;
       globalThis.fetch.mockImplementation(function(url) {
         calledUrl = url;
@@ -340,11 +343,11 @@ describe('ctx-menu.js', function() {
       await vi.waitFor(function() {
         expect(calledUrl).toBeDefined();
       });
-      expect(calledUrl).toBe('/videos/v1/move');
+      expect(calledUrl).toBe('/videos/1/move');
     });
 
     it('calls applyRandDirPrefs after success', async function() {
-      _ctx.id = 'v1';
+      _ctx.id = 1;
       globalThis.fetch.mockImplementation(function() {
         return Promise.resolve({
           ok: true,
@@ -358,7 +361,7 @@ describe('ctx-menu.js', function() {
     });
 
     it('updates video-list innerHTML on success', async function() {
-      _ctx.id = 'v1';
+      _ctx.id = 1;
       globalThis.fetch.mockImplementation(function() {
         return Promise.resolve({
           ok: true,
@@ -376,23 +379,23 @@ describe('ctx-menu.js', function() {
 
   describe('msClearSelection', function() {
     it('clears _msIDs set', function() {
-      _msIDs.add('v1');
-      _msIDs.add('v2');
+      _msIDs.add(1);
+      _msIDs.add(2);
       msClearSelection();
       expect(_msIDs.size).toBe(0);
     });
 
     it('removes lib-selected class from all li elements', function() {
-      var li = document.querySelector('[data-video-id="v1"]');
+      var li = document.querySelector('[data-video-id="1"]');
       li.classList.add('lib-selected');
       msClearSelection();
       expect(li.classList.contains('lib-selected')).toBe(false);
     });
 
     it('resets checkbox text', function() {
-      var cb = document.querySelector('[data-video-id="v1"] .vid-select-cb');
+      var cb = document.querySelector('[data-video-id="1"] .vid-select-cb');
       cb.textContent = '\u2611';
-      var li = document.querySelector('[data-video-id="v1"]');
+      var li = document.querySelector('[data-video-id="1"]');
       li.classList.add('lib-selected');
       msClearSelection();
       expect(cb.textContent).toBe('\u2610');
@@ -409,26 +412,26 @@ describe('ctx-menu.js', function() {
 
   describe('msToggle', function() {
     it('adds video to selection', function() {
-      var li = document.querySelector('[data-video-id="v1"]');
-      msToggle('v1', li);
-      expect(_msIDs.has('v1')).toBe(true);
+      var li = document.querySelector('[data-video-id="1"]');
+      msToggle(1, li);
+      expect(_msIDs.has(1)).toBe(true);
       expect(li.classList.contains('lib-selected')).toBe(true);
     });
 
     it('removes video from selection on second call', function() {
-      var li = document.querySelector('[data-video-id="v1"]');
-      msToggle('v1', li);
-      msToggle('v1', li);
-      expect(_msIDs.has('v1')).toBe(false);
+      var li = document.querySelector('[data-video-id="1"]');
+      msToggle(1, li);
+      msToggle(1, li);
+      expect(_msIDs.has(1)).toBe(false);
       expect(li.classList.contains('lib-selected')).toBe(false);
     });
 
     it('updates count display', function() {
-      var li1 = document.querySelector('[data-video-id="v1"]');
-      var li2 = document.querySelector('[data-video-id="v2"]');
-      msToggle('v1', li1);
+      var li1 = document.querySelector('[data-video-id="1"]');
+      var li2 = document.querySelector('[data-video-id="2"]');
+      msToggle(1, li1);
       expect(document.getElementById('ms-count').textContent).toBe('1 selected');
-      msToggle('v2', li2);
+      msToggle(2, li2);
       expect(document.getElementById('ms-count').textContent).toBe('2 selected');
     });
   });

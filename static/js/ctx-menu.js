@@ -10,9 +10,24 @@ function msToggleMode() {
   var active = document.body.classList.toggle('multi-select-mode');
   document.getElementById('ms-select-btn').classList.toggle('active', active);
   if (!active) msClearSelection();
+  // Checkbox visibility is handled purely by CSS:
+  //   body.multi-select-mode .vid-select-cb { display: inline-flex !important; }
+}
+
+function msSelectAll() {
   document.querySelectorAll('#video-list .vid-select-cb').forEach(function(cb) {
-    cb.style.display = active ? 'inline-flex' : 'none';
+    var id = Number(cb.dataset.vid);
+    if (!_msIDs.has(id)) {
+      _msIDs.add(id);
+      cb.textContent = '\u2611';
+      cb.closest('li').classList.add('lib-selected');
+    }
   });
+  document.getElementById('ms-count').textContent = _msIDs.size + ' selected';
+}
+
+function msDeselectAll() {
+  msClearSelection();
 }
 
 function msToggle(id, li) {
@@ -58,27 +73,26 @@ function msBulkMoveConfirm(wrap, btn) {
   var dirID = document.getElementById('ms-bulk-dir').value;
   if (!dirID) return;
   btn.disabled = true;
-  var ids = Array.from(_msIDs);
-  var done = 0;
   var prog = document.getElementById('ms-progress');
-  function next() {
-    if (!ids.length) {
-      if (prog) prog.textContent = 'Done!';
-      setTimeout(function(){ if(prog) prog.textContent=''; }, 2000);
+  var ids = Array.from(_msIDs);
+  if (prog) prog.textContent = 'Moving ' + ids.length + ' video' + (ids.length > 1 ? 's' : '') + '\u2026';
+  var fd = new FormData();
+  fd.append('dir_id', dirID);
+  fd.append('video_ids', ids.join(','));
+  fetch('/videos/bulk-move', {method: 'POST', body: fd})
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
+      var msg = result.moved + ' moved';
+      if (result.errors && result.errors.length) msg += ', ' + result.errors.length + ' failed';
+      if (prog) { prog.textContent = msg; setTimeout(function(){ prog.textContent=''; }, 3000); }
       wrap.remove();
       msClearSelection();
       htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
-      return;
-    }
-    var id = ids.shift();
-    done++;
-    if (prog) prog.textContent = 'Moving ' + done + '/' + (done + ids.length) + '\u2026';
-    var fd = new FormData(); fd.append('dir_id', dirID);
-    fetch('/videos/' + id + '/move', {method: 'POST', body: fd})
-      .then(function(){ next(); })
-      .catch(function(){ next(); });
-  }
-  next();
+    })
+    .catch(function(err) {
+      if (prog) prog.textContent = 'Error: ' + err.message;
+      btn.disabled = false;
+    });
 }
 
 function msBulkTag() {
@@ -113,7 +127,7 @@ var _ctx = {id: null, dirID: null, filename: null, dirPath: null};
 function showCtxMenu(e, li) {
   e.preventDefault();
   e.stopPropagation();
-  _ctx.id       = li.dataset.videoId;
+  _ctx.id       = Number(li.dataset.videoId);
   _ctx.dirID    = li.dataset.dirId;
   _ctx.filename = li.dataset.filename;
   _ctx.dirPath  = li.dataset.dirPath;
@@ -208,25 +222,21 @@ function ctxDoMove(dirID) {
   // Bulk move when multi-select is active
   if (_msIDs.size > 0) {
     var ids = Array.from(_msIDs);
-    var done = 0;
-    var total = ids.length;
     var prog = document.getElementById('ms-progress');
-    function next() {
-      if (!ids.length) {
-        if (prog) { prog.textContent = 'Done!'; setTimeout(function(){ prog.textContent=''; }, 2000); }
+    if (prog) prog.textContent = 'Moving ' + ids.length + ' video' + (ids.length > 1 ? 's' : '') + '\u2026';
+    var fd = new FormData();
+    fd.append('dir_id', dirID);
+    fd.append('video_ids', ids.join(','));
+    fetch('/videos/bulk-move', {method: 'POST', body: fd})
+      .then(function(r) { return r.json(); })
+      .then(function(result) {
+        var msg = result.moved + ' moved';
+        if (result.errors && result.errors.length) msg += ', ' + result.errors.length + ' failed';
+        if (prog) { prog.textContent = msg; setTimeout(function(){ prog.textContent=''; }, 3000); }
         msClearSelection();
         htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
-        return;
-      }
-      var id = ids.shift();
-      done++;
-      if (prog) prog.textContent = 'Moving ' + done + '/' + total + '\u2026';
-      var fd = new FormData(); fd.append('dir_id', dirID);
-      fetch('/videos/' + id + '/move', {method: 'POST', body: fd})
-        .then(function(){ next(); })
-        .catch(function(){ next(); });
-    }
-    next();
+      })
+      .catch(function(err) { if (prog) prog.textContent = 'Error: ' + err.message; });
     return;
   }
 

@@ -32,6 +32,9 @@ import (
 //go:embed templates/*
 var templateFS embed.FS
 
+//go:embed static/*
+var staticFS embed.FS
+
 var templates = template.Must(template.New("").Funcs(template.FuncMap{
 	"base":    filepath.Base,
 	"reltime": reltime,

@@ -976,6 +976,7 @@
     <!-- Multi-select toolbar (visible when multi-select mode is active) -->
     <div id="ms-toolbar">
       <span id="ms-count" style="color:#8f8;font-size:0.78rem">0 selected</span>
+      <button class="btn-sm" style="font-size:0.72rem" onclick="msSelectAll()">All</button>
       <button class="btn-sm" style="font-size:0.72rem" onclick="msBulkMove()">⇥ Move to…</button>
       <button class="btn-sm" style="font-size:0.72rem" onclick="msBulkTag()">⊕ Add tag</button>
       <span id="ms-progress" style="color:#4a9;font-size:0.72rem;margin-left:0.25rem"></span>
@@ -2261,13 +2262,10 @@
   <!-- ── Multi-select + context menu logic (extracted) ──────────── -->
   <script src="/static/js/ctx-menu.js"></script>
   <script>
-    // Re-apply vid-select-cb visibility after video list is re-rendered
+    // Re-apply group backgrounds after video list is re-rendered.
+    // Checkbox visibility is handled purely by CSS (body.multi-select-mode).
     document.body.addEventListener('htmx:afterSettle', function(e) {
       if (e.detail.target && e.detail.target.id === 'video-list') {
-        var isMs = document.body.classList.contains('multi-select-mode');
-        document.querySelectorAll('#video-list .vid-select-cb').forEach(function(cb) {
-          cb.style.display = isMs ? 'inline-flex' : 'none';
-        });
         applyGroupBackgrounds();
       }
     });

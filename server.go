@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -186,8 +187,9 @@ func (s *server) routes() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(s.authMiddleware)
 
-	// Static assets (JS extracted from templates)
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	// Static assets (embedded so the binary works from any working directory)
+	staticSub, _ := fs.Sub(staticFS, "static")
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
 	r.Get("/login", s.handleLoginPage)
 	r.Post("/login", s.handleLoginSubmit)
@@ -227,6 +229,7 @@ func (s *server) routes() http.Handler {
 		r.Delete("/videos/{id}/progress", s.handleClearProgress)
 		r.Post("/videos/{id}/copy-to-library", s.handleCopyToLibrary)
 		r.Post("/videos/{id}/move", s.handleMoveVideo)
+		r.Post("/videos/bulk-move", s.handleBulkMoveVideos)
 		r.Post("/videos/{id}/rename", s.handleRenameVideo)
 		r.Post("/import/upload", s.handleImportUpload)
 
