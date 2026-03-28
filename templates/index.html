@@ -1777,10 +1777,50 @@
         }).catch(function(){});
     }
 
+    // Suppress the 60s auto-poll while multi-select mode is active so the
+    // DOM isn't replaced under the user (which would lose selection highlights
+    // and folder open state).
+    document.getElementById('video-list').addEventListener('htmx:beforeRequest', function(e) {
+      if (document.body.classList.contains('multi-select-mode')) {
+        e.preventDefault();
+      }
+    });
+
+    // Before the video list is swapped, snapshot which folders are open so we
+    // can restore them after the new HTML lands.
+    document.getElementById('video-list').addEventListener('htmx:beforeSwap', function() {
+      window._openGroups = new Set();
+      this.querySelectorAll('details[data-group][open]').forEach(function(d) {
+        window._openGroups.add(d.dataset.group);
+      });
+    });
+
     // Re-apply folder checkbox prefs after every htmx settle that targets #video-list.
     // This covers the auto-poll (every 60s), refreshVideoList(), tag/rating filters, etc.
     document.body.addEventListener('htmx:afterSettle', function(evt) {
       if (evt.target && evt.target.id === 'video-list') applyRandDirPrefs();
+    });
+
+    // After the video list settles, restore folder open state and multi-select
+    // highlights (the JS _msIDs Set survives reloads but the DOM classes don't).
+    document.getElementById('video-list').addEventListener('htmx:afterSettle', function() {
+      // Restore folder open state
+      if (window._openGroups && window._openGroups.size) {
+        this.querySelectorAll('details[data-group]').forEach(function(d) {
+          if (window._openGroups.has(d.dataset.group)) d.open = true;
+        });
+      }
+      // Re-apply multi-select highlights from _msIDs
+      if (typeof _msIDs !== 'undefined' && _msIDs.size > 0) {
+        this.querySelectorAll('.vid-select-cb').forEach(function(cb) {
+          var id = Number(cb.dataset.vid);
+          if (_msIDs.has(id)) {
+            cb.textContent = '\u2611';
+            cb.closest('li').classList.add('lib-selected');
+          }
+        });
+        document.getElementById('ms-count').textContent = _msIDs.size + ' selected';
+      }
     });
 
     // Auto-load a random video on start; show a hint if library is empty.
