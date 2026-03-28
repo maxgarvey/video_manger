@@ -64,7 +64,7 @@ function msBulkMove() {
         + '<select id="ms-bulk-dir" class="input-dark" style="width:100%;margin-bottom:0.6rem"><option value="">— choose folder —</option>' + html + '</select>'
         + '<div style="display:flex;gap:0.5rem;justify-content:flex-end">'
         + '<button class="btn-sm btn-ghost" onclick="this.closest(\'div\').parentNode.remove()">Cancel</button>'
-        + '<button class="btn-sm btn-success" onclick="msBulkMoveConfirm(this.closest(\'div\'),this)">Move</button></div>';
+        + '<button class="btn-sm btn-success" onclick="msBulkMoveConfirm(this.closest(\'div\').parentNode,this)">Move</button></div>';
       document.body.appendChild(wrap);
     });
 }
