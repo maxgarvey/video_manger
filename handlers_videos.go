@@ -673,21 +673,47 @@ func (s *server) handleBulkMoveVideos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var moved int
-	var errors []string
+	ids := strings.Split(idsStr, ",")
+	jobID := newToken()
+	job := &bulkMoveJob{
+		ch:    make(chan string, 4096),
+		total: len(ids),
+	}
+	s.moveJobsMu.Lock()
+	s.moveJobs[jobID] = job
+	s.moveJobsMu.Unlock()
+
+	go s.runBulkMove(job, ids, targetDir, destDirPath, destDirID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"job_id": jobID}) //nolint:errcheck
+}
+
+// runBulkMove performs the actual file moves in a background goroutine,
+// sending progress lines to job.ch.
+func (s *server) runBulkMove(job *bulkMoveJob, idStrs []string, targetDir store.Directory, destDirPath string, destDirID int64) {
+	defer scheduleJobCleanup(job.ch, func() {
+		// No need to delete — job will be GC'd after channel consumers are done.
+	})
+
+	ctx := context.Background()
 	sourceDirs := map[int64]struct{}{}
 
-	for _, idStr := range strings.Split(idsStr, ",") {
+	for i, idStr := range idStrs {
 		id, err := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
 		if err != nil {
-			errors = append(errors, idStr+": invalid id")
+			job.fails++
+			job.ch <- fmt.Sprintf("Error: %s: invalid id", idStr)
 			continue
 		}
-		video, err := s.store.GetVideo(r.Context(), id)
+		video, err := s.store.GetVideo(ctx, id)
 		if err != nil {
-			errors = append(errors, idStr+": not found")
+			job.fails++
+			job.ch <- fmt.Sprintf("Error: %s: not found", idStr)
 			continue
 		}
+
+		job.ch <- fmt.Sprintf("Moving %d/%d: %s", i+1, job.total, video.Filename)
 
 		src := video.FilePath()
 		dst := filepath.Join(destDirPath, video.Filename)
@@ -695,24 +721,26 @@ func (s *server) handleBulkMoveVideos(w http.ResponseWriter, r *http.Request) {
 			continue // already in target
 		}
 		if _, err := os.Stat(dst); err == nil {
-			errors = append(errors, video.Filename+": already exists in destination")
+			job.fails++
+			job.ch <- fmt.Sprintf("Error: %s: already exists in destination", video.Filename)
 			continue
 		}
 
 		crossDevice, err := moveFile(src, dst)
 		if err != nil {
-			errors = append(errors, video.Filename+": "+err.Error())
+			job.fails++
+			job.ch <- fmt.Sprintf("Error: %s: %s", video.Filename, err.Error())
 			continue
 		}
 
-		if err := s.store.UpdateVideoPath(r.Context(), video.ID, destDirID, destDirPath, video.Filename); err != nil {
-			// Roll back filesystem change.
+		if err := s.store.UpdateVideoPath(ctx, video.ID, destDirID, destDirPath, video.Filename); err != nil {
 			if crossDevice {
 				os.Remove(dst) //nolint:errcheck
 			} else {
 				os.Rename(dst, src) //nolint:errcheck
 			}
-			errors = append(errors, video.Filename+": db update failed")
+			job.fails++
+			job.ch <- fmt.Sprintf("Error: %s: db update failed", video.Filename)
 			continue
 		}
 
@@ -722,25 +750,64 @@ func (s *server) handleBulkMoveVideos(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		s.moveVideoThumbnail(r.Context(), video, destDirPath)
-		moved++
+		s.moveVideoThumbnail(ctx, video, destDirPath)
+		job.moved++
 		if video.DirectoryID != 0 {
 			sourceDirs[video.DirectoryID] = struct{}{}
 		}
 	}
 
-	// Sync directories once at the end, not per-video.
+	// Sync directories once at the end.
 	s.startSyncDir(targetDir)
 	for srcDirID := range sourceDirs {
 		if srcDirID != targetDir.ID {
-			if d, err := s.store.GetDirectory(r.Context(), srcDirID); err == nil {
+			if d, err := s.store.GetDirectory(ctx, srcDirID); err == nil {
 				s.startSyncDir(d)
 			}
 		}
 	}
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"moved": moved, "errors": errors}) //nolint:errcheck
+// handleBulkMoveEvents streams bulk-move progress as Server-Sent Events.
+func (s *server) handleBulkMoveEvents(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobID")
+	s.moveJobsMu.Lock()
+	job, ok := s.moveJobs[jobID]
+	s.moveJobsMu.Unlock()
+	if !ok {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
+
+	sse, ok := newSSEWriter(w)
+	if !ok {
+		return
+	}
+
+	ctx := r.Context()
+loop:
+	for {
+		select {
+		case line, open := <-job.ch:
+			if !open {
+				break loop
+			}
+			sse.Data(line)
+		case <-ctx.Done():
+			return
+		}
+	}
+
+	if job.err != nil {
+		sse.Event("error", job.err.Error())
+	} else {
+		data, _ := json.Marshal(map[string]any{
+			"moved": job.moved,
+			"fails": job.fails,
+			"total": job.total,
+		})
+		sse.Event("done", string(data))
+	}
 }
 
 // ── Rating ────────────────────────────────────────────────────────────────────

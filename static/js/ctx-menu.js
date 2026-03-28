@@ -82,12 +82,8 @@ function msBulkMoveConfirm(wrap, btn) {
   fetch('/videos/bulk-move', {method: 'POST', body: fd})
     .then(function(r) { return r.json(); })
     .then(function(result) {
-      var msg = result.moved + ' moved';
-      if (result.errors && result.errors.length) msg += ', ' + result.errors.length + ' failed';
-      if (prog) { prog.textContent = msg; setTimeout(function(){ prog.textContent=''; }, 3000); }
       wrap.remove();
-      msClearSelection();
-      htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+      _streamBulkMove(result.job_id, prog);
     })
     .catch(function(err) {
       if (prog) prog.textContent = 'Error: ' + err.message;
@@ -230,11 +226,7 @@ function ctxDoMove(dirID) {
     fetch('/videos/bulk-move', {method: 'POST', body: fd})
       .then(function(r) { return r.json(); })
       .then(function(result) {
-        var msg = result.moved + ' moved';
-        if (result.errors && result.errors.length) msg += ', ' + result.errors.length + ' failed';
-        if (prog) { prog.textContent = msg; setTimeout(function(){ prog.textContent=''; }, 3000); }
-        msClearSelection();
-        htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+        _streamBulkMove(result.job_id, prog);
       })
       .catch(function(err) { if (prog) prog.textContent = 'Error: ' + err.message; });
     return;
@@ -325,6 +317,28 @@ function ctxDeleteToggle() {
   var panel = document.getElementById('ctx-del-panel');
   document.getElementById('ctx-move-panel').style.display = 'none';
   panel.style.display = panel.style.display !== 'none' ? 'none' : 'block';
+}
+
+// ── Shared bulk-move SSE streaming ────────────────────────────────────────
+
+function _streamBulkMove(jobId, prog) {
+  var es = new EventSource('/videos/bulk-move/' + jobId + '/events');
+  es.onmessage = function(e) {
+    if (prog) prog.textContent = e.data;
+  };
+  es.addEventListener('done', function(e) {
+    es.close();
+    var result = JSON.parse(e.data);
+    var msg = result.moved + ' moved';
+    if (result.fails > 0) msg += ', ' + result.fails + ' failed';
+    if (prog) { prog.textContent = msg; setTimeout(function(){ prog.textContent = ''; }, 3000); }
+    msClearSelection();
+    htmx.ajax('GET', '/videos', {target: '#video-list', swap: 'innerHTML'});
+  });
+  es.addEventListener('error', function(e) {
+    es.close();
+    if (prog) prog.textContent = 'Error: ' + (e.data || 'connection lost');
+  });
 }
 
 function ctxDoDelete(mode) {

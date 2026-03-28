@@ -194,6 +194,7 @@ func main() {
 		convertSem:    make(chan struct{}, convertConcurrent),
 		jobs:          make(map[string]*ytdlpJob),
 		convertJobs:   make(map[string]*convertJob),
+		moveJobs:      make(map[string]*bulkMoveJob),
 	}
 	if *password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)

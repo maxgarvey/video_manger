@@ -13,6 +13,29 @@ globalThis.applyRandDirPrefs = vi.fn();
 globalThis.fetch = vi.fn();
 globalThis.alert = vi.fn();
 
+// Mock EventSource for SSE-based bulk move tests.
+function MockEventSource() {
+  MockEventSource._last = this;
+  this._listeners = {};
+  this.close = vi.fn();
+}
+MockEventSource._last = null;
+MockEventSource.prototype.addEventListener = function(event, fn) {
+  this._listeners[event] = this._listeners[event] || [];
+  this._listeners[event].push(fn);
+};
+MockEventSource.prototype._emit = function(event, data) {
+  (this._listeners[event] || []).forEach(function(fn) { fn({data: data}); });
+};
+Object.defineProperty(MockEventSource.prototype, 'onmessage', {
+  set: function(fn) { this._onmessage = fn; },
+  get: function() { return this._onmessage; }
+});
+MockEventSource.prototype._dataMsg = function(data) {
+  if (this._onmessage) this._onmessage({data: data});
+};
+globalThis.EventSource = MockEventSource;
+
 // Load the script once — var declarations become permanent globals.
 vm.runInThisContext(scriptSrc);
 
@@ -244,7 +267,7 @@ describe('ctx-menu.js', function() {
       globalThis.fetch.mockImplementation(function(url, opts) {
         capturedURL = url;
         capturedBody = opts ? opts.body : null;
-        return okResponse('{"moved":3,"errors":null}');
+        return okResponse('{"job_id":"test-job"}');
       });
       ctxDoMove('99');
       await vi.waitFor(function() {
@@ -262,7 +285,7 @@ describe('ctx-menu.js', function() {
       var capturedBody;
       globalThis.fetch.mockImplementation(function(url, opts) {
         capturedBody = opts.body;
-        return okResponse('{"moved":1,"errors":null}');
+        return okResponse('{"job_id":"test-job"}');
       });
       ctxDoMove('42');
       await vi.waitFor(function() {
@@ -271,26 +294,58 @@ describe('ctx-menu.js', function() {
       expect(capturedBody.get('dir_id')).toBe('42');
     });
 
-    it('clears selection after completion', async function() {
+    it('connects EventSource to the job events endpoint', async function() {
       _msIDs.add(1);
+      MockEventSource._last = null;
       globalThis.fetch.mockImplementation(function() {
-        return okResponse('{"moved":1,"errors":null}');
+        return okResponse('{"job_id":"abc123"}');
       });
       ctxDoMove('99');
       await vi.waitFor(function() {
-        expect(_msIDs.size).toBe(0);
+        expect(MockEventSource._last).not.toBeNull();
       });
     });
 
-    it('calls htmx.ajax to refresh video list after completion', async function() {
+    it('shows per-file progress from SSE messages', async function() {
       _msIDs.add(1);
+      MockEventSource._last = null;
+      var prog = document.getElementById('ms-progress');
       globalThis.fetch.mockImplementation(function() {
-        return okResponse('{"moved":1,"errors":null}');
+        return okResponse('{"job_id":"abc123"}');
       });
       ctxDoMove('99');
       await vi.waitFor(function() {
-        expect(globalThis.htmx.ajax).toHaveBeenCalled();
+        expect(MockEventSource._last).not.toBeNull();
       });
+      MockEventSource._last._dataMsg('Moving 1/1: test.mp4');
+      expect(prog.textContent).toBe('Moving 1/1: test.mp4');
+    });
+
+    it('clears selection after done event', async function() {
+      _msIDs.add(1);
+      MockEventSource._last = null;
+      globalThis.fetch.mockImplementation(function() {
+        return okResponse('{"job_id":"abc123"}');
+      });
+      ctxDoMove('99');
+      await vi.waitFor(function() {
+        expect(MockEventSource._last).not.toBeNull();
+      });
+      MockEventSource._last._emit('done', '{"moved":1,"fails":0,"total":1}');
+      expect(_msIDs.size).toBe(0);
+    });
+
+    it('calls htmx.ajax to refresh video list after done event', async function() {
+      _msIDs.add(1);
+      MockEventSource._last = null;
+      globalThis.fetch.mockImplementation(function() {
+        return okResponse('{"job_id":"abc123"}');
+      });
+      ctxDoMove('99');
+      await vi.waitFor(function() {
+        expect(MockEventSource._last).not.toBeNull();
+      });
+      MockEventSource._last._emit('done', '{"moved":1,"fails":0,"total":1}');
       expect(globalThis.htmx.ajax).toHaveBeenCalledWith(
         'GET', '/videos', {target: '#video-list', swap: 'innerHTML'}
       );
@@ -301,24 +356,27 @@ describe('ctx-menu.js', function() {
       _msIDs.add(2);
       var prog = document.getElementById('ms-progress');
       globalThis.fetch.mockImplementation(function() {
-        return okResponse('{"moved":2,"errors":null}');
+        return okResponse('{"job_id":"abc123"}');
       });
       ctxDoMove('99');
       // Progress text is set synchronously before the fetch resolves
       expect(prog.textContent).toContain('2 videos');
     });
 
-    it('shows error count when some moves fail', async function() {
+    it('shows fail count from done event', async function() {
       _msIDs.add(1);
       _msIDs.add(2);
+      MockEventSource._last = null;
       var prog = document.getElementById('ms-progress');
       globalThis.fetch.mockImplementation(function() {
-        return okResponse('{"moved":1,"errors":["v2: not found"]}');
+        return okResponse('{"job_id":"abc123"}');
       });
       ctxDoMove('99');
       await vi.waitFor(function() {
-        expect(prog.textContent).toContain('1 failed');
+        expect(MockEventSource._last).not.toBeNull();
       });
+      MockEventSource._last._emit('done', '{"moved":1,"fails":1,"total":2}');
+      expect(prog.textContent).toContain('1 failed');
     });
 
     it('hides the context menu', function() {

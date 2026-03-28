@@ -38,6 +38,16 @@ type convertJob struct {
 	outName string // output filename, set on success
 }
 
+// bulkMoveJob tracks a running bulk-move operation. Progress lines are sent
+// to ch as each file is processed; ch is closed when the job finishes.
+type bulkMoveJob struct {
+	ch    chan string
+	err   error
+	moved int
+	fails int
+	total int
+}
+
 type server struct {
 	store         store.Store
 	port          string
@@ -53,6 +63,8 @@ type server struct {
 	jobsMu        sync.Mutex
 	convertJobs   map[string]*convertJob // active ffmpeg convert jobs
 	convertJobsMu sync.Mutex
+	moveJobs      map[string]*bulkMoveJob // active bulk-move jobs
+	moveJobsMu    sync.Mutex
 	// Roku cast: one pending video to play, cleared after the Roku polls it.
 	castVideoID  int64
 	castPostedAt time.Time
@@ -205,6 +217,7 @@ func (s *server) routes() http.Handler {
 	r.Get("/videos/{id}/subtitles", s.handleServeSubtitles)
 	r.Get("/ytdlp/job/{jobID}/events", s.handleYTDLPJobEvents)
 	r.Get("/videos/{id}/convert/events/{jobID}", s.handleConvertEvents)
+	r.Get("/videos/bulk-move/{jobID}/events", s.handleBulkMoveEvents)
 
 	// All remaining routes use gzip compression (HTML/JSON responses).
 	r.Group(func(r chi.Router) {
