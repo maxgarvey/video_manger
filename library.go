@@ -20,6 +20,19 @@ import (
 	"github.com/maxgarvey/video_manger/transcode"
 )
 
+// retryBusy retries fn up to 3 times when SQLite returns SQLITE_BUSY,
+// using a short exponential backoff.  Non-busy errors are returned immediately.
+func retryBusy(fn func() error) error {
+	for i := 0; i < 3; i++ {
+		err := fn()
+		if err == nil || !strings.Contains(err.Error(), "SQLITE_BUSY") {
+			return err
+		}
+		time.Sleep(time.Duration(100*(1<<i)) * time.Millisecond) // 100, 200, 400ms
+	}
+	return fn() // final attempt
+}
+
 // cleanShowName normalises a raw show string by replacing punctuation with
 // spaces, collapsing whitespace, and trimming.
 func cleanShowName(s string) string {
@@ -141,8 +154,12 @@ func (s *server) syncDir(d store.Directory) {
 			return nil
 		}
 		dir := filepath.Dir(path)
-		v, err := s.store.UpsertVideo(context.Background(), d.ID, dir, de.Name())
-		if err != nil {
+		var v store.Video
+		if err := retryBusy(func() error {
+			var e error
+			v, e = s.store.UpsertVideo(context.Background(), d.ID, dir, de.Name())
+			return e
+		}); err != nil {
 			slog.Warn("upsert video failed", "path", path, "err", err)
 			return nil
 		}
@@ -150,7 +167,9 @@ func (s *server) syncDir(d store.Directory) {
 		if v.ShowName == "" {
 			show := inferShow(d.Path, dir, de.Name())
 			if show != "" {
-				if err := s.store.UpdateVideoShowName(context.Background(), v.ID, show); err != nil {
+				if err := retryBusy(func() error {
+					return s.store.UpdateVideoShowName(context.Background(), v.ID, show)
+				}); err != nil {
 					slog.Warn("set show name failed", "path", path, "err", err)
 				}
 				// update our local copy for later checks (e.g. thumbnail)
@@ -159,14 +178,18 @@ func (s *server) syncDir(d store.Directory) {
 		}
 		if v.DisplayName == "" {
 			if meta, err := metadata.Read(path); err == nil && meta.Title != "" {
-				if err := s.store.UpdateVideoName(context.Background(), v.ID, meta.Title); err != nil {
+				if err := retryBusy(func() error {
+					return s.store.UpdateVideoName(context.Background(), v.ID, meta.Title)
+				}); err != nil {
 					slog.Warn("set native title failed", "path", path, "err", err)
 				}
 			}
 		}
 		if v.DurationS == 0 {
 			if d := metadata.ReadDuration(path); d > 0 {
-				if err := s.store.UpdateVideoDuration(context.Background(), v.ID, d); err != nil {
+				if err := retryBusy(func() error {
+					return s.store.UpdateVideoDuration(context.Background(), v.ID, d)
+				}); err != nil {
 					slog.Warn("set duration failed", "path", path, "err", err)
 				}
 			}
@@ -182,15 +205,23 @@ func (s *server) syncDir(d store.Directory) {
 				names = append(names, t.Name)
 			}
 			inferred := inferVideoType(de.Name(), v.SeasonNumber, v.EpisodeNumber, names)
-			if err := s.store.UpdateVideoType(context.Background(), v.ID, inferred); err != nil {
+			if err := retryBusy(func() error {
+				return s.store.UpdateVideoType(context.Background(), v.ID, inferred)
+			}); err != nil {
 				slog.Warn("set video type failed", "path", path, "err", err)
 			}
 		}
 		// Auto-tag with the registered directory's base name.
-		dirTag, err := s.store.UpsertTag(context.Background(), filepath.Base(d.Path))
-		if err != nil {
+		var dirTag store.Tag
+		if err := retryBusy(func() error {
+			var e error
+			dirTag, e = s.store.UpsertTag(context.Background(), filepath.Base(d.Path))
+			return e
+		}); err != nil {
 			slog.Warn("upsert dir tag failed", "dir", d.Path, "err", err)
-		} else if err := s.store.TagVideo(context.Background(), v.ID, dirTag.ID); err != nil {
+		} else if err := retryBusy(func() error {
+			return s.store.TagVideo(context.Background(), v.ID, dirTag.ID)
+		}); err != nil {
 			slog.Warn("tag video with dir tag failed", "videoID", v.ID, "err", err)
 		}
 		// Apply optional JSON sidecar (same basename, .json extension).
@@ -205,13 +236,17 @@ func (s *server) syncDir(d store.Directory) {
 				if err := transcode.GenerateThumbnail(path, thumbPath, position); err != nil {
 					slog.Debug("auto thumbnail generation failed", "path", path, "err", err)
 				} else {
-					if err := s.store.UpdateVideoThumbnail(context.Background(), v.ID, thumbPath); err != nil {
+					if err := retryBusy(func() error {
+						return s.store.UpdateVideoThumbnail(context.Background(), v.ID, thumbPath)
+					}); err != nil {
 						slog.Warn("update thumbnail path failed", "videoID", v.ID, "err", err)
 					}
 				}
 			} else if err == nil {
 				// Thumbnail exists, update DB
-				if err := s.store.UpdateVideoThumbnail(context.Background(), v.ID, thumbPath); err != nil {
+				if err := retryBusy(func() error {
+					return s.store.UpdateVideoThumbnail(context.Background(), v.ID, thumbPath)
+				}); err != nil {
 					slog.Warn("update existing thumbnail path failed", "videoID", v.ID, "err", err)
 				}
 			}
@@ -231,7 +266,9 @@ func (s *server) syncDir(d store.Directory) {
 	for _, v := range existing {
 		if _, err := os.Stat(v.FilePath()); os.IsNotExist(err) {
 			slog.Info("syncDir: removing stale entry", "path", v.FilePath())
-			if err := s.store.DeleteVideo(context.Background(), v.ID); err != nil {
+			if err := retryBusy(func() error {
+				return s.store.DeleteVideo(context.Background(), v.ID)
+			}); err != nil {
 				slog.Error("syncDir: delete stale video failed", "videoID", v.ID, "err", err)
 			}
 		}
