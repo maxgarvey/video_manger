@@ -320,15 +320,16 @@ func filterVideos(videos []store.Video, q url.Values) []store.Video {
 	return videos
 }
 
-// serveVideoList renders the video list, respecting tag_id, q, and the
-// video_sort setting.
-func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
+// fetchFilteredVideos returns all videos matching the current query filters
+// (search, tag, rating, type, sort order). Shared by serveVideoList and
+// serveVideoGroup.
+func (s *server) fetchFilteredVideos(r *http.Request) ([]store.Video, error) {
+	q := r.URL.Query()
+	sortOrder, _ := s.store.GetSetting(r.Context(), "video_sort")
 	var (
 		videos []store.Video
 		err    error
 	)
-	q := r.URL.Query()
-	sortOrder, _ := s.store.GetSetting(r.Context(), "video_sort")
 	if q.Get("q") != "" {
 		videos, err = s.store.SearchVideos(r.Context(), q.Get("q"))
 	} else {
@@ -344,34 +345,99 @@ func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
 			videos = filterVideos(videos, q)
 		}
 	}
+	return videos, err
+}
+
+// groupSummary holds per-folder metadata for the folder-index view.
+type groupSummary struct {
+	Show  string
+	Total int
+}
+
+// serveVideoList renders the folder index (collapsed folders with counts).
+func (s *server) serveVideoList(w http.ResponseWriter, r *http.Request) {
+	videos, err := s.fetchFilteredVideos(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// SQL ORDER BY already returns videos in the correct order; no Go-level sort needed.
-	// Pagination: default 500 per page; page= is 1-indexed.
-	const defaultPageSize = 500
+	groups := groupVideosByShowSeason(videos)
+	summaries := make([]groupSummary, len(groups))
+	for i, g := range groups {
+		total := 0
+		for _, s := range g.Seasons {
+			total += len(s.Videos)
+		}
+		summaries[i] = groupSummary{Show: g.Show, Total: total}
+	}
+	data := struct {
+		Groups []groupSummary
+	}{summaries}
+	render(w, "video_list.html", data)
+}
+
+// serveVideoGroup renders the videos for a single folder group with
+// offset/limit pagination ("Load more").
+func (s *server) serveVideoGroup(w http.ResponseWriter, r *http.Request) {
+	show := r.URL.Query().Get("show")
+	if show == "" {
+		http.Error(w, "missing show parameter", http.StatusBadRequest)
+		return
+	}
+	const defaultLimit = 50
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
-		limit = defaultPageSize
+		limit = defaultLimit
 	}
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	total := len(videos)
-	start := min((page-1)*limit, total)
-	end := min(start+limit, total)
-	pageVideos := videos[start:end]
 
-	// WatchedAt is embedded in each Video via SQL LEFT JOIN; no separate query needed.
+	videos, err := s.fetchFilteredVideos(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Filter to the requested group (by show tag or directory base name).
+	var groupVideos []store.Video
+	for _, v := range videos {
+		key := v.ShowName
+		if key == "" {
+			key = filepath.Base(v.DirectoryPath)
+		}
+		if key == show {
+			groupVideos = append(groupVideos, v)
+		}
+	}
+
+	total := len(groupVideos)
+	start := min(offset, total)
+	end := min(start+limit, total)
+	pageVideos := groupVideos[start:end]
+
+	groups := groupVideosByShowSeason(pageVideos)
+	// Flatten to a single group's seasons (there should be exactly one group).
+	var seasons []seasonGroup
+	if len(groups) > 0 {
+		seasons = groups[0].Seasons
+	}
+
 	data := struct {
-		Groups   []videoGroup
-		Page     int
-		PageSize int
-		Total    int
-	}{groupVideosByShowSeason(pageVideos), page, limit, total}
-	render(w, "video_list.html", data)
+		Show       string
+		Seasons    []seasonGroup
+		HasMore    bool
+		NextOffset int
+		Remaining  int
+	}{
+		Show:       show,
+		Seasons:    seasons,
+		HasMore:    end < total,
+		NextOffset: end,
+		Remaining:  total - end,
+	}
+	render(w, "video_group_items.html", data)
 }
 
 // ── Watch history / progress ──────────────────────────────────────────────────
@@ -382,7 +448,23 @@ func (s *server) handlePostProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pos, _ := strconv.ParseFloat(r.FormValue("position"), 64)
-	if err := s.store.RecordWatch(r.Context(), id, pos); err != nil {
+	if err := retryBusy(func() error { return s.store.RecordWatch(r.Context(), id, pos) }); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleBatchProgress accepts a JSON array of {id, position} objects and
+// saves them all in a single transaction. Used by the client when multiple
+// videos are playing simultaneously to reduce write traffic.
+func (s *server) handleBatchProgress(w http.ResponseWriter, r *http.Request) {
+	var items []store.ProgressItem
+	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := retryBusy(func() error { return s.store.BatchRecordWatch(r.Context(), items) }); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

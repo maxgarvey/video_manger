@@ -1,0 +1,27 @@
+{{if gt (len .Seasons) 1}}
+  {{range .Seasons}}
+    <details style="margin-left:0.6rem;margin-bottom:0.3rem">
+      <summary style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;color:#666;user-select:none">
+        {{if gt .Number 0}}Season {{.Number}}{{else}}Unsorted{{end}} <span style="color:#3a3a3a;font-weight:400">({{len .Videos}})</span>
+      </summary>
+      <ul style="list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0.15rem;margin-top:0.2rem">
+        {{range .Videos}}{{template "videoRow" .}}{{end}}
+      </ul>
+    </details>
+  {{end}}
+{{else}}
+  {{range .Seasons}}
+    <ul style="list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0.15rem;margin-top:0.2rem">
+      {{range .Videos}}{{template "videoRow" .}}{{end}}
+    </ul>
+  {{end}}
+{{end}}
+{{if .HasMore}}
+<div hx-get="/videos/group?show={{.Show | urlquery}}&offset={{.NextOffset}}&limit=50"
+     hx-trigger="click"
+     hx-swap="outerHTML"
+     hx-include="#video-search,#active-tag,#active-rating,#active-type"
+     style="cursor:pointer;text-align:center;font-size:0.72rem;padding:0.4rem 0.2rem;color:#4a9a4a;border-top:1px solid #2a2a2a;margin-top:0.3rem">
+  Show more ({{.Remaining}} remaining)
+</div>
+{{end}}

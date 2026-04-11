@@ -872,9 +872,10 @@ func TestHandleVideoSearch(t *testing.T) {
 	srv.store.UpsertVideo(ctx, d.ID, d.Path, "nature_short.mp4")
 	srv.store.UpsertVideo(ctx, d.ID, d.Path, "comedy_special.mp4")
 
+	r := srv.routes()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/videos?q=nature", nil)
-	srv.routes().ServeHTTP(rec, req)
+	req := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos&q=nature", nil)
+	r.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)

@@ -461,15 +461,23 @@ func TestHandleImportUpload_VideoAppearsInList(t *testing.T) {
 		t.Fatalf("expected 1 file on disk after upload, got %d", len(entries))
 	}
 
-	// GET /videos should include the uploaded video.
+	// GET /videos should include the uploaded video's folder.
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/videos", nil)
 	srv.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("video list: expected 200, got %d", rec.Code)
 	}
+	// The folder index shows directory base names; load the group to check the video.
+	groupName := filepath.Base(tmp)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/videos/group?show="+url.QueryEscape(groupName), nil)
+	srv.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("video group: expected 200, got %d", rec.Code)
+	}
 	if !strings.Contains(rec.Body.String(), "integration") {
-		t.Error("uploaded video not found in video list after upload")
+		t.Error("uploaded video not found in video group after upload")
 	}
 
 	// The video should also be in the DB via the store.

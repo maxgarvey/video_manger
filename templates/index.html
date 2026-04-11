@@ -1788,6 +1788,17 @@
       }
     });
 
+    // Lazy-load folder contents when a <details> is first opened.
+    document.getElementById('video-list').addEventListener('toggle', function(e) {
+      if (e.target.tagName === 'DETAILS' && e.target.open) {
+        var content = e.target.querySelector('.folder-content');
+        if (content && !content.dataset.loaded) {
+          content.dataset.loaded = '1';
+          htmx.trigger(content, 'loadFolder');
+        }
+      }
+    }, true);
+
     // Before the video list is swapped, snapshot which folders are open so we
     // can restore them after the new HTML lands.
     document.getElementById('video-list').addEventListener('htmx:beforeSwap', function() {
@@ -1806,10 +1817,17 @@
     // After the video list settles, restore folder open state and multi-select
     // highlights (the JS _msIDs Set survives reloads but the DOM classes don't).
     document.getElementById('video-list').addEventListener('htmx:afterSettle', function() {
-      // Restore folder open state
+      // Restore folder open state and re-trigger lazy loading
       if (window._openGroups && window._openGroups.size) {
         this.querySelectorAll('details[data-group]').forEach(function(d) {
-          if (window._openGroups.has(d.dataset.group)) d.open = true;
+          if (window._openGroups.has(d.dataset.group)) {
+            d.open = true;
+            var content = d.querySelector('.folder-content');
+            if (content) {
+              content.dataset.loaded = '1';
+              htmx.trigger(content, 'loadFolder');
+            }
+          }
         });
       }
       // Re-apply multi-select highlights from _msIDs
@@ -2299,6 +2317,42 @@
           if (status) { status.textContent = 'failed'; setTimeout(function(){ status.textContent=''; }, 3000); }
         });
     }
+  </script>
+
+  <!-- ── Batched progress saves (reduces DB writes with multiple streams) ── -->
+  <script>
+    var progressBatcher = (function() {
+      var pending = {};  // videoID → position
+      var timer = null;
+      function flush() {
+        var items = [];
+        for (var id in pending) {
+          items.push({id: Number(id), position: pending[id]});
+        }
+        pending = {};
+        if (!items.length) return;
+        if (items.length === 1) {
+          navigator.sendBeacon('/videos/' + items[0].id + '/progress',
+            new URLSearchParams({ position: items[0].position }));
+        } else {
+          navigator.sendBeacon('/videos/batch-progress',
+            new Blob([JSON.stringify(items)], {type: 'application/json'}));
+        }
+      }
+      function enqueue(videoID, position) {
+        pending[videoID] = position;
+        if (!timer) timer = setInterval(flush, 10000);
+      }
+      function remove(videoID) {
+        delete pending[videoID];
+        if (!Object.keys(pending).length && timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      }
+      window.addEventListener('beforeunload', flush);
+      return { enqueue: enqueue, remove: remove, flush: flush };
+    })();
   </script>
 
   <!-- ── Multi-select + context menu logic (extracted) ──────────── -->

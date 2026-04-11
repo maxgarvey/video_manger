@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// ProgressItem represents a single video progress update for batch saving.
+type ProgressItem struct {
+	ID       int64   `json:"id"`
+	Position float64 `json:"position"`
+}
+
 // Directory represents a registered video directory.
 type Directory struct {
 	ID   int64
@@ -193,6 +199,7 @@ type Store interface {
 
 	// Watch history
 	RecordWatch(ctx context.Context, videoID int64, position float64) error
+	BatchRecordWatch(ctx context.Context, items []ProgressItem) error
 	ClearWatch(ctx context.Context, videoID int64) error
 	GetWatch(ctx context.Context, videoID int64) (WatchRecord, error)
 	ListWatchHistory(ctx context.Context) (map[int64]WatchRecord, error)

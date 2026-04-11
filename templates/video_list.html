@@ -35,21 +35,14 @@
 {{end}}
 
 {{if .Groups}}
-{{$multi := gt (len .Groups) 0}}
 {{range .Groups}}
-  {{if $multi}}
   <details data-group="{{.Show}}" style="margin-bottom:0.3rem">
-    {{/* compute total videos in this show */}}
-    {{$total := 0}}
-    {{range .Seasons}}
-      {{$total = add $total (len .Videos)}}
-    {{end}}
     <summary style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;padding:0.3rem 0.2rem;color:#666;user-select:none;display:flex;align-items:center;gap:0.35rem">
       <input type="checkbox" class="rand-dir-cb" data-group="{{.Show}}"
         onclick="event.stopPropagation();saveRandDirPrefs()"
         style="cursor:pointer;accent-color:#4a9a4a;flex-shrink:0"
         checked>
-      {{.Show}} <span style="color:#3a3a3a;font-weight:400">({{$total}})</span>
+      {{.Show}} <span style="color:#3a3a3a;font-weight:400">({{.Total}})</span>
       <span style="margin-left:auto;display:flex;gap:0.25rem;flex-shrink:0" onclick="event.stopPropagation()">
         <button class="folder-pref-btn" data-group="{{.Show}}" data-pref="shuffle"
           onclick="toggleFolderPref(this)"
@@ -65,49 +58,14 @@
           style="font-size:0.65rem;padding:0 0.3rem;line-height:1.6;opacity:0.4;background:#1a1a1a;border:1px solid #333;border-radius:3px;color:#aaa;cursor:pointer">🖼</button>
       </span>
     </summary>
-  {{end}}
-  {{/* season grouping */}}
-  {{if gt (len .Seasons) 1}}
-    {{range .Seasons}}
-      <details style="margin-left:0.6rem;margin-bottom:0.3rem">
-        <summary style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;color:#666;user-select:none">
-          {{if gt .Number 0}}Season {{.Number}}{{else}}Unsorted{{end}} <span style="color:#3a3a3a;font-weight:400">({{len .Videos}})</span>
-        </summary>
-        <ul style="list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0.15rem;margin-top:0.2rem">
-          {{range .Videos}}{{template "videoRow" .}}{{end}}
-        </ul>
-      </details>
-    {{end}}
-  {{else}}
-    {{/* single season (or unsorted) */}}
-    {{range .Seasons}}
-      <ul style="list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0.15rem{{if $multi}};margin-top:0.2rem{{end}}">
-        {{range .Videos}}{{template "videoRow" .}}{{end}}
-      </ul>
-    {{end}}
-  {{end}}
-  {{if $multi}}</details>{{end}}
-{{end}}
-{{if gt .Total .PageSize}}
-<div style="display:flex;align-items:center;justify-content:space-between;padding:0.4rem 0.2rem;font-size:0.75rem;color:#666;border-top:1px solid #2a2a2a;margin-top:0.4rem">
-  <span>{{.Total}} total · page {{.Page}}</span>
-  <div style="display:flex;gap:0.3rem">
-    {{if gt .Page 1}}
-    <button class="btn-sm"
-      hx-get="/videos?page={{add .Page -1}}&limit={{.PageSize}}"
-      hx-target="#video-list" hx-swap="innerHTML"
-      style="font-size:0.72rem;padding:0.2rem 0.5rem"
-    >‹ prev</button>
-    {{end}}
-    {{if lt (mul .Page .PageSize) .Total}}
-    <button class="btn-sm"
-      hx-get="/videos?page={{add .Page 1}}&limit={{.PageSize}}"
-      hx-target="#video-list" hx-swap="innerHTML"
-      style="font-size:0.72rem;padding:0.2rem 0.5rem"
-    >next ›</button>
-    {{end}}
-  </div>
-</div>
+    <div class="folder-content"
+         hx-get="/videos/group?show={{.Show | urlquery}}&limit=50"
+         hx-trigger="loadFolder"
+         hx-swap="innerHTML"
+         hx-include="#video-search,#active-tag,#active-rating,#active-type">
+      <span class="htmx-indicator" style="color:#555;font-size:0.75rem;padding:0.5rem">Loading...</span>
+    </div>
+  </details>
 {{end}}
 {{else}}
 <p style="color:#555;font-size:0.85rem;padding:1.5rem 0;text-align:center">

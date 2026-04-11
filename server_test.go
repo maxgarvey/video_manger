@@ -64,19 +64,29 @@ func TestHandleVideoList_GroupedByShowAndSeason(t *testing.T) {
 	srv.store.UpdateVideoFields(ctx, v1.ID, store.VideoFields{SeasonNumber: 1})
 	srv.store.UpdateVideoFields(ctx, v2.ID, store.VideoFields{SeasonNumber: 2})
 
+	r := srv.routes()
+
+	// /videos now returns folder shells with counts (no video rows).
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
-	srv.routes().ServeHTTP(rec, req)
+	r.ServeHTTP(rec, req)
 
 	body := rec.Body.String()
 	if !strings.Contains(body, "Foo") {
-		t.Error("expected show group Foo")
-	}
-	if !strings.Contains(body, "Season 1") || !strings.Contains(body, "Season 2") {
-		t.Error("expected season headers for Foo")
+		t.Error("expected show group Foo in folder index")
 	}
 	if !strings.Contains(body, "Bar") {
-		t.Error("expected show group Bar")
+		t.Error("expected show group Bar in folder index")
+	}
+
+	// /videos/group?show=Foo returns season details for that group.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/videos/group?show=Foo", nil)
+	r.ServeHTTP(rec, req)
+
+	body = rec.Body.String()
+	if !strings.Contains(body, "Season 1") || !strings.Contains(body, "Season 2") {
+		t.Error("expected season headers for Foo")
 	}
 }
 

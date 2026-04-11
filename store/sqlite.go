@@ -34,7 +34,7 @@ func NewSQLite(path string) (*SQLiteStore, error) {
 	// WAL mode (set below) supports concurrent readers alongside a single
 	// writer, so we can safely allow multiple connections.  This prevents
 	// user-facing read queries from queuing behind long-running sync writes.
-	conn.SetMaxOpenConns(4)
+	conn.SetMaxOpenConns(8)
 	for _, pragma := range []string{
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA journal_mode = WAL",
@@ -1212,6 +1212,39 @@ func (s *SQLiteStore) RecordWatch(ctx context.Context, videoID int64, position f
 			`INSERT INTO watch_events (video_id) VALUES (?)`, videoID)
 	}
 	return err
+}
+
+func (s *SQLiteStore) BatchRecordWatch(ctx context.Context, items []ProgressItem) error {
+	tx, err := s.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO watch_history (video_id, position, watched_at)
+			VALUES (?, ?, datetime('now'))
+			ON CONFLICT (video_id) DO UPDATE SET
+				position   = excluded.position,
+				watched_at = excluded.watched_at
+		`, item.ID, item.Position); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			`UPDATE videos SET watched = 1 WHERE id = ? AND watched = 0`, item.ID)
+		if err != nil {
+			tx.Rollback() //nolint:errcheck
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO watch_events (video_id) VALUES (?)`, item.ID); err != nil {
+				tx.Rollback() //nolint:errcheck
+				return err
+			}
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) ClearWatch(ctx context.Context, videoID int64) error {

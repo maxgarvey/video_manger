@@ -228,6 +228,7 @@ func (s *server) routes() http.Handler {
 
 		// Videos
 		r.Get("/videos", s.serveVideoList)
+		r.Get("/videos/group", s.serveVideoGroup)
 		r.Get("/play/{id}", s.handlePlayer)
 		r.Put("/videos/{id}/name", s.handleUpdateVideoName)
 		r.Get("/videos/{id}/delete-confirm", s.handleVideoDeleteConfirm)
@@ -237,6 +238,7 @@ func (s *server) routes() http.Handler {
 
 		// Watch history
 		r.Post("/videos/{id}/progress", s.handlePostProgress)
+		r.Post("/videos/batch-progress", s.handleBatchProgress)
 		r.Get("/videos/{id}/progress", s.handleGetProgress)
 		r.Post("/videos/{id}/watched", s.handleMarkWatched)
 		r.Delete("/videos/{id}/progress", s.handleClearProgress)

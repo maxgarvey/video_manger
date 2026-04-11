@@ -33,19 +33,31 @@ func TestHandleVideoList_WithVideos(t *testing.T) {
 	// assign a show name to one video to verify grouping header
 	srv.store.UpdateVideoShowName(ctx, v1.ID, "MyShow")
 
+	r := srv.routes()
+
+	// /videos returns folder shells
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
-	srv.routes().ServeHTTP(rec, req)
+	r.ServeHTTP(rec, req)
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "alpha.mp4") {
-		t.Error("expected alpha.mp4 in response")
-	}
-	if !strings.Contains(body, "beta.mkv") {
-		t.Error("expected beta.mkv in response")
-	}
 	if !strings.Contains(body, "MyShow") {
 		t.Error("expected show header MyShow in response")
+	}
+
+	// video rows are served from /videos/group
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/videos/group?show=MyShow", nil)
+	r.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "alpha.mp4") {
+		t.Error("expected alpha.mp4 in MyShow group")
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/videos/group?show=videos", nil)
+	r.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "beta.mkv") {
+		t.Error("expected beta.mkv in videos group")
 	}
 }
 
@@ -58,9 +70,10 @@ func TestHandleVideoList_FilterByTag(t *testing.T) {
 	tag, _ := srv.store.UpsertTag(ctx, "favorites")
 	srv.store.TagVideo(ctx, v1.ID, tag.ID)
 
+	r := srv.routes()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/videos?tag_id=1", nil)
-	srv.routes().ServeHTTP(rec, req)
+	req := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos&tag_id=1", nil)
+	r.ServeHTTP(rec, req)
 
 	body := rec.Body.String()
 	if !strings.Contains(body, "tagged.mp4") {
@@ -127,7 +140,7 @@ func TestHandleVideoList_FilterByType(t *testing.T) {
 	srv.store.UpdateVideoType(ctx, v2.ID, "Movie")
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/videos?type=TV", nil)
+	req := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos&type=TV", nil)
 	srv.routes().ServeHTTP(rec, req)
 	body := rec.Body.String()
 	if !strings.Contains(body, "t1.mp4") || strings.Contains(body, "t2.mp4") {
@@ -147,7 +160,7 @@ func TestHandleVideoList_FilterCombination(t *testing.T) {
 	srv.store.SetVideoRating(ctx, v2.ID, 0)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/videos?type=TV&rating=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos&type=TV&rating=1", nil)
 	srv.routes().ServeHTTP(rec, req)
 	body := rec.Body.String()
 	if !strings.Contains(body, "combo1.mp4") || strings.Contains(body, "combo2.mp4") {
@@ -164,7 +177,7 @@ func TestHandleVideoList_ShowsWatchedIndicator(t *testing.T) {
 	srv.store.RecordWatch(ctx, v1.ID, 10.0)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	req := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos", nil)
 	srv.routes().ServeHTTP(rec, req)
 
 	body := rec.Body.String()
@@ -191,7 +204,7 @@ func TestHandleVideoList_RatingSorted(t *testing.T) {
 	srv.store.SetVideoRating(ctx, v3.ID, 2) //nolint:errcheck
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	req := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos", nil)
 	srv.routes().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -220,7 +233,7 @@ func TestHandleVideoList_ShowsLastWatched(t *testing.T) {
 	srv.store.RecordWatch(ctx, v.ID, 10.0) //nolint:errcheck
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	req := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos", nil)
 	srv.routes().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -237,7 +250,7 @@ func TestHandleVideoList_ShowsLastWatched(t *testing.T) {
 	}
 }
 
-func TestServeVideoListPagination(t *testing.T) {
+func TestServeVideoGroupPagination(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 	d, _ := srv.store.AddDirectory(ctx, "/videos")
@@ -247,28 +260,48 @@ func TestServeVideoListPagination(t *testing.T) {
 		srv.store.UpsertVideo(ctx, d.ID, d.Path, n) //nolint:errcheck
 	}
 
-	// Page 1 with limit=2 should return 2 videos
+	r := srv.routes()
+
+	// First page (limit=2) should return 2 videos and a "Show more" link.
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/videos?page=1&limit=2", nil)
-	srv.routes().ServeHTTP(rec, req)
+	req := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos&limit=2", nil)
+	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("page1: expected 200, got %d", rec.Code)
+		t.Fatalf("offset0: expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "a.mp4") || !strings.Contains(body, "b.mp4") {
+		t.Error("expected a.mp4 and b.mp4 in first page")
+	}
+	if !strings.Contains(body, "Show more") {
+		t.Error("expected Show more button for remaining videos")
 	}
 
-	// Page 3 with limit=2 should return 1 video (only "e.mp4")
+	// Second page (offset=2, limit=2)
 	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodGet, "/videos?page=3&limit=2", nil)
-	srv.routes().ServeHTTP(rec2, req2)
+	req2 := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos&offset=2&limit=2", nil)
+	r.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusOK {
-		t.Fatalf("page3: expected 200, got %d", rec2.Code)
+		t.Fatalf("offset2: expected 200, got %d", rec2.Code)
+	}
+	body2 := rec2.Body.String()
+	if !strings.Contains(body2, "c.mp4") || !strings.Contains(body2, "d.mp4") {
+		t.Error("expected c.mp4 and d.mp4 in second page")
 	}
 
-	// Page 10 (out-of-range) should return 200 with no video rows
+	// Last page (offset=4, limit=2) should have 1 video and no "Show more".
 	rec3 := httptest.NewRecorder()
-	req3 := httptest.NewRequest(http.MethodGet, "/videos?page=10&limit=2", nil)
-	srv.routes().ServeHTTP(rec3, req3)
+	req3 := httptest.NewRequest(http.MethodGet, "/videos/group?show=videos&offset=4&limit=2", nil)
+	r.ServeHTTP(rec3, req3)
 	if rec3.Code != http.StatusOK {
-		t.Fatalf("page10: expected 200, got %d", rec3.Code)
+		t.Fatalf("offset4: expected 200, got %d", rec3.Code)
+	}
+	body3 := rec3.Body.String()
+	if !strings.Contains(body3, "e.mp4") {
+		t.Error("expected e.mp4 in last page")
+	}
+	if strings.Contains(body3, "Show more") {
+		t.Error("should not have Show more on last page")
 	}
 }
 
