@@ -17,11 +17,13 @@
   {{end}}
 {{end}}
 {{if .HasMore}}
-<div hx-get="/videos/group?show={{.Show | urlquery}}&offset={{.NextOffset}}&limit=50"
-     hx-trigger="click"
+<button type="button"
+     class="show-more-btn"
+     hx-get="/videos/group?show={{.Show | urlquery}}&offset={{.NextOffset}}&limit=50"
+     hx-target="this"
      hx-swap="outerHTML"
      hx-include="#video-search,#active-tag,#active-rating,#active-type"
-     style="cursor:pointer;text-align:center;font-size:0.72rem;padding:0.4rem 0.2rem;color:#4a9a4a;border-top:1px solid #2a2a2a;margin-top:0.3rem">
+     style="display:block;width:100%;cursor:pointer;text-align:center;font-size:0.72rem;padding:0.4rem 0.2rem;color:#4a9a4a;background:#1a1a1a;border:none;border-top:1px solid #2a2a2a;margin-top:0.3rem">
   Show more ({{.Remaining}} remaining)
-</div>
+</button>
 {{end}}

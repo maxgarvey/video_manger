@@ -1801,7 +1801,10 @@
 
     // Before the video list is swapped, snapshot which folders are open so we
     // can restore them after the new HTML lands.
-    document.getElementById('video-list').addEventListener('htmx:beforeSwap', function() {
+    // Only fire for top-level #video-list swaps — child swaps (e.g. folder
+    // lazy-load, "Show more") bubble up but must not retrigger the snapshot.
+    document.getElementById('video-list').addEventListener('htmx:beforeSwap', function(evt) {
+      if (!evt.target || evt.target.id !== 'video-list') return;
       window._openGroups = new Set();
       this.querySelectorAll('details[data-group][open]').forEach(function(d) {
         window._openGroups.add(d.dataset.group);
@@ -1816,7 +1819,10 @@
 
     // After the video list settles, restore folder open state and multi-select
     // highlights (the JS _msIDs Set survives reloads but the DOM classes don't).
-    document.getElementById('video-list').addEventListener('htmx:afterSettle', function() {
+    // Guard: only run on top-level #video-list swaps, not child swaps from
+    // folder lazy-load or "Show more" (which bubble up).
+    document.getElementById('video-list').addEventListener('htmx:afterSettle', function(evt) {
+      if (!evt.target || evt.target.id !== 'video-list') return;
       // Restore folder open state and re-trigger lazy loading
       if (window._openGroups && window._openGroups.size) {
         this.querySelectorAll('details[data-group]').forEach(function(d) {
