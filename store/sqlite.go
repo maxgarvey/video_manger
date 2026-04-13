@@ -20,30 +20,30 @@ type SQLiteStore struct {
 // NewSQLite opens (or creates) a SQLite database at path and applies all
 // pending migrations from the embedded migrations/ directory.
 func NewSQLite(path string) (*SQLiteStore, error) {
+	// PRAGMAs must be passed via the DSN so modernc.org/sqlite applies them
+	// to every connection the pool opens — PRAGMAs run via conn.Exec() only
+	// affect the single connection they ran on, which causes pooled
+	// connections to silently drop the busy_timeout and immediately return
+	// SQLITE_BUSY instead of waiting.
+	pragmas := "_pragma=foreign_keys(1)&_pragma=journal_mode(wal)&_pragma=busy_timeout(15000)"
+
 	// For in-memory databases, use shared cache so multiple connections
 	// see the same data (required when MaxOpenConns > 1).  Each caller
 	// gets a unique name to avoid cross-contamination in tests.
-	dsn := path
+	var dsn string
 	if path == ":memory:" {
-		dsn = fmt.Sprintf("file:memdb_%d?mode=memory&cache=shared", time.Now().UnixNano())
+		dsn = fmt.Sprintf("file:memdb_%d?mode=memory&cache=shared&%s", time.Now().UnixNano(), pragmas)
+	} else {
+		dsn = fmt.Sprintf("file:%s?%s", path, pragmas)
 	}
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	// WAL mode (set below) supports concurrent readers alongside a single
-	// writer, so we can safely allow multiple connections.  This prevents
-	// user-facing read queries from queuing behind long-running sync writes.
+	// WAL mode supports concurrent readers alongside a single writer, so
+	// we can safely allow multiple connections. This prevents user-facing
+	// read queries from queuing behind long-running sync writes.
 	conn.SetMaxOpenConns(8)
-	for _, pragma := range []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA busy_timeout = 5000",
-	} {
-		if _, err := conn.Exec(pragma); err != nil {
-			return nil, err
-		}
-	}
 	if err := runMigrations(conn); err != nil {
 		return nil, err
 	}
