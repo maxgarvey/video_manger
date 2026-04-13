@@ -469,12 +469,10 @@
 // ── Progress save ──────────────────────────────────────────────────────
 (function () {
   var vid = document.getElementById('vid-{{.Video.ID}}');
-  var videoID = '{{.Video.ID}}';
-  var saveTimer = null;
-  function saveProgress() {
+  var videoID = {{.Video.ID}};
+  function enqueueProgress() {
     if (vid.currentTime < 1) return;
-    navigator.sendBeacon('/videos/' + videoID + '/progress',
-      new URLSearchParams({ position: vid.currentTime }));
+    progressBatcher.enqueue(videoID, vid.currentTime);
   }
   fetch('/videos/' + videoID + '/progress')
     .then(function(r){ return r.json(); })
@@ -487,10 +485,13 @@
         }, { once: true });
       }
     });
-  vid.addEventListener('pause', saveProgress);
-  window.addEventListener('beforeunload', saveProgress);
-  vid.addEventListener('play',  function() { saveTimer = setInterval(saveProgress, 5000); });
-  vid.addEventListener('pause', function() { clearInterval(saveTimer); });
+  vid.addEventListener('pause', enqueueProgress);
+  vid.addEventListener('play', function() {
+    vid._progressTimer = setInterval(enqueueProgress, 5000);
+  });
+  vid.addEventListener('pause', function() {
+    clearInterval(vid._progressTimer);
+  });
 })();
 
 // ── Color filter ───────────────────────────────────────────────────────
