@@ -138,6 +138,28 @@ func (s *server) syncDir(d store.Directory) {
 		}
 	}
 
+	// Pre-load known videos so the walk can skip UpsertVideo for existing files,
+	// reducing FTS5 write pressure from O(N) per poll to O(new files only).
+	known := make(map[string]store.Video)
+	if vids, err := s.store.ListVideosByDirectory(context.Background(), d.ID); err == nil {
+		for _, v := range vids {
+			known[filepath.Join(v.DirectoryPath, v.Filename)] = v
+		}
+	}
+
+	// Fetch the directory tag once rather than once per file.
+	var dirTag store.Tag
+	var dirTagOK bool
+	if err := retryBusy(func() error {
+		var e error
+		dirTag, e = s.store.UpsertTag(context.Background(), filepath.Base(d.Path))
+		return e
+	}); err != nil {
+		slog.Warn("upsert dir tag failed", "dir", d.Path, "err", err)
+	} else {
+		dirTagOK = true
+	}
+
 	if err := filepath.WalkDir(d.Path, func(path string, de fs.DirEntry, err error) error {
 		if err != nil {
 			slog.Warn("sync walk error", "path", path, "err", err)
@@ -154,16 +176,31 @@ func (s *server) syncDir(d store.Directory) {
 			return nil
 		}
 		dir := filepath.Dir(path)
+
 		var v store.Video
-		if err := retryBusy(func() error {
-			var e error
-			v, e = s.store.UpsertVideo(context.Background(), d.ID, dir, de.Name())
-			return e
-		}); err != nil {
-			slog.Warn("upsert video failed", "path", path, "err", err)
-			return nil
+		if existing, found := known[path]; found {
+			v = existing
+		} else {
+			// New file: upsert, apply dir tag, apply sidecar.
+			if err := retryBusy(func() error {
+				var e error
+				v, e = s.store.UpsertVideo(context.Background(), d.ID, dir, de.Name())
+				return e
+			}); err != nil {
+				slog.Warn("upsert video failed", "path", path, "err", err)
+				return nil
+			}
+			if dirTagOK {
+				if err := retryBusy(func() error {
+					return s.store.TagVideo(context.Background(), v.ID, dirTag.ID)
+				}); err != nil {
+					slog.Warn("tag video with dir tag failed", "videoID", v.ID, "err", err)
+				}
+			}
+			s.applySidecar(context.Background(), v)
 		}
-		// infer show name if not already set
+
+		// Metadata fills: fast no-ops once all fields are populated.
 		if v.ShowName == "" {
 			show := inferShow(d.Path, dir, de.Name())
 			if show != "" {
@@ -172,7 +209,6 @@ func (s *server) syncDir(d store.Directory) {
 				}); err != nil {
 					slog.Warn("set show name failed", "path", path, "err", err)
 				}
-				// update our local copy for later checks (e.g. thumbnail)
 				v.ShowName = show
 			}
 		}
@@ -186,15 +222,14 @@ func (s *server) syncDir(d store.Directory) {
 			}
 		}
 		if v.DurationS == 0 {
-			if d := metadata.ReadDuration(path); d > 0 {
+			if dur := metadata.ReadDuration(path); dur > 0 {
 				if err := retryBusy(func() error {
-					return s.store.UpdateVideoDuration(context.Background(), v.ID, d)
+					return s.store.UpdateVideoDuration(context.Background(), v.ID, dur)
 				}); err != nil {
 					slog.Warn("set duration failed", "path", path, "err", err)
 				}
 			}
 		}
-		// Infer video type if not already set
 		if v.VideoType == "" {
 			tags, err := s.store.ListTagsByVideo(context.Background(), v.ID)
 			if err != nil {
@@ -211,27 +246,9 @@ func (s *server) syncDir(d store.Directory) {
 				slog.Warn("set video type failed", "path", path, "err", err)
 			}
 		}
-		// Auto-tag with the registered directory's base name.
-		var dirTag store.Tag
-		if err := retryBusy(func() error {
-			var e error
-			dirTag, e = s.store.UpsertTag(context.Background(), filepath.Base(d.Path))
-			return e
-		}); err != nil {
-			slog.Warn("upsert dir tag failed", "dir", d.Path, "err", err)
-		} else if err := retryBusy(func() error {
-			return s.store.TagVideo(context.Background(), v.ID, dirTag.ID)
-		}); err != nil {
-			slog.Warn("tag video with dir tag failed", "videoID", v.ID, "err", err)
-		}
-		// Apply optional JSON sidecar (same basename, .json extension).
-		s.applySidecar(context.Background(), v)
-
-		// Generate thumbnail if it doesn't exist and ffmpeg is available
 		if v.ThumbnailPath == "" {
 			thumbPath := filepath.Join(dir, strings.TrimSuffix(de.Name(), filepath.Ext(de.Name()))+"_thumb.jpg")
 			if _, err := os.Stat(thumbPath); os.IsNotExist(err) {
-				// Generate at random position
 				position := 0.1 + rand.Float64()*0.8
 				if err := transcode.GenerateThumbnail(path, thumbPath, position); err != nil {
 					slog.Debug("auto thumbnail generation failed", "path", path, "err", err)
@@ -243,7 +260,6 @@ func (s *server) syncDir(d store.Directory) {
 					}
 				}
 			} else if err == nil {
-				// Thumbnail exists, update DB
 				if err := retryBusy(func() error {
 					return s.store.UpdateVideoThumbnail(context.Background(), v.ID, thumbPath)
 				}); err != nil {
@@ -251,19 +267,13 @@ func (s *server) syncDir(d store.Directory) {
 				}
 			}
 		}
-
 		return nil
 	}); err != nil {
 		slog.Error("syncDir walk failed", "path", d.Path, "err", err)
 	}
 
-	// Prune DB records for files that no longer exist on disk.
-	existing, err := s.store.ListVideosByDirectory(context.Background(), d.ID)
-	if err != nil {
-		slog.Error("syncDir list videos failed", "path", d.Path, "err", err)
-		return
-	}
-	for _, v := range existing {
+	// Prune stale entries using the pre-loaded map (avoids a second ListVideosByDirectory query).
+	for _, v := range known {
 		if _, err := os.Stat(v.FilePath()); os.IsNotExist(err) {
 			slog.Info("syncDir: removing stale entry", "path", v.FilePath())
 			if err := retryBusy(func() error {
