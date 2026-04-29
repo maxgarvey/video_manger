@@ -1,11 +1,33 @@
 {
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "start": "electron .",
+    "dist": "electron-builder"
   },
   "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.0.0",
     "jsdom": "^26.1.0",
     "vitest": "^3.2.1"
+  },
+  "build": {
+    "appId": "com.maxgarvey.video-manger",
+    "productName": "Video Manager",
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.entertainment"
+    },
+    "files": [
+      "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "video_manger",
+        "to": "video_manger"
+      }
+    ]
   }
 }

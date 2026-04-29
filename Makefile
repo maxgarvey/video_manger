@@ -1,4 +1,4 @@
-.PHONY: fmt test build roku roku-deploy precommit install-hooks
+.PHONY: fmt test build electron electron-dist electron-install roku roku-deploy precommit install-hooks
 
 fmt:
 	gofmt -w -s .
@@ -15,6 +15,22 @@ install-hooks:
 
 build:
 	go build -o video_manger .
+
+# Run the Electron desktop app (builds the Go binary first).
+electron: build
+	npm start
+
+# Build a distributable .dmg / .app bundle.
+electron-dist: build
+	npm run dist
+
+# Build and install the .app to a destination directory.
+# Usage: make electron-install DEST=/Applications
+DEST ?= $(error DEST is not set — usage: make electron-install DEST=/path/to/dir)
+
+electron-install: electron-dist
+	cp -r "dist/Video Manager.app" "$(DEST)/Video Manager.app"
+	@echo "Installed to $(DEST)/Video Manager.app"
 
 # Package the Roku BrightScript channel for sideloading.
 # Roku requires the zip to be rooted at the channel contents (manifest at the
